@@ -209,6 +209,7 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
   - OCR 31항목(`test_ocr.py`·`test_ocr2.py`·`test_lang.py`): 실제 한글+영문 PNG(`assets/ocr-sample.png`, Pretendard로 렌더)에서 `TIP OCR 테스트 / Hello World 2026 / 가방에 챙길 것을 확인하세요`를 **평균 신뢰도 94%** 로 그대로 인식, `kor+eng`·`kor`·`eng` 언어 전환, TXT 저장 내용 일치, `tip-v1.6.0` 프리캐시에 traineddata 0건·코어 1건 런타임 캐시, `tip-ocr-lang-v1`에 kor·eng 저장, **오프라인 전환 후 새 문서 콜드 스타트에서도 동일 결과(1.4초)**, 콘솔·페이지 에러 0, 실패 요청 0.
   - 스크린샷·넘침 32항목(`shots_all.py`): 390·1280 × 라이트/다크에서 홈·6개 모듈 모두 **가로 넘침 0**, 콘솔 에러 0, HTTP 404 0. 스크린샷 `work/v16/shots/v160-*.png`.
   - 추가 확인 7항목(`test_extra.py`): 아이콘·OCR 모두 **끌어다 놓기**로 열려 인식까지 동작, 1,300줄 diff는 `compare()` 0.1초(1326행 렌더) — 체감 지연은 Playwright의 `fill` 자체 시간이었다(`test_perf.py`).
+  - CDN 확인(`test_cdn.py`): OCR 1회 실행에서 발생한 요청 40건이 **전부 동일 출처**였고 외부 도메인 요청 0건. 번들 안의 `cdn.jsdelivr.net` 문자열은 경로(`workerPath`·`corePath`·`langPath`)를 항상 넘기므로 쓰이지 않는다.
   - **라이브 검증 31항목(`live.py`, `https://appfle-io.github.io/tool-in-pack/`)**: `CACHE_VERSION = 'tip-v1.6.0'` 서빙, 390 라이트/다크·1280 라이트에서 홈 12카드·섹션(고정됨1·문서1·미디어3·유틸리티7), SW 활성 캐시 43항목, 넘침 0·콘솔 에러 0·404 0. 라이브에서 JSON 정렬·JWT KST·UUID 5개, diff 통계, 정규식 매치 3개, 대비 4.48/배지, 아이콘 7종 + **ZIP 내부 7 PNG 치수·manifest**, **OCR 라이브 1.8초·신뢰도 94%** 모두 통과. 스크린샷 `work/tip-mockups/tip-v16-live-*.png`.
 - **주의·제약**:
   - 언어 데이터(합 3.1MB)와 코어(3.9MB)는 **프리캐시 제외** → 첫 OCR 실행 때만 받는다. 그래서 설치 직후 오프라인에서는 OCR만 첫 실행이 불가능하고, 한 번 실행한 뒤에는 오프라인이 된다.
