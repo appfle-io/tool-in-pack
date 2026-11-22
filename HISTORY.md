@@ -45,10 +45,10 @@
 | 라이브 | <https://appfle-io.github.io/tool-in-pack/> (GitHub Pages, `/tool-in-pack/` 서브 경로) |
 | 저장소 | <https://github.com/appfle-io/tool-in-pack> (public, `main` 브랜치가 곧 배포본) |
 | 소유·기획 | 유동규 (@papaleo / GitHub @appfle-io) |
-| 현재 버전 | **v1.6.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.6.0'`) · 모듈 12종 |
+| 현재 버전 | **v1.7.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.7.0'`) · 모듈 17종 |
 | 라이선스 | MIT (본 저장소 코드) + 서드파티 라이브러리는 각 라이선스 (LICENSE 참고) |
 
-### 모듈 목록 (v1.6.0 기준) · 홈 섹션 순서와 같다
+### 모듈 목록 (v1.7.0 기준) · 홈 섹션 순서와 같다
 
 | # | id | 이름 | `category` (홈 섹션) | 한 줄 기능 |
 | --- | --- | --- | --- | --- |
@@ -64,8 +64,13 @@
 | 10 | `color-tools` | 색상 · 대비 체크 | `utility` (유틸리티) | HEX/RGB/HSL 변환 · WCAG 대비율·AA/AAA 배지 · 스포이드(지원 시) |
 | 11 | `icon-gen` | 앱 아이콘 생성기 | `utility` (유틸리티) | 16~1024px PNG 7종 + manifest 스니펫 ZIP |
 | 12 | `ocr-reader` | 이미지 텍스트 추출 | `utility` (유틸리티) | OCR(한국어·영어) · 진행률 · 편집/복사/TXT 저장 |
+| 13 | `md-editor` | 마크다운 편집기 | `docs` (문서) | GFM 표·체크박스·코드 미리보기 · .md/.html 저장 · 인쇄 · 자동 임시 저장 |
+| 14 | `video-mosaic` | 영상 모자이크 | `media` (미디어) | 드래그 사각 영역 모자이크/블러 · MediaRecorder 실시간 인코딩(오디오 포함) |
+| 15 | `file-compress` | 파일 압축 · ZIP | `utility` (유틸리티) | 이미지 압축 · PDF 래스터라이즈 축소 · ZIP 묶기/풀기 |
+| 16 | `unit-converter` | 단위 변환기 | `utility` (유틸리티) | 길이·무게·속도·온도·넓이(평)·부피·데이터 7종 즉시 변환 |
+| 17 | `currency-calc` | 환율 계산기 | `utility` (유틸리티) | 12개 통화 · 공개 환율표 캐시 · 수동 환율 · 오프라인 폴백 |
 
-`modules/registry.js`가 홈 섹션 순서를 정한다: `CATEGORIES = [docs 문서, media 미디어, utility 유틸리티]` → 홈은 **고정됨 → 문서 → 미디어 → 유틸리티** 순서로 그린다. `category`가 없거나 모르는 값이면 `FALLBACK_CATEGORY`(`utility`)로 모인다.
+홈 표시 순서는 `registry` 배열 순서를 따르며, v1.7.0부터 **꺼진 모듈은 원래 묶음에서 빠져 맨 아래 '꺼진 모듈' 한 섹션**에 모인다(0개면 숨김). `modules/registry.js`가 홈 섹션 순서를 정한다: `CATEGORIES = [docs 문서, media 미디어, utility 유틸리티]` → 홈은 **고정됨 → 문서 → 미디어 → 유틸리티** 순서로 그린다. `category`가 없거나 모르는 값이면 `FALLBACK_CATEGORY`(`utility`)로 모인다.
 
 ---
 
@@ -152,7 +157,13 @@ python3 -m http.server 8000
    - `make-exif-photo.py` — Pillow + 직접 작성한 APP1(TIFF)으로 GPS 포함 EXIF JPEG 생성, Pillow로 재검증
    - `test-v14.js` — Playwright(헤드리스 Chromium)로 58개 항목 검증: PDF 병합/추출 바이트·페이지 수, EXIF 표시·모자이크 픽셀 변화·저장 파일 EXIF 0건, QR PNG 치수·SVG, GIF 헤더/프레임 수/지연, 클립 길이·해상도, 드래그앤드롭, 데스크톱 2열 레이아웃, 가로 넘침, 콘솔/페이지 에러 0건, 404 0건, SW 캐시 버전
    - 테스트 영상은 브라우저 안에서 `canvas.captureStream()` + `MediaRecorder`로 생성한다(외부 툴 불필요).
-4. **푸시 후 라이브 확인** — GitHub Pages 반영(보통 30~90초)을 `sw.js`의 `CACHE_VERSION`으로 확인하고, 라이브 URL에서 홈 6개 카드와 신규 모듈을 실제 파일로 다시 실행한다. 기존 방문자는 서비스 워커 때문에 **한 번 새로고침**해야 새 버전으로 바뀐다(설계된 동작: `skipWaiting` + `clients.claim`).
+4. **헤드리스 자동 검증(v1.7.0 때 사용)** — `work/tip-verify/v17/`(저장소 밖).
+   - `server.cjs` 정적 서버 + `/__fixtures/` 매핑, `gen-video.cjs`가 브라우저 안에서 테스트 클립(MP4)을 만든다.
+   - `verify-a.cjs`(51항목): 홈 17카드·섹션 구성, 스위치 OFF→'꺼진 모듈' 이동/ON 복귀/고정 모듈 복귀, 단위 변환 정확도(길이·평·온도·SI/IEC·기준 전환·복사), 환율(오프라인 폴백·수동 환율·mock API 갱신·캐시 재사용·금액 미전송 검증), 마크다운(GFM 표/체크박스/코드/인용, XSS 새니타이즈, 탭 전환, .md/.html 저장, 데스크톱 2단).
+   - `verify-b.cjs`(24항목): 이미지 2장 압축 결과 바이트·PIL 재검사·ZIP 엔트리, PDF 3페이지 축소(pypdf 페이지/크기, pypdfium2 렌더 확인), ZIP 묶기/풀기 엔트리·개별 저장.
+   - `verify-c.cjs`(20항목): 영상 로드·드래그 영역·실행취소/삭제·모드 전환, MediaRecorder 산출물 길이/해상도, 원본 대비 모자이크 영역 디테일(색 수 48→16, 가장자리 에너지 3.87→2.08)과 바깥 영역 보존, 오디오 트랙(`webkitAudioDecodedByteCount` 20,139B).
+   - 결과 JSON `results-a/b/c.json`, 스크린샷 `work/tip-mockups/tip-v17-*.png`(390·1280, 라이트/다크·상태별).
+5. **푸시 후 라이브 확인** — GitHub Pages 반영(보통 30~90초)을 `sw.js`의 `CACHE_VERSION`으로 확인하고, 라이브 URL에서 홈 6개 카드와 신규 모듈을 실제 파일로 다시 실행한다. 기존 방문자는 서비스 워커 때문에 **한 번 새로고침**해야 새 버전으로 바뀐다(설계된 동작: `skipWaiting` + `clients.claim`).
 
 ### 배포 절차
 
@@ -167,6 +178,33 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 ---
 
 ## 3. 버전 기록 (최신이 위)
+
+### v1.7.0 — 2026-11-23 00:40 (KST) · 커밋 `FEAT_HASH` · `tip-v1.7.0`
+
+- **작성자**: 유동규(기획·신규 5종 지정·홈 '꺼진 모듈' UX 요청·검수) + Pickle(AI) 구현
+- **개발 내용** (모듈 5종 추가 · 12종 → 17종 + 홈 섹션 개편)
+  - `js/app.js` — `renderHome()`이 **켜진 모듈만** 고정됨 → 문서 → 미디어 → 유틸리티에 그리고, **꺼진 모듈은 맨 아래 `꺼진 모듈` 한 섹션**으로 모은다(0개면 섹션 없음). 스위치를 켜면 원래 묶음(고정했던 모듈은 고정됨)으로 즉시 복귀하며, 다시 그린 뒤 방금 누른 컨트롤로 초점을 되돌리는 기존 `rerenderHome(focus)` 동작은 그대로 유지.
+  - `css/app.css` — `.home-section[data-section='off']`: 위쪽 헤어라인, 점선 카드, 아이콘·제목 톤 다운.
+  - `modules/file-compress/module.js` — **파일 압축 · ZIP**(`utility`). 탭 3개.
+    - 이미지: `createImageBitmap`(실패 시 `<img>`) → 최대 가로폭으로 축소 → `canvas.toBlob`(JPG q0.4~0.95 / WebP / PNG). 파일별 `원본 → 결과 · % 감소`, 합계 카드, 개별 저장, 2장 이상은 `window.JSZip`(STORE)로 `compressed-images.zip`. **결과가 원본보다 크면 원본을 그대로** 쓰고 "원본 유지"로 표시(용량을 늘리지 않음).
+    - PDF: `pdfjsLib`(worker `./vendor/pdfjs/pdf.worker.min.js`)로 96/144/200dpi 래스터라이즈(최대 변 4096px) → JPEG(q0.5~0.9) → `pdf-lib` `embedJpg`로 원본 페이지 크기(pt)에 다시 배치. 진행률 %, 페이지 수·전/후 용량, "글자 선택 불가" 안내. 암호 PDF는 오류 안내.
+    - ZIP: 파일 묶기(DEFLATE 6) + `.zip` 목록(`JSZip.loadAsync`)·개별/전체(순차) 저장.
+  - `modules/video-mosaic/module.js` — **영상 모자이크**(`media`). `<video>` → 캔버스(최대 1280px) rAF 미리보기, 포인터 드래그로 정규화 사각형 여러 개(실행취소·전체 삭제), 모자이크(블록 다운스케일, `imageSmoothingEnabled=false`)/블러(`ctx.filter`), 강도 6~48은 **640px 기준 픽셀 값을 캔버스 폭에 비례**해 키운다. `canvas.captureStream(30)` + `MediaRecorder`(MP4 우선, WebM 폴백, 5Mbps)로 재생 구간을 실시간 인코딩, 오디오는 `video.captureStream()` 트랙 우선·없으면 `AudioContext.createMediaElementSource → MediaStreamDestination`. 녹화 중에는 편집 보조선을 그리지 않아 결과에 선이 남지 않는다. 진행률·결과 미리보기·저장, 60초 초과 경고.
+  - `modules/md-editor/module.js` — **마크다운 편집기**(`docs`). `marked`(ESM) + `DOMPurify` 새니타이즈, GFM 표·체크박스·코드·인용. 데스크톱 ≥960px 좌우 2단, 모바일 편집/미리보기 탭. 툴바 12종(B/I/S, H1/H2, 목록, 체크박스, 인용, 코드, 링크, 표)과 Ctrl/Cmd+B·I. `.md` 열기/저장, `.html` 독립 문서 저장, iframe 인쇄, 500ms 디바운스 `localStorage`(`tip.mdx.v1`) 임시 저장.
+  - `modules/unit-converter/module.js` — **단위 변환기**(`utility`). 길이·무게·속도·온도·넓이(평 = 400/121 m²)·부피·데이터(SI/IEC) 7종. `toBase/fromBase` 정의로 선형·온도(섭씨 기준) 모두 처리, 입력 즉시 모든 단위 표시, 행의 **기준** 버튼으로 기준 단위 전환(값 환산), 값/복사 버튼으로 클립보드. 100% 오프라인.
+  - `modules/currency-calc/module.js` — **환율 계산기**(`utility`). 12개 통화(KRW·USD·JPY·EUR·CNY·GBP·VND·THB·TWD·AUD·CAD·SGD). **하이브리드**: 캐시가 없고 온라인일 때 1회 자동, 이후 **환율 갱신** 버튼으로 `open.er-api.com/v6/latest/KRW` → 실패 시 `api.frankfurter.app/latest?from=KRW`(부분 통화는 기존 표에 병합) → `localStorage`(`tip.fx.v1`, `fetchedAt`·`rateDate`·`source`) 저장. 없으면 **내장 참고 환율**(“기준일 미갱신”), 있으면 마지막 캐시. `⇅`, 12개 통화 비교표, **수동 환율**(`tip.fx.manual.v1`, 쌍 단위·역방향 자동, 해제 버튼), 갱신 시각 KST 표시. 실패 문구는 사람이 읽는 문장으로만(기술 오류는 `console.error`).
+  - `modules/registry.js` — import 6줄 + 배열 항목 6개(md-editor는 docs, video-mosaic은 media, 나머지 utility).
+  - `vendor/marked/marked.esm.js` 18.2.1(MIT)·`LICENSE`, `vendor/dompurify/purify.min.js` 3.5.0(Apache-2.0/MPL-2.0)·`LICENSE`, `index.html`에 DOMPurify `<script defer>`, `LICENSE` 서드파티 목록, `sw.js` `APP_SHELL` 추가.
+  - `sw.js` — `CACHE_VERSION = 'tip-v1.7.0'`, 신규 모듈 5개 + marked/DOMPurify 프리캐시.
+  - `css/app.css` — v1.7.0 섹션(위 5개 모듈 + 꺼진 모듈 섹션), 데스크톱에서 `.fc/.uc/.fx`는 780px 가운데 정렬, `.mdx` 2단, `.vm` 2열.
+  - `README.md`(모듈 표 17종·13~17번 사용법·꺼진 모듈·프라이버시 예외·제한사항·버전 표), `AGENT.md`(현재 버전 1.7.0), `LICENSE`.
+- **사용한 언어·라이브러리·세팅**: Vanilla HTML/CSS/ES Modules(빌드 없음). 신규 벤더 2종 — marked 18.2.1(MIT, `marked.esm.js` 그대로, 패치 없음), DOMPurify 3.5.0(클래식 UMD `window.DOMPurify`, 패치 없음). PDF/이미지/ZIP은 기존 `vendor/pdfjs`·`pdf-lib`·`jszip` 재사용. 검증은 `work/tip-verify/v17/`의 Playwright + chrome-headless-shell(`LD_LIBRARY_PATH=work/sysroot/usr/lib/x86_64-linux-gnu`) 하네스로 95항목.
+- **주의·제약**:
+  - **환율 API가 이 앱의 유일한 외부 호출**이다(기존 "외부 API 호출 금지" 원칙의 명시적 예외 — 유동규 님 요청). 환율표만 받고 금액·파일은 보내지 않으며, 화면과 README에 이 예외를 적었다.
+  - 영상 인코딩은 `SharedArrayBuffer` 없이 `MediaRecorder` 실시간 방식이라 **영상 길이만큼 시간이 걸린다**. 결과 형식은 브라우저 지원에 따른다(Chrome MP4, 미지원 시 WebM).
+  - PDF 축소는 페이지를 그림으로 다시 그리므로 **텍스트 선택·검색 불가**(용량 우선). 암호 PDF 미지원.
+  - 이미지 재압축이 원본보다 커지면 원본을 유지한다(PNG 등).
+  - `localStorage` 키는 기존(`tip.settings.v1`·`tip.theme`·`tip.accent`)을 건드리지 않고 `tip.mdx.v1`·`tip.fx.v1`·`tip.fx.manual.v1`만 추가.
 
 ### v1.6.0 — 2026-11-22 23:43 (KST) · 커밋 `2e09ce0` · `tip-v1.6.0`
 

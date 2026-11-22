@@ -28,6 +28,11 @@ import pdfTools from './pdf-tools/module.js';
 import photoPrivacy from './photo-privacy/module.js';
 import qrGen from './qr-gen/module.js';
 import videoGif from './video-gif/module.js';
+import videoMosaic from './video-mosaic/module.js';
+import mdEditor from './md-editor/module.js';
+import fileCompress from './file-compress/module.js';
+import unitConverter from './unit-converter/module.js';
+import currencyCalc from './currency-calc/module.js';
 
 /**
  * 홈 화면 섹션 순서. 여기에 적은 순서대로 홈이 그려진다.
@@ -51,15 +56,20 @@ export const registry = [
   docReader,
   imgConverter,
   pdfTools,
+  mdEditor,
   photoPrivacy,
   qrGen,
   videoGif,
+  videoMosaic,
   devTools,
   textDiff,
   regexTester,
   colorTools,
   iconGen,
   ocrReader,
+  fileCompress,
+  unitConverter,
+  currencyCalc,
 ];
 
 export function listModules() {

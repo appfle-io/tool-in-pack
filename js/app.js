@@ -13,8 +13,12 @@ function renderHome() {
 
   const mods = listModules().map((mod) => ({ mod, state: moduleState(mod) }));
 
-  const pinned = mods.filter(({ state }) => state.pinned);
-  const rest = mods.filter(({ state }) => !state.pinned);
+  // 꺼진 모듈은 원래 묶음에서 빼고 맨 아래 '꺼진 모듈' 한 곳에 모은다.
+  const enabled = mods.filter(({ state }) => state.enabled);
+  const off = mods.filter(({ state }) => !state.enabled);
+
+  const pinned = enabled.filter(({ state }) => state.pinned);
+  const rest = enabled.filter(({ state }) => !state.pinned);
 
   const sections = el('div', { class: 'home-sections' });
 
@@ -26,6 +30,9 @@ function renderHome() {
     const entries = rest.filter(({ mod }) => categoryOf(mod) === id);
     if (entries.length) sections.append(homeSection(id, label, entries));
   });
+
+  // 꺼진 모듈이 1개 이상일 때만 맨 아래에 모은다. 스위치를 켜면 원래 묶음으로 돌아간다.
+  if (off.length) sections.append(homeSection('off', '꺼진 모듈', off));
 
   view.append(sections);
 }

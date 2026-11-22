@@ -24,6 +24,10 @@ licenses, listed below:
   from tessdata_fast (https://github.com/tesseract-ocr/tessdata_fast),
   (gzip copies only, under vendor/tesseract/lang/; copied to the device's
   cache on the first OCR run)
+- marked 18.2.1 (MIT) — Copyright MarkedJS and contributors, and Christopher
+  Jeffrey (https://github.com/markedjs/marked) — vendor/marked/
+- DOMPurify 3.5.0 (Apache-2.0 OR MPL-2.0) — Copyright Cure53 and other
+  contributors (https://github.com/cure53/DOMPurify) — vendor/dompurify/
 - Pretendard (SIL Open Font License 1.1) — Copyright Kil Hyung-jin
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
