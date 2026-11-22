@@ -211,7 +211,8 @@ const module = {
 
       const { parse } = await import('../../vendor/hwpjs/hwp.esm.js');
       const data = await file.arrayBuffer();
-      const doc = parse(new Uint8Array(data), { type: 'binary' });
+      // cfb.read의 type:'binary'는 문자열 입력 전용 — Uint8Array는 옵션 없이 직접 넘긴다
+      const doc = parse(new Uint8Array(data));
       if (document.fonts?.ready) await document.fonts.ready;
       paper.innerHTML = renderHwp(doc);
       msg.append(noticeBox('warn', 'HWP 렌더링 참고',
