@@ -3,7 +3,8 @@
 
     python3 tools/make-mac-icons.py
 
-- `icons/icon-1024.png`(마스터)에서 macOS 번들용 `mac/src-tauri/icons/icon.icns` 를 만든다.
+- `icons/icon-1024.png`(마스터)에서 macOS 번들용 `mac/src-tauri/icons/icon.icns` 와
+  `tauri::generate_context!` 가 요구하는 기본 창 아이콘 `icon.png` 를 만든다.
 - 메뉴 막대 아이콘은 흑백 템플릿(`trayTemplate.png`, `trayTemplate@2x.png`)으로 그린다.
   템플릿 아이콘은 macOS 가 라이트/다크 메뉴 막대에 맞춰 알파만 보고 색을 입힌다.
 - 결과물은 커밋한다(빌드 도구 없이 `tauri build` 가 바로 쓰도록).
@@ -82,10 +83,12 @@ def main() -> None:
         master = master.resize((1024, 1024), Image.LANCZOS)
 
     build_icns(master, OUT / "icon.icns")
+    # generate_context! 가 기본 창 아이콘으로 읽는 파일 — 없으면 빌드가 panic 한다.
+    master.save(OUT / "icon.png", format="PNG")
     build_tray(22, OUT / "trayTemplate.png")
     build_tray(44, OUT / "trayTemplate@2x.png")
 
-    for name in ("icon.icns", "trayTemplate.png", "trayTemplate@2x.png"):
+    for name in ("icon.icns", "icon.png", "trayTemplate.png", "trayTemplate@2x.png"):
         print(f"{name:22} {(OUT / name).stat().st_size:>8,} bytes")
 
 

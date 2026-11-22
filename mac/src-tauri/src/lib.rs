@@ -255,14 +255,23 @@ pub fn run() {
                         ..
                     } = event
                     {
+                        // rect 는 dpi 의 Position/Size 열거형이라 물리 픽셀로 직접 바꿔 저장한다.
+                        let scale = tray
+                            .app_handle()
+                            .get_webview_window("main")
+                            .and_then(|win| win.scale_factor().ok())
+                            .unwrap_or(2.0);
+                        let (px, py) = match rect.position {
+                            Position::Physical(pos) => (pos.x as f64, pos.y as f64),
+                            Position::Logical(pos) => (pos.x * scale, pos.y * scale),
+                        };
+                        let (pw, ph) = match rect.size {
+                            tauri::Size::Physical(size) => (size.width as f64, size.height as f64),
+                            tauri::Size::Logical(size) => (size.width * scale, size.height * scale),
+                        };
                         {
                             let mut slot = TRAY_RECT.lock().unwrap();
-                            *slot = Some((
-                                rect.position.x,
-                                rect.position.y,
-                                rect.size.width,
-                                rect.size.height,
-                            ));
+                            *slot = Some((px, py, pw, ph));
                         }
                         if button == MouseButton::Left && button_state == MouseButtonState::Up {
                             toggle_quickbar(tray.app_handle());
