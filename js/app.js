@@ -161,7 +161,6 @@ function renderModule(mod) {
   activeCleanup = mod.mount(root, {
     goHome: () => { location.hash = '#/'; },
     toast,
-    escapeHtml,
     icons,
   }) || null;
 }
