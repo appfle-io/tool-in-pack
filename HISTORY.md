@@ -162,7 +162,8 @@ python3 -m http.server 8000
    - `verify-a.cjs`(51항목): 홈 17카드·섹션 구성, 스위치 OFF→'꺼진 모듈' 이동/ON 복귀/고정 모듈 복귀, 단위 변환 정확도(길이·평·온도·SI/IEC·기준 전환·복사), 환율(오프라인 폴백·수동 환율·mock API 갱신·캐시 재사용·금액 미전송 검증), 마크다운(GFM 표/체크박스/코드/인용, XSS 새니타이즈, 탭 전환, .md/.html 저장, 데스크톱 2단).
    - `verify-b.cjs`(24항목): 이미지 2장 압축 결과 바이트·PIL 재검사·ZIP 엔트리, PDF 3페이지 축소(pypdf 페이지/크기, pypdfium2 렌더 확인), ZIP 묶기/풀기 엔트리·개별 저장.
    - `verify-c.cjs`(20항목): 영상 로드·드래그 영역·실행취소/삭제·모드 전환, MediaRecorder 산출물 길이/해상도, 원본 대비 모자이크 영역 디테일(색 수 48→16, 가장자리 에너지 3.87→2.08)과 바깥 영역 보존, 오디오 트랙(`webkitAudioDecodedByteCount` 20,139B).
-   - 결과 JSON `results-a/b/c.json`, 스크린샷 `work/tip-mockups/tip-v17-*.png`(390·1280, 라이트/다크·상태별).
+   - `verify-d.cjs`(9항목): 서비스 워커 `tip-v1.7.0` 프리캐시 50개, 오프라인 재로드로 홈 17카드·마크다운(표/체크박스)·환율(내장 참고)·영상·압축 화면 동작.
+   - 합계 **104항목 전부 통과**. 결과 JSON `results-a/b/c/d.json`, 스크린샷 `work/tip-mockups/tip-v17-*.png`(390·1280, 라이트/다크·상태별).
 5. **푸시 후 라이브 확인** — GitHub Pages 반영(보통 30~90초)을 `sw.js`의 `CACHE_VERSION`으로 확인하고, 라이브 URL에서 홈 6개 카드와 신규 모듈을 실제 파일로 다시 실행한다. 기존 방문자는 서비스 워커 때문에 **한 번 새로고침**해야 새 버전으로 바뀐다(설계된 동작: `skipWaiting` + `clients.claim`).
 
 ### 배포 절차
@@ -179,7 +180,7 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 
 ## 3. 버전 기록 (최신이 위)
 
-### v1.7.0 — 2026-11-23 00:40 (KST) · 커밋 `FEAT_HASH` · `tip-v1.7.0`
+### v1.7.0 — 2026-11-23 00:21 (KST) · 커밋 `79768b1` · `tip-v1.7.0`
 
 - **작성자**: 유동규(기획·신규 5종 지정·홈 '꺼진 모듈' UX 요청·검수) + Pickle(AI) 구현
 - **개발 내용** (모듈 5종 추가 · 12종 → 17종 + 홈 섹션 개편)
