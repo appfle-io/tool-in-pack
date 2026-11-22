@@ -152,7 +152,7 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 
 ## 3. 버전 기록 (최신이 위)
 
-### v1.5.1 — 2026-11-22 23:32 (KST) · 커밋 `PENDING` · `tip-v1.5.1`
+### v1.5.1 — 2026-11-22 23:33 (KST) · 커밋 `0cdb04f` · `tip-v1.5.1`
 
 - **작성자**: 유동규(요청·아이콘 시안 1번 선택·검수) + Pickle(AI) 구현
 - **개발 내용** (기본 딥그린을 팩인백 브랜드 컬러 #2E5E4E로 일치 + 앱 아이콘 교체)
