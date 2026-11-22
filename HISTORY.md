@@ -1,0 +1,246 @@
+# TIP · TOOL-IN-PACK — 개발 히스토리
+
+작은 도구들을 한곳에 모은 모듈형 오프라인 유틸리티 PWA.
+라이브: <https://appfle-io.github.io/tool-in-pack/> · 저장소: <https://github.com/appfle-io/tool-in-pack>
+
+이 문서는 **다른 AI 작업자와 개발자가 이어서 작업할 수 있도록** 남기는 기록입니다.
+
+---
+
+## 0. 히스토리 작성 요령 (다른 AI 작업자용)
+
+새 모듈을 추가하거나 기존 기능을 고칠 때마다 **§3 버전 기록의 맨 위**에 아래 형식으로 한 블록을 추가합니다.
+(가장 최근 작업이 가장 위에 오도록 쌓습니다.)
+
+### 반드시 기록할 항목
+
+| 항목 | 적을 내용 |
+| --- | --- |
+| **작성자** | 유동규(기획·요청·검수) + 실제 구현한 AI의 이름 (예: Pickle / Claude / GPT …). AI가 바꾼 부분과 사람이 직접 바꾼 부분을 구분해서 적는다. |
+| **일시** | `YYYY-MM-DD HH:MM (KST)` — 커밋 시각 기준 |
+| **버전** | `sw.js`의 `CACHE_VERSION`(예: `tip-v1.5.0`)과 커밋 해시 |
+| **개발 내용** | 추가·수정한 **파일 경로**와 **기능 상세**. 새 모듈이면 id, 화면 구성, 입력/출력, 저장 형식까지 |
+| **사용한 언어·라이브러리·세팅** | Vanilla HTML/CSS/ES Modules, 새로 넣은 `vendor/` 라이브러리와 버전·출처·패치 여부, 로컬 실행·테스트 방법 |
+| **주의·제약** | 브라우저별 제약, 알려진 한계, 남은 일·다음 예정 작업 |
+
+### 프로젝트 개발 원칙 (요약)
+
+1. **빌드 도구 없음** — 순수 Vanilla HTML + CSS + ES Modules. 번들러·프레임워크·npm 런타임 의존 없이 `index.html`을 그대로 올리면 동작한다.
+2. **CDN 의존 금지** — 모든 라이브러리는 `vendor/`에 셀프호스팅하고 버전을 고정한다. 오프라인에서도 그대로 동작해야 한다.
+3. **모듈 추가는 두 곳** — `modules/<name>/module.js`(default export에 `id·name·subtitle·description·icon·mount`) + `modules/registry.js` 한 줄 등록. 홈 카드·라우팅·사용/고정 토글은 자동으로 붙는다.
+4. **배포마다 `sw.js` 갱신** — `CACHE_VERSION`을 올리고 새 모듈·벤더 파일을 프리캐시 목록에 추가한다. (빠뜨리면 기존 사용자에게 옛 파일이 남는다.)
+5. **GitHub Pages 제약** — GitHub Pages는 `COOP`/`COEP` 헤더를 보내지 않으므로 `SharedArrayBuffer`를 쓸 수 없다. 멀티스레드 `ffmpeg.wasm` 같은 방식은 라이브에서 실패한다.
+6. **모바일 + 데스크톱 동시 대응** — 390px(iPhone)과 1280px(데스크톱·Mac 예정) 모두에서 확인한다. Mac 배포가 예정되어 있어 파일 드래그앤드롭·마우스 드래그·넓은 화면 레이아웃을 함께 본다.
+7. **사용자 문서 동시 갱신** — 새 모듈은 `README.md`(사용자용 설명서)에 기능과 사용법을 반드시 추가한다. (`AGENT.md` 1번 지침)
+8. **푸시 전·후 검증** — 로컬 정적 서버 + 헤드리스 브라우저로 실제 파일을 넣어 결과 바이트까지 확인한 뒤 푸시하고, 푸시 후 라이브 URL에서 다시 확인한다.
+
+---
+
+## 1. 프로젝트 개요
+
+| 항목 | 내용 |
+| --- | --- |
+| 이름 | TIP — TOOL-IN-PACK |
+| 한 줄 설명 | 서버로 아무것도 보내지 않고 브라우저(기기) 안에서만 도는 PowerToys 스타일 오프라인 유틸리티 PWA |
+| 라이브 | <https://appfle-io.github.io/tool-in-pack/> (GitHub Pages, `/tool-in-pack/` 서브 경로) |
+| 저장소 | <https://github.com/appfle-io/tool-in-pack> (public, `main` 브랜치가 곧 배포본) |
+| 소유·기획 | 유동규 (@papaleo / GitHub @appfle-io) |
+| 현재 버전 | **v1.4.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.4.0'`) · 모듈 6종 |
+| 라이선스 | MIT (본 저장소 코드) + 서드파티 라이브러리는 각 라이선스 (LICENSE 참고) |
+
+### 모듈 목록 (v1.4.0 기준)
+
+| # | id | 이름 | 한 줄 기능 |
+| --- | --- | --- | --- |
+| 1 | `doc-reader` | 문서 리더 | PDF · HWP · HWPX 열람 (페이지 이동·확대·회전) |
+| 2 | `img-converter` | 이미지 컨버터 | 이미지 포맷 변환·리사이즈 (9종 입력 → 6종 출력) |
+| 3 | `pdf-tools` | PDF 합치기 · 페이지 추출 | PDF 병합(순서 변경) · 페이지 범위 추출 |
+| 4 | `photo-privacy` | 모자이크 · 위치정보 제거 | EXIF/GPS 확인 → 모자이크·블러 → 메타데이터 삭제 저장 |
+| 5 | `qr-gen` | QR 생성기 | URL · 텍스트 · 와이파이 QR → PNG/SVG |
+| 6 | `video-gif` | 동영상 자르기 · GIF | 구간 잘라 GIF 변환 / 클립 저장 |
+
+---
+
+## 2. 개발 환경 · 구조 · 실행 · 테스트
+
+### 언어와 런타임
+
+- **HTML5 + CSS3 + JavaScript(ES2020+, ES Modules)**. TypeScript·JSX·번들러 없음.
+- 프레임워크 없음. DOM은 `js/ui.js`의 `el()` 헬퍼와 템플릿 문자열로 만든다.
+- 실행 환경: iOS Safari 16+, macOS/iPadOS Safari, Chrome/Edge 최신, Android Chrome.
+- 라이브러리는 전부 브라우저에서 직접 로드(`<script>` 또는 ESM `import`)하며, Node.js는 **개발·테스트용으로만** 쓴다.
+
+### 디렉토리 구조
+
+```
+index.html                앱 셸 (PWA 메타 태그, 테마 프리페인트 스크립트, 벤더 스크립트 로드)
+manifest.json             PWA 매니페스트 (이름·아이콘·start_url·shortcuts)
+sw.js                     서비스 워커 — 앱 셸 프리캐시 (배포 시 CACHE_VERSION 갱신)
+.nojekyll                 GitHub Pages Jekyll 처리 비활성
+css/app.css               전체 스타일 (모바일 퍼스트 + Safe Area + 라이트/다크 + 데스크톱 미디어쿼리)
+js/app.js                 해시 라우터(#/<module-id>), 홈 허브, ⚙️ 환경설정 시트, SW 등록
+js/ui.js                  DOM 헬퍼(el, toast, formatBytes), 공용 아이콘 SVG
+js/store.js               localStorage 설정 (모듈 enabled/pinned, 테마, 액센트)
+modules/registry.js       모듈 레지스트리 — 새 모듈은 여기 한 줄 + import 한 줄
+modules/doc-reader/       문서 리더 (module.js, pdf-viewer.js, hwp.js, hwpx.js, renderers.js)
+modules/img-converter/    이미지 컨버터 (module.js, encoders.js — BMP/ICO/PDF 인코더)
+modules/pdf-tools/        PDF 합치기·페이지 추출 (module.js)
+modules/photo-privacy/    모자이크·EXIF 제거 (module.js, exif.js — EXIF/GPS 파서)
+modules/qr-gen/           QR 생성기 (module.js)
+modules/video-gif/        동영상 자르기·GIF (module.js)
+vendor/                   셀프호스팅 라이브러리 (아래 표)
+icons/                    PWA 아이콘 (192/512/maskable/apple-touch/favicon)
+tools/make-icons.py       아이콘 재생성 스크립트 (Python + Pillow)
+samples/                  테스트용 샘플 문서·이미지 (PDF/HWPX/이미지 자체 생성, HWP는 공개 픽스처)
+README.md                 사용자용 설명서
+AGENT.md                  AI/개발자용 작업 지침
+HISTORY.md                이 문서
+LICENSE                   MIT + 서드파티 라이선스 목록
+```
+
+### 셀프호스팅 라이브러리 (`vendor/`)
+
+| 파일 | 라이브러리 | 버전 | 라이선스 | 쓰는 곳 | 패치 |
+| --- | --- | --- | --- | --- | --- |
+| `vendor/pdfjs/pdf.min.js`, `pdf.worker.min.js` | PDF.js | 3.11.174 | Apache-2.0 | 문서 리더 PDF 렌더 | 없음 (worker 경로만 코드에서 지정) |
+| `vendor/jszip/jszip.min.js` | JSZip | 3.10.1 | MIT / GPL-3.0 | HWPX(zip) 해제 | 없음 |
+| `vendor/hwpjs/hwp.esm.js` | hwp.js | 0.0.3 | Apache-2.0 | HWP 5.x 바이너리 파싱 | **있음** ① Node 전용 `fs` import를 스텁으로 교체 ② `cfb.read`가 `Uint8Array`를 받으면 base64 변환 없이 바로 `parse()`로 넘기도록 수정 (`TIP patch` 주석 참고) |
+| `vendor/heic2any.min.js` | heic2any | 0.0.4 | MIT | HEIC/HEIF 디코딩 (브라우저가 못 읽을 때) | 없음 (지연 로드) |
+| `vendor/pdf-lib/pdf-lib.min.js` | pdf-lib | 1.17.1 | MIT | PDF 병합·페이지 추출 | 없음 (UMD, `window.PDFLib` 사용) |
+| `vendor/qrcode/qrcode.mjs` | qrcode-generator | 2.0.4 | MIT | QR 모듈 생성 | 없음 (ESM 그대로) |
+| `vendor/gifenc/gifenc.esm.js` | gifenc | 1.0.3 | MIT | GIF 인코딩(양자화·LZW) | `sourceMappingURL` 주석만 제거 |
+| `vendor/fonts/PretendardVariable.woff2` | Pretendard | Variable | SIL OFL 1.1 | 전체 UI 폰트 | 없음 |
+
+라이브러리를 새로 넣을 때: `npm pack`/`npm i`로 받아 **minified 배포본만** `vendor/<이름>/`에 복사하고, 라이선스 파일을 함께 두고, `LICENSE`의 서드파티 목록에 한 줄 추가하고, `sw.js` 프리캐시 목록에 경로를 넣는다.
+
+### 로컬 실행
+
+빌드 과정이 없으므로 정적 서버만 있으면 된다. (ES Modules + 서비스 워커 때문에 `file://`로는 동작하지 않는다.)
+
+```bash
+cd work/tip
+python3 -m http.server 8000
+# 브라우저에서 http://127.0.0.1:8000/ 열기
+```
+
+### 테스트 방법
+
+서비스 워커가 캐시를 물고 있으므로 **검증은 항상 새 브라우저 컨텍스트**(시크릿 창 또는 새 프로필)에서 한다.
+
+1. **수동 확인** — 홈에서 6개 카드 → 각 모듈을 실제 파일로 실행. 모바일 390×844, 데스크톱 1280×800 두 크기에서 확인.
+2. **헤드리스 자동 검증(v1.4.0 때 사용)** — 이 개발 환경(워크스페이스)의 `work/tipv14/`에 하네스가 있다(저장소에는 넣지 않음).
+   - `static-server.js` — 저장소 루트를 서빙하는 최소 Node 정적 서버
+   - `make-pdfs.js` — pdf-lib로 페이지 크기가 다른 테스트 PDF 생성 (병합 순서 검증용)
+   - `make-exif-photo.py` — Pillow + 직접 작성한 APP1(TIFF)으로 GPS 포함 EXIF JPEG 생성, Pillow로 재검증
+   - `test-v14.js` — Playwright(헤드리스 Chromium)로 58개 항목 검증: PDF 병합/추출 바이트·페이지 수, EXIF 표시·모자이크 픽셀 변화·저장 파일 EXIF 0건, QR PNG 치수·SVG, GIF 헤더/프레임 수/지연, 클립 길이·해상도, 드래그앤드롭, 데스크톱 2열 레이아웃, 가로 넘침, 콘솔/페이지 에러 0건, 404 0건, SW 캐시 버전
+   - 테스트 영상은 브라우저 안에서 `canvas.captureStream()` + `MediaRecorder`로 생성한다(외부 툴 불필요).
+3. **푸시 후 라이브 확인** — GitHub Pages 반영(보통 30~90초)을 `sw.js`의 `CACHE_VERSION`으로 확인하고, 라이브 URL에서 홈 6개 카드와 신규 모듈을 실제 파일로 다시 실행한다. 기존 방문자는 서비스 워커 때문에 **한 번 새로고침**해야 새 버전으로 바뀐다(설계된 동작: `skipWaiting` + `clients.claim`).
+
+### 배포 절차
+
+```bash
+cd work/tip
+git add -A
+git commit -m "v1.x.0: ..."
+git push origin main          # → GitHub Pages 자동 배포
+curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSION 확인
+```
+
+---
+
+## 3. 버전 기록 (최신이 위)
+
+### v1.4.0 — 2026-11-22 22:47 (KST) · 커밋 `4eb0039` · `tip-v1.4.0`
+
+- **작성자**: 유동규(기획·요청·검수·Mac 대응 지시·문서 요구) + Pickle(AI) 구현
+- **개발 내용** (신규 모듈 4종 + 셸 보강)
+  - `modules/pdf-tools/module.js` — **PDF 합치기 · 페이지 추출**. 모드 세그먼트 2개.
+    - 합치기: PDF 여러 개 업로드/드래그 → 파일별 페이지 수·용량 표시, 위/아래 이동·목록에서 제거 → `pdf-lib`으로 페이지 복사 후 새 PDF. 결과 카드에 `n페이지 · 용량 · 병합 개수`와 저장 버튼. 2개 미만이면 실행 비활성.
+    - 페이지 추출: PDF 1개 → 총 페이지 수 표시, `1, 3-5` 범위 입력과 페이지 번호 칩(토글) 양방향 동기화(선택을 `1-3, 5` 형태로 압축 표기), 전체 선택/해제, 선택 페이지만 새 PDF로 저장(`_extract4p.pdf`).
+    - 암호화 PDF는 `ignoreEncryption`으로 열고 결과에 경고 표시. 파일명은 `_merged.pdf` / `_extractNp.pdf`.
+  - `modules/photo-privacy/module.js` + `exif.js` — **모자이크 · EXIF 위치정보 제거**.
+    - `exif.js`: 외부 라이브러리 없이 JPEG(APP1/TIFF)·PNG(eXIf 청크)·WebP(EXIF 청크)를 읽어 제조사·기기·소프트웨어·촬영 일시·노출·조리개·ISO·초점거리·렌즈·GPS(위경도 DMS→십진, 고도)를 표시. GPS가 있으면 붉은 경고.
+    - 캔버스 위에서 **마우스/터치 드래그로 칠하기(붓)** 또는 **사각 지정**. 방식은 모자이크(픽셀화: 축소→확대, `imageSmoothingEnabled=false`) / 블러(순수 JS 박스 블러, Safari의 `ctx.filter` 미지원 회피). 강도 슬라이더(1~10), 붓 크기(화면 px 기준 → 이미지 px 변환), 실행 취소(연산 스택 재생), 초기화, 다른 사진.
+    - 저장: 캔버스 재인코딩(PNG / JPG 흰 배경 합성) → **저장한 Blob을 다시 EXIF 파서로 검사**해 `저장 전 n항목 · GPS 포함 → 저장 후 0항목`과 "메타데이터 0건" 판정을 화면에 보여준다.
+    - 사진은 긴 변 3200px로 자동 축소(편집 속도). HEIC는 `heic2any` 폴백.
+  - `modules/qr-gen/module.js` — **QR 생성기**. URL / 텍스트 / 와이파이(`WIFI:T:WPA;S:…;P:…;;`, `\ ; , : "` 이스케이프, nopass 지원), 크기(256/512/1024)·여백(0~8 모듈)·오류정정(L/M/Q/H)·전경/배경색·색 바꾸기, 실시간 미리보기(입력 즉시), 담기는 내용 표시, **PNG(캔버스)**·**SVG(경로)** 저장. 용량 초과 시 안내.
+  - `modules/video-gif/module.js` — **동영상 자르기 · GIF 변환**.
+    - GIF: `<video>` seek → `<canvas>` 프레임 추출 → `gifenc`으로 100% 오프라인 인코딩. 시작/끝(0.05초 단위), FPS(5/10/15), 가로(320/480/640). 프레임 수·용량 표시, 최대 300프레임 제한.
+    - 클립 자르기: `canvas.captureStream()` + `MediaRecorder`(실시간 재인코딩). Safari는 `video/mp4;codecs=avc1`, Chrome/Edge는 `video/webm`. 오디오는 `AudioContext` → `MediaStreamDestination`으로 받아 스피커 출력 없이 녹음(실패 시 무음 + 안내).
+    - **`SharedArrayBuffer`·wasm 미사용** — GitHub Pages에 COOP/COEP가 없어 멀티스레드 ffmpeg.wasm이 깨지기 때문. 안내 문구 "iOS Safari는 30초 이내 짧은 클립에서 가장 안정적입니다".
+    - `MediaRecorder`로 만든 WebM은 `duration=Infinity`인 경우가 많아, 그때는 아주 먼 곳으로 seek해 실제 길이를 얻는 폴백을 넣었다.
+  - 셸·스타일·배포
+    - `modules/registry.js` — 4개 import + registry 4줄 추가.
+    - `index.html` — `vendor/pdf-lib/pdf-lib.min.js`를 `defer`로 추가(UMD → `window.PDFLib`).
+    - `js/app.js` — 홈 카드가 `mod.shortName || mod.name`을 쓰도록 1줄 수정(긴 모듈 이름이 모바일 390px에서 두 줄로 깨지지 않게).
+    - `css/app.css` — 새 모듈 스타일(약 520줄) + 데스크톱 대응: ≥900px 홈 2열 그리드, ≥960px `photo-privacy`·`video-gif`는 `캔버스/플레이어 + 340px 패널` 2열(sticky), `qr-gen`은 `head/preview/controls` 그리드 영역으로 2열, 드래그 하이라이트(`.module-screen.dr-over`), EXIF 목록 스크롤(208px).
+    - `sw.js` — `CACHE_VERSION = 'tip-v1.4.0'`, 새 모듈 6개 파일과 벤더 3종을 프리캐시.
+    - `README.md`, `LICENSE`(서드파티 4종 추가) 갱신.
+  - **신규 벤더**: pdf-lib 1.17.1(MIT, UMD), qrcode-generator 2.0.4(MIT, ESM `qrcode.mjs`), gifenc 1.0.3(MIT, ESM). 모두 `npm`으로 받아 배포본만 복사, 라이선스 동봉.
+- **사용한 언어·세팅**: Vanilla ES Modules. 로컬은 `python3 -m http.server`, 검증은 Playwright + 헤드리스 Chromium(`work/headless-shell`) 390×844 / 1280×800. 테스트 픽스처는 pdf-lib(Node)와 Pillow(Python)로 생성.
+- **검증 결과**: 로컬 자동 검증 58/58 통과(콘솔·페이지 에러 0, 404 0), 라이브 반영 후 홈 6개 카드 + 4개 모듈 실동작 확인, 스크린샷 `browser/tip-v14-*.png`.
+- **주의·제약**: 라이브 반영에 최대 1~2분, 기존 방문자는 새로고침 1회 필요(서비스 워커). iOS Safari는 `canvas.captureStream`/`MediaRecorder` 동작이 기기·버전에 따라 다르므로 GIF를 우선 안내. 큰 영상의 클립 자르기는 구간 길이만큼 실시간 소요.
+
+### v1.3.0 — 2026-11-22 22:03 (KST) · 커밋 `e0e3805` · `tip-v1.3.0`
+
+- **작성자**: 유동규(색상·설정 요구) + Pickle(AI) 구현
+- **개발 내용**
+  - 기본 액센트를 **딥그린(#166534 / 다크 #16A34A)** 으로 변경, `data-accent` 팔레트 6종(green·blue·purple·orange·rose·slate) 도입 (`css/app.css`, `js/store.js`의 `ACCENTS`/`getAccent`/`setAccent`).
+  - ⚙️ **환경설정 바텀시트** (`js/app.js`): 화면 모드 라이트/다크 세그먼트(아이콘 포함), 기본 색상 스와치, 백드롭·ESC 닫기, `role="dialog"`.
+  - 테마 프리페인트 스크립트(`index.html`)로 첫 페인트 전 `data-theme`/`data-accent` 적용, `meta theme-color` 동기화.
+- **사용한 언어·세팅**: 동일(빌드리스). 모듈 없음.
+- **주의**: `localStorage` 키는 `tip.settings.v1`, `tip.theme`, `tip.accent`.
+
+### v1.2.0 — 2026-11-22 21:48~21:51 (KST) · 커밋 `116eee2`, `92b9174`, `e9ef916`, `50b7fe0` · `tip-v1.2.0`
+
+- **작성자**: 유동규(요청·검수) + Pickle(AI) 구현
+- **개발 내용**
+  - `modules/img-converter/module.js` — **이미지 컨버터**. 입력 JPG/PNG/WebP/GIF/BMP/SVG/AVIF/ICO/HEIC, 출력 PNG/JPG/WebP/ICO/BMP/PDF. 여러 장 동시 처리, 품질·너비 옵션, 결과별 용량 증감 표시, 전체 저장.
+  - `modules/img-converter/encoders.js` — BMP/ICO/PDF 인코더 직접 구현(캔버스 → 바이트).
+  - HEIC는 브라우저 디코더 실패 시 `vendor/heic2any.min.js`로 폴백.
+  - 결과 파일명 중복 시 `-2`, `-3` 접미사(`92b9174`), 부제 축약.
+  - 무거운 테스트 픽스처(bmp/heic)를 저장소에서 제거(`e9ef916`).
+- **주의**: WebP 출력은 브라우저 인코더에 의존 → Safari에서 안 되면 PNG로 안내.
+
+### v1.1.0 — 2026-11-22 21:38 (KST) · 커밋 `04f7bdb` · `tip-v1.1.0`
+
+- **작성자**: 유동규(디자인 리뷰 피드백) + Pickle(AI) 구현
+- **개발 내용**: Pretendard Variable 셀프호스팅 폰트 적용, "플랫 중립" 톤으로 UI 전면 개편 — 헤어라인 카드, 그림자 제거, 알약형 버튼 제거, 단일 액센트, 라이트/다크 토큰 정리, Safe Area 대응, 아이콘 크기·간격 정리.
+- **주의**: 이후 모든 모듈은 이 톤(12px/9px 라운드, `--line` 헤어라인, `--accent` 단일 색)을 유지한다.
+
+### v1.0.0 — 2026-11-22 19:46 (KST) · 커밋 `ce0f96a` (+ 수정 `d0e9ab6`, `760102d`, `e769563`, `715e71c`, `37dc489`, `bac9c9a`)
+
+- **작성자**: 유동규(기획·요구) + Pickle(AI) 구현
+- **개발 내용**
+  - **PWA 셸**: `index.html`(PWA 메타·테마 프리페인트), `manifest.json`, `sw.js`(프리캐시 + 내비게이션 network-first), `js/app.js`(해시 라우터 `#/<id>`, 홈 허브 카드, 사용/고정 토글, 아이콘·토스트), `js/store.js`(localStorage), `js/ui.js`(el/toast/formatBytes/아이콘).
+  - **문서 리더 모듈**: `modules/doc-reader/`
+    - `pdf-viewer.js` — PDF.js로 페이지 캔버스 렌더, 페이지 이동·확대/축소·맞춤·회전, iOS 핀치.
+    - `hwp.js` — hwp.js 파서로 HWP 5.x 바이너리 → HTML(표·이미지 포함).
+    - `hwpx.js` — JSZip으로 zip 해제 후 `section*.xml` 파싱 → HTML.
+    - `renderers.js` — 공용 리더 UI(파일바, 툴바, 스테이지) 빌더.
+  - 아이콘 5종은 `tools/make-icons.py`(Pillow)로 생성.
+  - 초기 수정 이력: 모듈 import 경로 오류(`../../ui.js` → `../../js/ui.js`), `hidden` 속성 표시 문제, `escapeHtml` 미정의 컨텍스트 제거, **hwp.js 브라우저 패치**(Node `fs` 스텁 + `cfb.read`에 `Uint8Array` 직접 전달).
+- **사용한 언어·세팅**: Vanilla ES Modules, `python3 -m http.server`로 확인, 샘플 문서는 `samples/`(직접 생성 PDF/HWPX + 공개 HWP 픽스처).
+- **주의**: HWP는 공개 픽스처로만 검증. 암호가 걸린 PDF는 열리지 않을 수 있다.
+
+---
+
+## 4. 알려진 제한사항 (v1.4.0 기준)
+
+| 영역 | 제한 | 대응 |
+| --- | --- | --- |
+| iOS Safari | WebP **인코딩** 미지원 | PNG로 저장하고 안내 문구 표시 |
+| iOS Safari | HEIC 디코딩이 버전에 따라 불가 | `heic2any` 폴백 |
+| iOS Safari | `MediaRecorder`/`captureStream` 동작이 기기·버전별로 다름 | GIF 변환 우선 안내, 30초 이내 짧은 클립 권장 |
+| GitHub Pages | `COOP`/`COEP` 없음 → `SharedArrayBuffer` 불가 | wasm 멀티스레드(ffmpeg.wasm) 미사용, gifenc/MediaRecorder로 대체 |
+| PDF | 암호화 PDF는 결과가 비어 있을 수 있음 | `ignoreEncryption` + 경고 |
+| 사진 | 아주 큰 사진은 긴 변 3200px로 축소 | 안내 문구 표시 |
+| GIF | 최대 300프레임 | 구간·FPS 조절 안내 |
+| 서비스 워커 | 새 버전 반영에 새로고침 1회 필요 | `skipWaiting` + `clients.claim` (한 번 새로고침이면 최신) |
+| 오프라인 | 최초 1회는 온라인 필요(프리캐시) | 이후 오프라인 동작 |
+
+## 5. 다음 예정 작업
+
+- **배경 제거 모듈** (사람/사물 배경 지우기) — 로컬 모델(wonnx/ONNX Runtime Web) 또는 색상 기반 마스크 방식 검토. 모델 파일 용량이 크면 `sw.js` 프리캐시에 넣지 말고 런타임 캐시로 처리할 것.
+- **Mac용 배포** — 데스크톱 1280px 레이아웃·드래그앤드롭·마우스 조작을 기준으로 마무리하고, Mac 앱(래퍼) 배포 방식 검토.
+- 문서 리더의 텍스트 선택·검색, PDF 페이지 썸네일 등 후속 개선.
