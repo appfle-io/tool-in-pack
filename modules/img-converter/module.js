@@ -151,7 +151,7 @@ const module = {
   name: '이미지 컨버터',
   kind: 'tool',
   version: '1.0.0',
-  subtitle: 'JPG·PNG·WebP·ICO·BMP·PDF',
+  subtitle: '이미지 포맷 변환 · 리사이즈',
   description: '이미지 포맷을 기기 안에서 바로 변환합니다. 업로드 없음, 여러 장 한 번에.',
   icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-4.5-4.5L6 21"/></svg>`,
   defaultEnabled: true,
