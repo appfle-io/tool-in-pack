@@ -45,7 +45,7 @@
 | 라이브 | <https://appfle-io.github.io/tool-in-pack/> (GitHub Pages, `/tool-in-pack/` 서브 경로) |
 | 저장소 | <https://github.com/appfle-io/tool-in-pack> (public, `main` 브랜치가 곧 배포본) |
 | 소유·기획 | 유동규 (@papaleo / GitHub @appfle-io) |
-| 현재 버전 | **v1.5.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.5.0'`) · 모듈 6종 |
+| 현재 버전 | **v1.5.1** (`sw.js` → `CACHE_VERSION = 'tip-v1.5.1'`) · 모듈 6종 |
 | 라이선스 | MIT (본 저장소 코드) + 서드파티 라이브러리는 각 라이선스 (LICENSE 참고) |
 
 ### 모듈 목록 (v1.5.0 기준) · 홈 섹션 순서와 같다
@@ -91,7 +91,7 @@ modules/photo-privacy/    모자이크·EXIF 제거 (module.js, exif.js — EXIF
 modules/qr-gen/           QR 생성기 (module.js)
 modules/video-gif/        동영상 자르기·GIF (module.js)
 vendor/                   셀프호스팅 라이브러리 (아래 표)
-icons/                    PWA 아이콘 (192/512/maskable/apple-touch/favicon)
+icons/                    PWA 아이콘 (1024 마스터 / 512 / maskable / 192 / apple-touch / favicon·32)
 tools/make-icons.py       아이콘 재생성 스크립트 (Python + Pillow)
 samples/                  테스트용 샘플 문서·이미지 (PDF/HWPX/이미지 자체 생성, HWP는 공개 픽스처)
 README.md                 사용자용 설명서
@@ -151,6 +151,30 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 ---
 
 ## 3. 버전 기록 (최신이 위)
+
+### v1.5.1 — 2026-11-22 23:32 (KST) · 커밋 `PENDING` · `tip-v1.5.1`
+
+- **작성자**: 유동규(요청·아이콘 시안 1번 선택·검수) + Pickle(AI) 구현
+- **개발 내용** (기본 딥그린을 팩인백 브랜드 컬러 #2E5E4E로 일치 + 앱 아이콘 교체)
+  - `css/app.css` — 기본(딥그린) 액센트를 팩인백 실제 브랜드 값으로 교체.
+    - 라이트: `--accent: #2E5E4E` / `--accent-soft: #E4EFEA` / `--accent-strong: #23483C`
+    - 다크: `--accent: #4A8E77` / `--accent-soft: #142620` / `--accent-strong: #63A891`
+    - `--accent-strong` **신설**(눌린 상태 색). 나머지 5종 액센트(blue·purple·orange·rose·slate)도 같은 규칙(라이트 −7.5% / 다크 +7.5% 명도)으로 값을 넣어 색이 섞이지 않게 했다.
+    - `.primary-btn:active:not(.ghost)` · `.open-btn:active` 가 `opacity: 0.85` 대신 `background: var(--accent-strong)`을 쓴다(어두운 배경에서도 눌림이 분명해진다). `.primary-btn.ghost:active`는 `--card-2`로 기존 ghost 톤 유지.
+    - `--accent-soft`를 rgba → 단색 hex로 변경(#E4EFEA / #142620). 카드 위 옅은 배경·테두리 용도는 그대로.
+  - `js/app.js` — 설정 시트 스와치 `SWATCH_COLORS.green = ['#2E5E4E', '#4A8E77']`(라이트/다크 반반).
+  - `js/store.js` — `applyTheme()`이 `theme-color`를 라이트/다크 배경색으로 덮어쓰던 코드 제거. 브랜드 딥그린 고정.
+  - `index.html` — `<meta name="theme-color" content="#2E5E4E">`, 32px 파비콘 링크(`./icons/favicon-32.png`) 추가.
+  - `manifest.json` — `theme_color`·`background_color` 모두 `#2E5E4E`(설치 스플래시 배경 포함).
+  - `icons/` — 앱 아이콘 전면 교체(팩 + 4모듈 그리드, 배경 #2E5E4E).
+    - 새 파일: `icon-1024.png`(마스터, 향후 Mac `.icns` 변환용) · `favicon-32.png`
+    - 교체: `icon-512.png` · `icon-maskable-512.png` · `icon-192.png` · `apple-touch-icon-180.png` · `favicon.png`(64)
+  - `tools/make-icons.py` — 생성형 원본 한 장에서 모든 사이즈를 만드는 스크립트로 교체(이전 파랑·보라 그라데이션 아이콘 코드는 폐기). `--source`로 새 시안을 넣으면 초록 배경을 #2E5E4E로 정규화해 `icons/icon-1024.png` 마스터를 만들고, 그 마스터에서 512 · maskable(가운데 80% 크롭으로 안전 영역 확보) · 192 · apple-touch(불투명 RGB) · favicon(64) · favicon-32을 파생한다.
+  - `sw.js` — `CACHE_VERSION = 'tip-v1.5.1'`, `APP_SHELL`에 `./icons/favicon-32.png` 추가.
+  - `README.md` — §3 기본 색상에 브랜드 컬러(#2E5E4E) 표기, §7 버전 표에 v1.5.1 줄 추가.
+- **사용한 언어·세팅**: Vanilla HTML/CSS/ES Modules 그대로(빌드 도구·새 라이브러리 없음). 아이콘 생성은 Python + Pillow + numpy(`tools/make-icons.py`). 검증은 Node 22 + `chrome-headless-shell` CDP 스크립트(`work/tip-verify/verify.mjs`, 저장소 밖 작업 폴더), 390×844 · 1280×800, 라이트/다크.
+- **검증 결과**: 로컬 자동 검증 **24/24 통과** — 라이트 `--accent #2E5E4E`·`soft #E4EFEA`·`strong #23483C`, 다크 `#4A8E77`·`#142620`·`#63A891`, TIP 배지 배경 rgb(46,94,78), `meta theme-color` #2E5E4E(다크에서도 유지), 딥그린 스와치 기본 선택, 누른 primary 버튼 rgb(35,72,60)(=#23483C), 아이콘 7종·`manifest.json`·`sw.js` 모두 200, `CACHE_VERSION = tip-v1.5.1`, 콘솔 에러 0 · 404 0, 가로 넘침 0(390·1280). 스크린샷 `work/tip-verify/shots/v151-01~06-*.png`.
+- **주의·제약**: 아이콘 원본은 생성형 이미지라 배경이 #355F50 근처로 살짝 떠 있어, 초록 영역만 곱셈 보정으로 브랜드 값에 맞췄다(픽셀 오차 ±1, 미세한 조명 그라데이션·팩 그림자는 유지). `icons/icon-1024.png`는 런타임에서 쓰지 않아 `APP_SHELL` 프리캐시에 넣지 않았다(약 750KB). 사용자가 직접 고른 다른 액센트(블루 등)는 건드리지 않는다. 기존 방문자는 **새로고침 1회** 후 v1.5.1을 받는다(아이콘은 홈 화면에 다시 추가해야 갱신되는 경우가 있다).
 
 ### v1.5.0 — 2026-11-22 23:06 (KST) · 커밋 `fad7233` · `tip-v1.5.0`
 

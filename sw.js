@@ -1,6 +1,6 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.5.0';
+const CACHE_VERSION = 'tip-v1.5.1';
 const APP_SHELL = [
   './',
   './index.html',
@@ -36,6 +36,7 @@ const APP_SHELL = [
   './icons/icon-maskable-512.png',
   './icons/apple-touch-icon-180.png',
   './icons/favicon.png',
+  './icons/favicon-32.png',
 ];
 
 self.addEventListener('install', (event) => {

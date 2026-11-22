@@ -107,7 +107,6 @@ export function currentDark() {
 export function applyTheme(value) {
   const dark = value ? value === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-  const meta = document.getElementById('meta-theme-color');
-  if (meta) meta.setAttribute('content', dark ? '#0D0D10' : '#F2F2F7');
+  /* theme-color 는 브랜드 딥그린(#2E5E4E) 고정 — index.html 의 meta 값을 그대로 둔다 */
   document.documentElement.setAttribute('data-accent', getAccent());
 }
