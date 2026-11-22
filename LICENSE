@@ -16,6 +16,15 @@ licenses, listed below:
   (https://github.com/kazuhikoarase/qrcode-generator); the word "QR Code" is a
   registered trademark of DENSO WAVE INCORPORATED.
 - gifenc 1.0.3 (MIT) — Copyright Matt DesLauriers
+- tesseract.js 6.0.1 (Apache-2.0) — Copyright naptha / tesseract.js contributors
+  (https://github.com/naptha/tesseract.js); includes tesseract.js-core 6.0.0
+  (Apache-2.0, Tesseract OCR compiled to WebAssembly, Copyright Google Inc.
+  and Tesseract OCR contributors) — vendor/tesseract/
+- Tesseract language data `kor.traineddata`, `eng.traineddata` (Apache-2.0)
+  from tessdata_fast (https://github.com/tesseract-ocr/tessdata_fast),
+  (gzip copies only, under vendor/tesseract/lang/; copied to the device's
+  cache on the first OCR run)
+- Pretendard (SIL Open Font License 1.1) — Copyright Kil Hyung-jin
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

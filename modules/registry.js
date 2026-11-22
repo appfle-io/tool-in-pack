@@ -17,6 +17,12 @@
  */
 
 import docReader from './doc-reader/module.js';
+import devTools from './dev-tools/module.js';
+import textDiff from './text-diff/module.js';
+import regexTester from './regex-tester/module.js';
+import colorTools from './color-tools/module.js';
+import iconGen from './icon-gen/module.js';
+import ocrReader from './ocr-reader/module.js';
 import imgConverter from './img-converter/module.js';
 import pdfTools from './pdf-tools/module.js';
 import photoPrivacy from './photo-privacy/module.js';
@@ -48,6 +54,12 @@ export const registry = [
   photoPrivacy,
   qrGen,
   videoGif,
+  devTools,
+  textDiff,
+  regexTester,
+  colorTools,
+  iconGen,
+  ocrReader,
 ];
 
 export function listModules() {
