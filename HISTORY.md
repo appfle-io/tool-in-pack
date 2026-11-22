@@ -186,7 +186,7 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 
 ## 3. 버전 기록 (최신이 위)
 
-### v1.8.0 — 2026-11-23 00:52 (KST) · 커밋 `PENDING` · `tip-v1.8.0`
+### v1.8.0 — 2026-11-23 00:38 (KST) · 커밋 `8ee58b7` · `tip-v1.8.0`
 
 - **작성자**: 유동규(기획·드래그 순서 변경 요청·검수) + Pickle(AI) 구현
 - **개발 내용** (기능 추가 — 홈 카드 순서 바꾸기, 모듈 17종 그대로)
@@ -203,6 +203,8 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
   - `README.md` — §1 홈 화면에 **드래그로 순서 바꾸기**·**키보드로 순서 바꾸기** 항목, §3 환경설정에 **카드 순서 초기화**, §5 제한사항에 순서 범위·기기 저장 안내, §7 버전 표 `v1.8.0`.
   - `AGENT.md` — 현재 버전 `1.8.0`, 구조도의 `js/store.js` 설명에 `tip.order.v1`, **§3 "홈 카드 순서(`tip.order.v1`) 관례"** 절(새 모듈은 뒤에 자동으로 붙음, 섹션 간 이동 금지, Pointer Events 유지·HTML5 `draggable` 금지), §6에 `tip.order.v1` 키 보호 추가.
 - **사용한 언어·라이브러리·세팅**: Vanilla HTML/CSS/ES Modules(빌드 없음). 새 라이브러리 없음 — 브라우저 기본 **Pointer Events API**만 사용(iOS Safari 16+·Chrome/Edge/Safari 최신). 검증은 `work/tip-verify/v18/verify-v18.cjs`(Playwright + `work/chrome/chrome-linux64/chrome`, 터치는 CDP `Input.dispatchTouchEvent`).
+- **검증** (2026-11-23 00:37 KST, 로컬 — `work/tip-verify/v18/`): 390×844 터치(CDP `Input.dispatchTouchEvent`)·1280×800 마우스로 **46항목 전부 통과**, 콘솔 에러 0·404 0·가로 넘침 0. 서비스 워커 `tip-v1.8.0` 프리캐시 50개, 오프라인 재로드에서도 홈 17카드·핸들 17개 정상.
+- **라이브 검증** (2026-11-23 00:40 KST, <https://appfle-io.github.io/tool-in-pack/>): `sw.js`가 `tip-v1.8.0`을 서빙, 홈 17카드·섹션(고정됨 1 · 문서 2 · 미디어 4 · 유틸리티 10)·핸들 17개, SW 캐시 `tip-v1.8.0`. 390 터치 드래그로 미디어 순서 변경(`img-converter…` → `video-mosaic,img-converter,…`) 후 `tip.order.v1` 저장 → 새로고침·스위치 OFF→ON 모두 유지, 키보드 ↑ 이동, 설정 초기화로 `tip.order.v1`만 삭제되고 기본 순서 복귀, 1280 2열 그리드 마우스 드래그·새로고침 유지, 카드 실행 회귀 없음 — **20항목 전부 통과**(콘솔·404·넘침 0). 스크린샷 8장 `work/tip-mockups/tip-v18-live-*.png`(390·1280, 라이트/다크, 끄는 중·변경 후·설정 시트).
 - **주의·제약**:
   - 순서는 **같은 섹션 안에서만** 바뀐다(요청 사항). 다른 섹션으로 옮기려면 **핀**(고정됨)을 쓴다.
   - 순서는 **그 기기 브라우저의 `localStorage`에만** 저장된다(서버·계정 없음, 다른 기기와 공유되지 않음). 시크릿 모드에서는 저장되지 않을 수 있다.
