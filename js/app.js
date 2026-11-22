@@ -1,6 +1,6 @@
 /* TIP app shell — hash routing, home hub, theme, PWA install/SW plumbing. */
 
-import { listModules, getModule } from '../modules/registry.js';
+import { listModules, getModule, CATEGORIES, categoryOf } from '../modules/registry.js';
 import { moduleState, setModuleState, getTheme, setTheme, applyTheme, getAccent, setAccent, ACCENTS } from './store.js';
 import { el, toast, icons } from './ui.js';
 
@@ -11,17 +11,33 @@ const view = document.getElementById('view');
 function renderHome() {
   view.innerHTML = '';
 
-  const list = el('div', { class: 'module-list' });
   const mods = listModules().map((mod) => ({ mod, state: moduleState(mod) }));
 
   const pinned = mods.filter(({ state }) => state.pinned);
   const rest = mods.filter(({ state }) => !state.pinned);
 
-  [...pinned, ...rest].forEach(({ mod, state }) => {
-    list.append(moduleRow(mod, state));
+  const sections = el('div', { class: 'home-sections' });
+
+  // 고정된 모듈이 있을 때만 맨 위에 '고정됨' 섹션을 만든다.
+  if (pinned.length) sections.append(homeSection('pinned', '고정됨', pinned));
+
+  // 나머지는 registry 의 CATEGORIES 순서(문서 → 미디어 → 유틸리티)대로 묶는다.
+  CATEGORIES.forEach(({ id, label }) => {
+    const entries = rest.filter(({ mod }) => categoryOf(mod) === id);
+    if (entries.length) sections.append(homeSection(id, label, entries));
   });
 
-  view.append(list);
+  view.append(sections);
+}
+
+function homeSection(id, label, entries) {
+  return el('section', { class: 'home-section', 'data-section': id, 'aria-label': label }, [
+    el('h2', { class: 'home-section-title' }, [
+      el('span', { text: label }),
+      el('span', { class: 'home-section-count', text: String(entries.length), 'aria-hidden': 'true' }),
+    ]),
+    el('div', { class: 'module-list' }, entries.map(({ mod, state }) => moduleRow(mod, state))),
+  ]);
 }
 
 function moduleRow(mod, state) {
@@ -42,13 +58,15 @@ function moduleRow(mod, state) {
     type: 'button',
     'aria-pressed': String(state.enabled),
     'aria-label': `${mod.name} 사용 여부`,
+    'data-module-id': mod.id,
+    'data-control': 'switch',
   }, el('span', { class: 'switch-track' }, el('span', { class: 'switch-thumb' })));
 
   toggle.addEventListener('click', (event) => {
     event.stopPropagation();
     const next = !moduleState(mod).enabled;
     setModuleState(mod.id, { enabled: next });
-    rerenderHome();
+    rerenderHome({ id: mod.id, control: 'switch' });
     toast(next ? `${mod.name} 사용 시작` : `${mod.name} 사용 중지`);
   });
 
@@ -57,13 +75,15 @@ function moduleRow(mod, state) {
     type: 'button',
     'aria-pressed': String(state.pinned),
     'aria-label': `${mod.name} 상단 고정`,
+    'data-module-id': mod.id,
+    'data-control': 'pin',
     html: icons.pin,
   });
   pinBtn.addEventListener('click', (event) => {
     event.stopPropagation();
     const next = !moduleState(mod).pinned;
     setModuleState(mod.id, { pinned: next });
-    rerenderHome();
+    rerenderHome({ id: mod.id, control: 'pin' });
     toast(next ? '상단에 고정했습니다' : '고정을 해제했습니다');
   });
 
@@ -98,9 +118,20 @@ function moduleRow(mod, state) {
   return row;
 }
 
-function rerenderHome() {
+function rerenderHome(focus = null) {
   const hash = (location.hash || '#/').replace(/^#\/?/, '').replace(/\/+$/, '');
-  if (!hash) renderHome();
+  if (hash) return;
+  renderHome();
+  if (!focus) return;
+
+  // 카드가 다른 섹션으로 옮겨졌으니, 방금 누른 컨트롤로 초점을 따라가게 한다.
+  const node = view.querySelector(`[data-module-id="${focus.id}"][data-control="${focus.control}"]`);
+  if (!node) return;
+  node.focus({ preventScroll: true });
+  const rect = node.getBoundingClientRect();
+  if (rect.top < 0 || rect.bottom > window.innerHeight) {
+    node.scrollIntoView({ block: 'nearest' });
+  }
 }
 
 /* ---------------------------- module screens --------------------------- */

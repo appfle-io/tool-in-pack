@@ -45,19 +45,21 @@
 | 라이브 | <https://appfle-io.github.io/tool-in-pack/> (GitHub Pages, `/tool-in-pack/` 서브 경로) |
 | 저장소 | <https://github.com/appfle-io/tool-in-pack> (public, `main` 브랜치가 곧 배포본) |
 | 소유·기획 | 유동규 (@papaleo / GitHub @appfle-io) |
-| 현재 버전 | **v1.4.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.4.0'`) · 모듈 6종 |
+| 현재 버전 | **v1.5.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.5.0'`) · 모듈 6종 |
 | 라이선스 | MIT (본 저장소 코드) + 서드파티 라이브러리는 각 라이선스 (LICENSE 참고) |
 
-### 모듈 목록 (v1.4.0 기준)
+### 모듈 목록 (v1.5.0 기준) · 홈 섹션 순서와 같다
 
-| # | id | 이름 | 한 줄 기능 |
-| --- | --- | --- | --- |
-| 1 | `doc-reader` | 문서 리더 | PDF · HWP · HWPX 열람 (페이지 이동·확대·회전) |
-| 2 | `img-converter` | 이미지 컨버터 | 이미지 포맷 변환·리사이즈 (9종 입력 → 6종 출력) |
-| 3 | `pdf-tools` | PDF 합치기 · 페이지 추출 | PDF 병합(순서 변경) · 페이지 범위 추출 |
-| 4 | `photo-privacy` | 모자이크 · 위치정보 제거 | EXIF/GPS 확인 → 모자이크·블러 → 메타데이터 삭제 저장 |
-| 5 | `qr-gen` | QR 생성기 | URL · 텍스트 · 와이파이 QR → PNG/SVG |
-| 6 | `video-gif` | 동영상 자르기 · GIF | 구간 잘라 GIF 변환 / 클립 저장 |
+| # | id | 이름 | `category` (홈 섹션) | 한 줄 기능 |
+| --- | --- | --- | --- | --- |
+| 1 | `doc-reader` | 문서 리더 | `docs` (문서) | PDF · HWP · HWPX 열람 (페이지 이동·확대·회전) |
+| 2 | `img-converter` | 이미지 컨버터 | `media` (미디어) | 이미지 포맷 변환·리사이즈 (9종 입력 → 6종 출력) |
+| 3 | `pdf-tools` | PDF 합치기 · 페이지 추출 | `docs` (문서) | PDF 병합(순서 변경) · 페이지 범위 추출 |
+| 4 | `photo-privacy` | 모자이크 · 위치정보 제거 | `media` (미디어) | EXIF/GPS 확인 → 모자이크·블러 → 메타데이터 삭제 저장 |
+| 5 | `qr-gen` | QR 생성기 | `utility` (유틸리티) | URL · 텍스트 · 와이파이 QR → PNG/SVG |
+| 6 | `video-gif` | 동영상 자르기 · GIF | `media` (미디어) | 구간 잘라 GIF 변환 / 클립 저장 |
+
+`modules/registry.js`가 홈 섹션 순서를 정한다: `CATEGORIES = [docs 문서, media 미디어, utility 유틸리티]` → 홈은 **고정됨 → 문서 → 미디어 → 유틸리티** 순서로 그린다. `category`가 없거나 모르는 값이면 `FALLBACK_CATEGORY`(`utility`)로 모인다.
 
 ---
 
@@ -78,10 +80,10 @@ manifest.json             PWA 매니페스트 (이름·아이콘·start_url·sho
 sw.js                     서비스 워커 — 앱 셸 프리캐시 (배포 시 CACHE_VERSION 갱신)
 .nojekyll                 GitHub Pages Jekyll 처리 비활성
 css/app.css               전체 스타일 (모바일 퍼스트 + Safe Area + 라이트/다크 + 데스크톱 미디어쿼리)
-js/app.js                 해시 라우터(#/<module-id>), 홈 허브, ⚙️ 환경설정 시트, SW 등록
+js/app.js                 해시 라우터(#/<module-id>), 홈 허브(고정됨·카테고리 섹션), ⚙️ 환경설정 시트, SW 등록
 js/ui.js                  DOM 헬퍼(el, toast, formatBytes), 공용 아이콘 SVG
 js/store.js               localStorage 설정 (모듈 enabled/pinned, 테마, 액센트)
-modules/registry.js       모듈 레지스트리 — 새 모듈은 여기 한 줄 + import 한 줄
+modules/registry.js       모듈 레지스트리 + CATEGORIES(홈 섹션 순서) — 새 모듈은 여기 한 줄 + import 한 줄
 modules/doc-reader/       문서 리더 (module.js, pdf-viewer.js, hwp.js, hwpx.js, renderers.js)
 modules/img-converter/    이미지 컨버터 (module.js, encoders.js — BMP/ICO/PDF 인코더)
 modules/pdf-tools/        PDF 합치기·페이지 추출 (module.js)

@@ -150,6 +150,7 @@ const module = {
   id: 'img-converter',
   name: '이미지 컨버터',
   kind: 'tool',
+  category: 'media',
   version: '1.0.0',
   subtitle: '이미지 포맷 변환 · 리사이즈',
   description: '이미지 포맷을 기기 안에서 바로 변환합니다. 업로드 없음, 여러 장 한 번에.',

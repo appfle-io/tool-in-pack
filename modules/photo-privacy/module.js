@@ -143,6 +143,7 @@ const module = {
   name: '모자이크 · 위치정보 제거',
   shortName: '사진 모자이크',
   kind: 'tool',
+  category: 'media',
   version: '1.0.0',
   subtitle: '사진 가리기 + EXIF/GPS 삭제',
   description: '사진의 EXIF·GPS를 확인하고, 모자이크/블러로 가린 뒤 메타데이터를 지워 저장합니다.',

@@ -65,6 +65,7 @@ const module = {
   id: 'video-gif',
   name: '동영상 자르기 · GIF',
   kind: 'tool',
+  category: 'media',
   version: '1.0.0',
   subtitle: '구간 잘라 GIF·클립으로',
   description: '동영상의 원하는 구간을 GIF로 만들거나 클립으로 잘라 저장합니다. 기기 안에서만 처리합니다.',

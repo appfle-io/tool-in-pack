@@ -1411,3 +1411,41 @@ button { font: inherit; color: inherit; }
   .vg-player video { max-height: calc(100dvh - 300px); }
   .vg-result-media { width: 148px; }
 }
+
+/* ==========================================================================
+   v1.5.0 — home category sections (고정됨 → 문서 → 미디어 → 유틸리티)
+   Section titles stay flat: one hairline-free label, muted count, no badges.
+   ========================================================================== */
+
+.home-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.home-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 2px 2px 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.home-section-count {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-section[data-section='pinned'] .home-section-title {
+  color: var(--accent);
+}
+
+@media (min-width: 720px) {
+  .home-sections { gap: 20px; }
+}
