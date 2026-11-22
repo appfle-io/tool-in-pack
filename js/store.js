@@ -1,6 +1,4 @@
-/* Persisted shell settings (module enabled / pinned flags, theme). */
-
-import { icons } from './ui.js';
+/* Persisted shell settings (modules, theme, accent). */
 
 const KEY = 'tip.settings.v1';
 
@@ -53,6 +51,33 @@ export function resetSettings() {
 /* theme: 'light' | 'dark' | null (= follow system) */
 
 const THEME_KEY = 'tip.theme';
+const ACCENT_KEY = 'tip.accent';
+
+export const ACCENTS = [
+  { id: 'green', label: '딥그린' },
+  { id: 'blue', label: '블루' },
+  { id: 'purple', label: '퍼플' },
+  { id: 'orange', label: '오렌지' },
+  { id: 'rose', label: '로즈' },
+  { id: 'slate', label: '슬레이트' },
+];
+
+export function getAccent() {
+  try {
+    const saved = localStorage.getItem(ACCENT_KEY);
+    return ACCENTS.some((a) => a.id === saved) ? saved : 'green';
+  } catch {
+    return 'green';
+  }
+}
+
+export function setAccent(id) {
+  const value = ACCENTS.some((a) => a.id === id) ? id : 'green';
+  try {
+    localStorage.setItem(ACCENT_KEY, value);
+  } catch { /* persistence is best-effort */ }
+  document.documentElement.setAttribute('data-accent', value);
+}
 
 export function getTheme() {
   try {
@@ -84,9 +109,5 @@ export function applyTheme(value) {
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
   const meta = document.getElementById('meta-theme-color');
   if (meta) meta.setAttribute('content', dark ? '#0D0D10' : '#F2F2F7');
-  document.querySelectorAll('#theme-btn').forEach((btn) => {
-    btn.innerHTML = dark ? icons.sun : icons.moon;
-    btn.setAttribute('aria-label', dark ? '라이트 모드로 전환' : '다크 모드로 전환');
-    btn.title = btn.getAttribute('aria-label');
-  });
+  document.documentElement.setAttribute('data-accent', getAccent());
 }

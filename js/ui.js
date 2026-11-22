@@ -28,7 +28,7 @@ export function formatBytes(bytes) {
   return `${value >= 10 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
 }
 
-export function el(tag, props = {}, children = []) {
+export function el(tag, props = {}, ...childArgs) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
     if (key === 'class') node.className = value;
@@ -40,7 +40,8 @@ export function el(tag, props = {}, children = []) {
       node.setAttribute(key, value === true ? '' : String(value));
     }
   }
-  for (const child of [].concat(children)) {
+  const children = childArgs.length === 1 ? [].concat(childArgs[0]) : childArgs;
+  for (const child of children.flat(2)) {
     if (child == null) continue;
     node.append(child.nodeType ? child : document.createTextNode(String(child)));
   }

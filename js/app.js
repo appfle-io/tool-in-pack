@@ -1,7 +1,7 @@
 /* TIP app shell — hash routing, home hub, theme, PWA install/SW plumbing. */
 
 import { listModules, getModule } from '../modules/registry.js';
-import { moduleState, setModuleState, getTheme, setTheme, applyTheme } from './store.js';
+import { moduleState, setModuleState, getTheme, setTheme, applyTheme, getAccent, setAccent, ACCENTS } from './store.js';
 import { el, toast, icons } from './ui.js';
 
 const view = document.getElementById('view');
@@ -158,12 +158,122 @@ window.addEventListener('hashchange', route);
 
 /* ------------------------------ theme ------------------------------- */
 
-const themeBtn = document.getElementById('theme-btn');
 applyTheme(getTheme());
+setAccent(getAccent());
 
-themeBtn.addEventListener('click', () => {
-  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
-  setTheme(dark ? 'light' : 'dark');
+/* --------------------------- settings sheet ------------------------- */
+
+const settingsBtn = document.getElementById('settings-btn');
+let sheet = null;
+
+const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+
+const SWATCH_COLORS = {
+  green: ['#166534', '#16A34A'],
+  blue: ['#0A6CFF', '#3D8BFF'],
+  purple: ['#7C3AED', '#8B5CF6'],
+  orange: ['#EA580C', '#F97316'],
+  rose: ['#E11D48', '#F43F5E'],
+  slate: ['#475569', '#64748B'],
+};
+
+function closeSheet() {
+  if (!sheet) return;
+  const { backdrop, panel } = sheet;
+  sheet = null;
+  backdrop.classList.remove('show');
+  panel.classList.remove('show');
+  setTimeout(() => { backdrop.remove(); panel.remove(); }, 220);
+}
+
+function openSheet() {
+  if (sheet) return;
+  const backdrop = el('div', { class: 'sheet-backdrop' });
+  backdrop.addEventListener('click', closeSheet);
+
+  const panel = el('div', {
+    class: 'sheet',
+    role: 'dialog',
+    'aria-modal': 'true',
+    'aria-label': '환경설정',
+  });
+
+  const render = () => {
+    panel.innerHTML = '';
+    panel.append(el('div', { class: 'sheet-grab' }));
+
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const accent = getAccent();
+
+    panel.append(el('div', { class: 'sheet-head' }, [
+      el('h2', { text: '환경설정' }),
+      el('button', {
+        class: 'icon-btn',
+        type: 'button',
+        'aria-label': '닫기',
+        html: icons.close,
+        onclick: closeSheet,
+      }),
+    ]));
+
+    // 화면 모드
+    const seg = el('div', { class: 'sheet-segment', role: 'radiogroup', 'aria-label': '화면 모드' });
+    [['light', '라이트'], ['dark', '다크']].forEach(([id, label]) => {
+      const btn = el('button', {
+        class: 'sheet-seg',
+        type: 'button',
+        role: 'radio',
+        'aria-checked': String(dark === (id === 'dark')),
+      });
+      btn.innerHTML = `${id === 'dark' ? MOON : SUN}<span> ${label}</span>`;
+      btn.addEventListener('click', () => {
+        setTheme(id);
+        render();
+      });
+      seg.append(btn);
+    });
+    panel.append(el('div', { class: 'sheet-section' }, el('h3', { text: '화면 모드' }), seg));
+
+    // 기본 색상
+    const swatches = el('div', { class: 'sheet-swatches', role: 'radiogroup', 'aria-label': '기본 색상' });
+    ACCENTS.forEach(({ id, label }) => {
+      const [lightColor, darkColor] = SWATCH_COLORS[id];
+      const btn = el('button', {
+        class: 'swatch',
+        type: 'button',
+        role: 'radio',
+        'aria-checked': String(accent === id),
+        'aria-label': label,
+      });
+      const dot = el('span', { class: 'swatch-dot' });
+      dot.style.background = `linear-gradient(135deg, ${lightColor} 50%, ${darkColor} 50%)`;
+      btn.append(dot, el('span', { text: label }));
+      btn.addEventListener('click', () => {
+        setAccent(id);
+        render();
+      });
+      swatches.append(btn);
+    });
+    panel.append(el('div', { class: 'sheet-section' }, el('h3', { text: '기본 색상' }), swatches));
+  };
+
+  render();
+  document.body.append(backdrop, panel);
+  requestAnimationFrame(() => {
+    backdrop.classList.add('show');
+    panel.classList.add('show');
+  });
+  sheet = { backdrop, panel };
+}
+
+settingsBtn.addEventListener('click', () => {
+  if (sheet) closeSheet();
+  else openSheet();
+});
+
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeSheet();
 });
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {

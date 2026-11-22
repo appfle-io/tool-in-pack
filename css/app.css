@@ -20,9 +20,6 @@
   --text: #1C1C1E;
   --muted: #6C6C70;
   --muted-2: #8E8E93;
-  --accent: #0A6CFF;
-  --accent-text: #FFFFFF;
-  --accent-soft: rgba(10, 108, 255, 0.08);
   --good: #248A3D;
   --warn: #C93400;
   --bad: #C02929;
@@ -34,6 +31,11 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
+
+  /* accent — deep green (Pack In Bag) is the default */
+  --accent: #166534;
+  --accent-text: #FFFFFF;
+  --accent-soft: rgba(22, 101, 52, 0.09);
 }
 
 :root[data-theme='dark'] {
@@ -45,13 +47,61 @@
   --text: #F2F2F5;
   --muted: #9C9CA4;
   --muted-2: #71717A;
-  --accent: #3D8BFF;
-  --accent-text: #FFFFFF;
-  --accent-soft: rgba(61, 139, 255, 0.12);
   --good: #4FBF67;
   --warn: #FF9F0A;
   --bad: #FF6B5E;
   --topbar-bg: rgba(13, 13, 16, 0.85);
+
+  --accent: #16A34A;
+  --accent-text: #FFFFFF;
+  --accent-soft: rgba(22, 163, 74, 0.14);
+}
+
+/* accent palettes (light / dark) */
+
+:root[data-accent='blue'] {
+  --accent: #0A6CFF;
+  --accent-soft: rgba(10, 108, 255, 0.08);
+}
+:root[data-theme='dark'][data-accent='blue'] {
+  --accent: #3D8BFF;
+  --accent-soft: rgba(61, 139, 255, 0.12);
+}
+
+:root[data-accent='purple'] {
+  --accent: #7C3AED;
+  --accent-soft: rgba(124, 58, 237, 0.09);
+}
+:root[data-theme='dark'][data-accent='purple'] {
+  --accent: #8B5CF6;
+  --accent-soft: rgba(139, 92, 246, 0.14);
+}
+
+:root[data-accent='orange'] {
+  --accent: #EA580C;
+  --accent-soft: rgba(234, 88, 12, 0.09);
+}
+:root[data-theme='dark'][data-accent='orange'] {
+  --accent: #F97316;
+  --accent-soft: rgba(249, 115, 22, 0.14);
+}
+
+:root[data-accent='rose'] {
+  --accent: #E11D48;
+  --accent-soft: rgba(225, 29, 72, 0.09);
+}
+:root[data-theme='dark'][data-accent='rose'] {
+  --accent: #F43F5E;
+  --accent-soft: rgba(244, 63, 94, 0.14);
+}
+
+:root[data-accent='slate'] {
+  --accent: #475569;
+  --accent-soft: rgba(71, 85, 105, 0.09);
+}
+:root[data-theme='dark'][data-accent='slate'] {
+  --accent: #64748B;
+  --accent-soft: rgba(100, 116, 139, 0.16);
 }
 
 * { box-sizing: border-box; }
@@ -696,6 +746,108 @@ button { font: inherit; color: inherit; }
 }
 .ic-result .f-meta { font-size: 11.5px; color: var(--muted-2); }
 .ic-delta { font-weight: 650; }
+
+/* ---------- settings sheet ---------- */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.sheet-backdrop.show { opacity: 1; }
+
+.sheet {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  z-index: 81;
+  transform: translate(-50%, 8px);
+  width: min(100vw, 430px);
+  padding: 10px 16px calc(16px + var(--safe-bottom));
+  border-radius: 18px 18px 0 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.sheet.show { transform: translate(-50%, 0); opacity: 1; }
+.sheet-grab {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  margin: 4px auto 10px;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.sheet-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
+
+.sheet-section { margin-bottom: 14px; }
+.sheet-section h3 {
+  margin: 0 0 7px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--muted-2);
+  letter-spacing: 0.02em;
+}
+
+.sheet-segment { display: flex; gap: 4px; }
+.sheet-seg {
+  flex: 1;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.sheet-seg svg { width: 14px; height: 14px; flex: none; }
+.sheet-seg[aria-checked='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.sheet-swatches { display: flex; gap: 12px; flex-wrap: wrap; }
+.swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.swatch-dot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 2px var(--card);
+}
+.swatch[aria-checked='true'] .swatch-dot { border-color: var(--text); }
+.swatch span {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.swatch[aria-checked='true'] span { color: var(--text); }
 
 /* toast */
 
