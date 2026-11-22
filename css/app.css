@@ -2592,3 +2592,92 @@ mark.rx-hit {
   .vm-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; align-items: start; }
   #vm-canvas { max-height: 64vh; }
 }
+
+/* =========================================================================
+   v1.8.0 — 홈 카드 드래그 순서 변경 (PointerEvent)
+   섹션 안에서만 이동한다. 잡는 곳은 카드 왼쪽의 점 6개 핸들 하나뿐이고,
+   끄는 동안 카드는 뷰포트에 고정되어 손가락·마우스를 따라오며 원래 자리에는
+   점선 자리표시(.drag-placeholder)가 남는다.
+   ========================================================================= */
+
+/* 핸들은 카드 왼쪽 여백에 놓는다 — 제목 폭을 거의 잃지 않고, 터치 영역은 24×44 로 둔다. */
+.module-card.has-drag {
+  position: relative;
+  padding-left: 24px;
+}
+
+.drag-handle {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-2);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.drag-handle svg { width: 14px; height: 14px; }
+.drag-handle:hover { color: var(--text); }
+.drag-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  color: var(--text);
+}
+.drag-handle:active { cursor: grabbing; }
+
+.drag-placeholder {
+  flex: none;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+
+.module-card.is-dragging,
+.module-card.is-dragging:active {
+  position: fixed;
+  z-index: 70;
+  margin: 0;
+  border-color: var(--accent);
+  background: var(--card);
+  cursor: grabbing;
+  transition: none;
+}
+.module-card.is-lifted {
+  transform: scale(1.015);
+  opacity: 0.97;
+}
+body.is-dragging {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: grabbing;
+}
+body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
+
+.sheet-reset {
+  width: 100%;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sheet-reset:active { background: var(--card-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .module-card.is-lifted { transform: none; }
+}

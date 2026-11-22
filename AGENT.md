@@ -25,7 +25,7 @@ TIP(TOOL-IN-PACK)을 이어서 개발하는 AI 어시스턴트와 개발자를 �
 
 ### 지침 3 — 버전은 `MAJOR.MINOR.PATCH` 규칙대로 올린다
 
-현재 버전은 **1.7.0** (2026-11-23 기준). 버전은 세 자리 숫자로만 쓰고(`1.5.0`), 어느 자리를 올릴지는 아래 기준을 따른다.
+현재 버전은 **1.8.0** (2026-11-23 기준). 버전은 세 자리 숫자로만 쓰고(`1.5.0`), 어느 자리를 올릴지는 아래 기준을 따른다.
 
 | 자리 | 올리는 때 | 예 |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ TIP(TOOL-IN-PACK)을 이어서 개발하는 AI 어시스턴트와 개발자를 �
 index.html          앱 셸 (테마 프리페인트, 벤더 <script>, #view, #toast)
 js/app.js           해시 라우터(#/<id>), 홈 허브(고정됨 + 카테고리 섹션), ⚙️ 설정 시트, SW 등록
 js/ui.js            el(), toast(), formatBytes(), 공용 아이콘(icons)
-js/store.js         localStorage — 모듈 enabled/pinned, 테마, 액센트
+js/store.js         localStorage — 모듈 enabled/pinned, 테마, 액센트, 홈 카드 순서(tip.order.v1)
 modules/registry.js 모듈 레지스트리 + CATEGORIES(홈 섹션 순서·라벨)
 modules/<name>/     모듈 구현
 vendor/             셀프호스팅 라이브러리
@@ -123,6 +123,15 @@ css/app.css         전역 스타일 (파일 하나, 끝에 버전별 섹션이 
 - `category` 를 빠뜨리거나 모르는 값을 쓰면 `FALLBACK_CATEGORY`(`utility`)로 모인다. (조용히 사라지지는 않지만, 제 분류에 두려면 반드시 지정한다)
 - **새 분류가 필요하면** `CATEGORIES` 에 `{ id, label }` 을 순서에 맞게 추가하고, 이 표와 `README.md` 모듈 표의 "분류"도 함께 고친다. 분류를 늘리는 일은 드물어야 한다(3~4개 유지).
 - 분류는 모듈의 성격을 말한다. `kind`(`reader`/`tool`)는 내부 구분용이므로 홈 표시에는 쓰지 않는다.
+
+### 홈 카드 순서 (`tip.order.v1`) 관례 — v1.8.0
+
+홈 카드 순서는 `js/store.js`가 `tip.order.v1`에 **섹션별 module id 배열**로 저장한다(`{ pinned, docs, media, utility }`).
+
+- `js/app.js`의 `ordered()`가 섹션 항목을 이 배열 순서로 정렬해 그린다. 배열에 **없는 新모듈은 원래(레지스트리) 순서대로 뒤에 붙으므로**, 모듈을 추가할 때 순서 파일을 건드릴 필요가 없다.
+- 순서 변경은 **같은 섹션 안에서만** 된다(드래그·키보드 모두). 꺼진 모듈(`off` 섹션)은 순서를 바꾸지 않는다.
+- 드래그는 **Pointer Events**(`pointerdown`/`pointermove`/`pointerup` + `setPointerCapture`)로 구현되어 있다. 핸들에만 `touch-action: none`을 주어 본문 스크롤과 부딪치지 않는다. HTML5 `draggable`로 바꾸면 iOS 터치에서 끊긴다.
+- 설정 시트의 **카드 순서 초기화**가 `resetSectionOrder()`로 이 키만 지운다(다른 설정은 그대로).
 
 ### 스타일 관례 (v1.1.0 이후 톤)
 
@@ -176,7 +185,7 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 ## 6. 하지 말아야 할 것
 
 - 사용자가 요청하지 않은 모듈 비활성화, 기본값 변경, 데이터 삭제.
-- `localStorage` 키 이름 변경(`tip.settings.v1`, `tip.theme`, `tip.accent`) — 기존 사용자 설정이 날아간다.
+- `localStorage` 키 이름 변경(`tip.settings.v1`, `tip.theme`, `tip.accent`, `tip.order.v1`) — 기존 사용자 설정·카드 순서가 날아간다.
 - `app.js`의 라우팅 규칙(`#/<id>`) 변경 — PWA 바로가기(`manifest.json` `shortcuts`)와 홈 화면 링크가 깨진다.
 - 검증 없이 `main`에 푸시. (라이브가 곧 배포본이다)
 - 버전 규칙(지침 3)·커밋 메시지 규칙(지침 4)을 건너뛰는 것 — `CACHE_VERSION`·`HISTORY.md`·`README.md` 버전이 서로 다르거나, `[vX.Y.Z] type:` 없는 커밋 제목.

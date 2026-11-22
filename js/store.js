@@ -48,6 +48,64 @@ export function resetSettings() {
   write();
 }
 
+/* 홈 카드 순서 — 섹션별 module id 배열. (v1.8.0)
+   { pinned: [...], docs: [...], media: [...], utility: [...] }
+   배열에 없는 모듈(새로 추가된 모듈)은 원래(레지스트리) 순서대로 뒤에 붙는다. */
+
+const ORDER_KEY = 'tip.order.v1';
+export const ORDER_SECTIONS = ['pinned', 'docs', 'media', 'utility'];
+
+let orderCache = null;
+
+function readOrder() {
+  if (orderCache) return orderCache;
+  let parsed = null;
+  try {
+    parsed = JSON.parse(localStorage.getItem(ORDER_KEY) || 'null');
+  } catch {
+    parsed = null;
+  }
+  const next = {};
+  ORDER_SECTIONS.forEach((section) => {
+    const list = parsed && Array.isArray(parsed[section]) ? parsed[section] : [];
+    next[section] = [...new Set(list.filter((id) => typeof id === 'string'))];
+  });
+  orderCache = next;
+  return orderCache;
+}
+
+export function getSectionOrder(sectionId) {
+  const list = readOrder()[sectionId];
+  return list ? list.slice() : [];
+}
+
+export function setSectionOrder(sectionId, ids) {
+  if (!ORDER_SECTIONS.includes(sectionId) || !Array.isArray(ids)) return;
+  const order = readOrder();
+  order[sectionId] = [...new Set(ids.filter((id) => typeof id === 'string'))];
+  writeOrder(order);
+}
+
+export function hasSectionOrder() {
+  return Object.values(readOrder()).some((list) => list.length > 0);
+}
+
+export function resetSectionOrder() {
+  orderCache = {};
+  ORDER_SECTIONS.forEach((section) => { orderCache[section] = []; });
+  try {
+    localStorage.removeItem(ORDER_KEY);
+  } catch { /* 저장소를 못 쓰면 순서도 저장되지 않는다 */ }
+}
+
+function writeOrder(order) {
+  try {
+    localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+  } catch {
+    /* private mode / quota — 순서는 저장되지 않는다 */
+  }
+}
+
 /* theme: 'light' | 'dark' | null (= follow system) */
 
 const THEME_KEY = 'tip.theme';

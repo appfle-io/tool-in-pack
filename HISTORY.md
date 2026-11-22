@@ -45,10 +45,10 @@
 | 라이브 | <https://appfle-io.github.io/tool-in-pack/> (GitHub Pages, `/tool-in-pack/` 서브 경로) |
 | 저장소 | <https://github.com/appfle-io/tool-in-pack> (public, `main` 브랜치가 곧 배포본) |
 | 소유·기획 | 유동규 (@papaleo / GitHub @appfle-io) |
-| 현재 버전 | **v1.7.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.7.0'`) · 모듈 17종 |
+| 현재 버전 | **v1.8.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.8.0'`) · 모듈 17종 |
 | 라이선스 | MIT (본 저장소 코드) + 서드파티 라이브러리는 각 라이선스 (LICENSE 참고) |
 
-### 모듈 목록 (v1.7.0 기준) · 홈 섹션 순서와 같다
+### 모듈 목록 (v1.8.0 기준) · 기본 순서 = 홈 섹션 순서
 
 | # | id | 이름 | `category` (홈 섹션) | 한 줄 기능 |
 | --- | --- | --- | --- | --- |
@@ -71,6 +71,8 @@
 | 17 | `currency-calc` | 환율 계산기 | `utility` (유틸리티) | 12개 통화 · 공개 환율표 캐시 · 수동 환율 · 오프라인 폴백 |
 
 홈 표시 순서는 `registry` 배열 순서를 따르며, v1.7.0부터 **꺼진 모듈은 원래 묶음에서 빠져 맨 아래 '꺼진 모듈' 한 섹션**에 모인다(0개면 숨김). `modules/registry.js`가 홈 섹션 순서를 정한다: `CATEGORIES = [docs 문서, media 미디어, utility 유틸리티]` → 홈은 **고정됨 → 문서 → 미디어 → 유틸리티** 순서로 그린다. `category`가 없거나 모르는 값이면 `FALLBACK_CATEGORY`(`utility`)로 모인다.
+
+v1.8.0부터 사용자가 **카드 왼쪽 핸들(⋮⋮)을 끌어 같은 섹션 안 순서를 바꿀 수 있고**, 그 순서가 `localStorage` `tip.order.v1`(섹션별 module id 배열)에 저장된다. 저장된 배열에 없는 모듈(새로 추가된 모듈)은 원래 순서대로 뒤에 붙고, 꺼진 모듈은 순서를 바꾸지 않는다.
 
 ---
 
@@ -164,7 +166,11 @@ python3 -m http.server 8000
    - `verify-c.cjs`(20항목): 영상 로드·드래그 영역·실행취소/삭제·모드 전환, MediaRecorder 산출물 길이/해상도, 원본 대비 모자이크 영역 디테일(색 수 48→16, 가장자리 에너지 3.87→2.08)과 바깥 영역 보존, 오디오 트랙(`webkitAudioDecodedByteCount` 20,139B).
    - `verify-d.cjs`(9항목): 서비스 워커 `tip-v1.7.0` 프리캐시 50개, 오프라인 재로드로 홈 17카드·마크다운(표/체크박스)·환율(내장 참고)·영상·압축 화면 동작.
    - 합계 **104항목 전부 통과**. 결과 JSON `results-a/b/c/d.json`, 스크린샷 `work/tip-mockups/tip-v17-*.png`(390·1280, 라이트/다크·상태별).
-5. **푸시 후 라이브 확인** — GitHub Pages 반영(보통 30~90초)을 `sw.js`의 `CACHE_VERSION`으로 확인하고, 라이브 URL에서 홈 6개 카드와 신규 모듈을 실제 파일로 다시 실행한다. 기존 방문자는 서비스 워커 때문에 **한 번 새로고침**해야 새 버전으로 바뀐다(설계된 동작: `skipWaiting` + `clients.claim`).
+5. **헤드리스 자동 검증(v1.8.0 때 사용)** — `work/tip-verify/v18/`(저장소 밖).
+   - `verify-v18.cjs`(46항목, Playwright + chrome-headless-shell 대신 `work/chrome`): 390×844 터치는 **CDP `Input.dispatchTouchEvent`**(진짜 터치 → `pointerType: 'touch'`), 1280×800 은 마우스(`page.mouse`)로 끈다.
+   - 검사: 핸들 개수·터치 영역(24×44)·`touch-action`·`tip.order.v1` 저장, 문서/미디어/유틸리티/고정됨 섹션 안 이동, 2열 그리드 좌우 교환, 같은 섹션 밖으로 나가지 않음, 끄는 중 자리표시·`position:fixed`·카드가 `body`로 이동, 새로고침 유지, OFF→ON 유지, 키보드 ↑↓ 이동·초점 유지·안내 토스트, 아래 가장자리 자동 스크롤, 새 모듈 뒤 붙임·없는 id·중복 무시, 설정 시트 순서 초기화(`tip.order.v1`만 삭제), 스위치·핀·실행 회귀, 콘솔 에러 0·404 0·가로 넘침 0.
+   - 결과 JSON `results.json`, 스크린샷 `work/tip-verify/v18/shots/`(390·1280, 라이트/다크, 끄는 중 포함).
+6. **푸시 후 라이브 확인** — GitHub Pages 반영(보통 30~90초)을 `sw.js`의 `CACHE_VERSION`으로 확인하고, 라이브 URL에서 홈 6개 카드와 신규 모듈을 실제 파일로 다시 실행한다. 기존 방문자는 서비스 워커 때문에 **한 번 새로고침**해야 새 버전으로 바뀐다(설계된 동작: `skipWaiting` + `clients.claim`).
 
 ### 배포 절차
 
@@ -179,6 +185,30 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 ---
 
 ## 3. 버전 기록 (최신이 위)
+
+### v1.8.0 — 2026-11-23 00:52 (KST) · 커밋 `PENDING` · `tip-v1.8.0`
+
+- **작성자**: 유동규(기획·드래그 순서 변경 요청·검수) + Pickle(AI) 구현
+- **개발 내용** (기능 추가 — 홈 카드 순서 바꾸기, 모듈 17종 그대로)
+  - `js/store.js` — `tip.order.v1` 추가. `getSectionOrder(sectionId)` / `setSectionOrder(sectionId, ids)` / `hasSectionOrder()` / `resetSectionOrder()`. 값은 `{ pinned: [], docs: [], media: [], utility: [] }` 모양의 **섹션별 module id 배열**이며, 읽을 때 없는 섹션·문자열이 아닌 값은 버리고 중복은 제거한다(망가진 값이 섞여도 홈이 그려진다). 기존 키(`tip.settings.v1`·`tip.theme`·`tip.accent`)는 건드리지 않는다.
+  - `js/app.js` — 홈 허브
+    - `ordered(entries, sectionId)`: 섹션 항목을 저장된 id 순서로 정렬. 배열에 없는 모듈은 `Number.MAX_SAFE_INTEGER`로 밀려 **원래(레지스트리) 순서대로 뒤에** 붙는다(안정 정렬). 꺼진 모듈(`off`)은 정렬하지 않는다.
+    - `dragHandle(row, mod, sectionId)`: 카드 왼쪽 여백에 놓는 **⋮⋮ 핸들 버튼**(`data-control="drag"`, `aria-label="<모듈> 순서 바꾸기"`). 카드가 `role="button"`이므로 핸들 클릭은 `stopPropagation`으로 모듈 열기를 막는다.
+    - **Pointer Events 드래그**: `startDrag()`가 `pointerdown`에서 `setPointerCapture`로 포인터를 잡고, 카드를 `position: fixed`로 `document.body`로 옮긴 뒤 원래 자리에 점선 `.drag-placeholder`를 남긴다. `onDragMove()`는 카드를 포인터에 붙여 따라오게 하고(가로는 화면 밖으로 나가지 않게 클램프), `placePlaceholder()`가 **가장 가까운 카드 중심**을 찾아 그 앞/뒤에 자리표시를 옮긴다. 한 줄이면 y, 2열 그리드(`grid-template-columns` 개수로 판별)면 같은 줄에서는 x로 앞/뒤를 정한다. `onDragEnd()`는 자리표시 자리에 카드를 되돌리고 **DOM 순서 그대로** `setSectionOrder()`로 저장 → 토스트 `카드 순서를 저장했습니다`. 실제로 자리가 바뀌지 않았으면 저장·토스트 없음. `pointercancel`이면 저장값 그대로 다시 그린다.
+    - `autoScroll()`: 끄는 동안 화면 위·아래 76px 안에 들어오면 `requestAnimationFrame`으로 페이지를 따라 스크롤한다(최대 16px/프레임).
+    - `moveByKeyboard()`: 핸들에서 ↑↓(한 줄은 ±1, 2열은 ±열 수)·←→(2열에서 ±1)로 한 칸 이동, 저장 후 토스트 `<모듈>을(를) n번째로 옮겼습니다 (n/총)`, 맨 앞·맨 뒤에서는 `이미 맨 앞입니다`/`이미 맨 뒤입니다`. 이동 후에도 핸들 초점 유지.
+    - 설정 시트에 **홈 화면 — 카드 순서 초기화** 버튼(`.sheet-reset`): 순서를 바꾼 적이 있을 때(`hasSectionOrder()`)만 보이고, `resetSectionOrder()` → 홈을 다시 그린다.
+  - `css/app.css` — v1.8.0 섹션. `.module-card.has-drag { position: relative; padding-left: 24px; }`로 핸들을 카드 왼쪽 여백에 **절대 배치**해 제목 폭 손실을 10px로 줄였다(390px에서 제목이 두 줄로 끌어지지 않음). `.drag-handle` 24×44px, `touch-action: none`, `user-select`/`touch-callout`/`tap-highlight` 차단, `:focus-visible` 윤곽. `.module-card.is-dragging`(fixed·z-index 70·액센트 보더), `.is-lifted`(scale 1.015), `.drag-placeholder`(액센트 점선 + `--accent-soft`), `body.is-dragging`, `prefers-reduced-motion`에서 확대 해제.
+  - `sw.js` — `CACHE_VERSION = 'tip-v1.8.0'` (새 파일 없어서 `APP_SHELL` 변경 없음).
+  - `README.md` — §1 홈 화면에 **드래그로 순서 바꾸기**·**키보드로 순서 바꾸기** 항목, §3 환경설정에 **카드 순서 초기화**, §5 제한사항에 순서 범위·기기 저장 안내, §7 버전 표 `v1.8.0`.
+  - `AGENT.md` — 현재 버전 `1.8.0`, 구조도의 `js/store.js` 설명에 `tip.order.v1`, **§3 "홈 카드 순서(`tip.order.v1`) 관례"** 절(새 모듈은 뒤에 자동으로 붙음, 섹션 간 이동 금지, Pointer Events 유지·HTML5 `draggable` 금지), §6에 `tip.order.v1` 키 보호 추가.
+- **사용한 언어·라이브러리·세팅**: Vanilla HTML/CSS/ES Modules(빌드 없음). 새 라이브러리 없음 — 브라우저 기본 **Pointer Events API**만 사용(iOS Safari 16+·Chrome/Edge/Safari 최신). 검증은 `work/tip-verify/v18/verify-v18.cjs`(Playwright + `work/chrome/chrome-linux64/chrome`, 터치는 CDP `Input.dispatchTouchEvent`).
+- **주의·제약**:
+  - 순서는 **같은 섹션 안에서만** 바뀐다(요청 사항). 다른 섹션으로 옮기려면 **핀**(고정됨)을 쓴다.
+  - 순서는 **그 기기 브라우저의 `localStorage`에만** 저장된다(서버·계정 없음, 다른 기기와 공유되지 않음). 시크릿 모드에서는 저장되지 않을 수 있다.
+  - 손가락으로 끄는 동안 페이지 스크롤은 핸들 위에서 멈춘다(`touch-action: none`). 카드 본문을 끌면 스크롤된다(카드 열기와 충돌 없음).
+  - iOS Safari는 Pointer Events를 지원하므로 HTML5 `draggable` 대신 이 방식을 썼다. 옛 iOS(13 미만)에서는 드래그가 되지 않지만 키보드·핀으로 대체 가능하다.
+  - `:has()` 대신 JS가 붙이는 `.has-drag` 클래스를 썼다(구형 브라우저에서도 레이아웃이 깨지지 않게).
 
 ### v1.7.0 — 2026-11-23 00:21 (KST) · 커밋 `79768b1` · `tip-v1.7.0`
 
