@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TIP · TOOL-IN-PACK</title>
+  <meta name="description" content="작은 도구들을 한곳에 모은 모듈형 유틸리티 — TIP (TOOL-IN-PACK)">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0b0d12">
+
+  <!-- PWA / iOS home screen -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="application-name" content="TIP">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TIP">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon-180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512.png">
+  <link rel="shortcut icon" href="./icons/favicon.png">
+
+  <link rel="stylesheet" href="./css/app.css">
+
+  <!-- self-hosted libraries (pinned, no runtime CDN) -->
+  <script src="./vendor/pdfjs/pdf.min.js" defer></script>
+  <script src="./vendor/jszip/jszip.min.js" defer></script>
+  <script type="module" src="./js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/" aria-label="TIP 홈">
+      <span class="brand-mark" aria-hidden="true">TIP</span>
+      <span class="brand-text">
+        <b>TIP</b>
+        <i>TOOL-IN-PACK</i>
+      </span>
+    </a>
+    <div class="topbar-actions">
+      <button id="install-btn" class="ghost-btn" type="button" hidden>홈 화면에 추가</button>
+    </div>
+  </header>
+
+  <main id="view" class="view" tabindex="-1">
+    <noscript>
+      <p>TIP을 사용하려면 JavaScript가 필요합니다.</p>
+    </noscript>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
