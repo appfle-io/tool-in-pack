@@ -206,6 +206,7 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
   - PDF 축소는 페이지를 그림으로 다시 그리므로 **텍스트 선택·검색 불가**(용량 우선). 암호 PDF 미지원.
   - 이미지 재압축이 원본보다 커지면 원본을 유지한다(PNG 등).
   - `localStorage` 키는 기존(`tip.settings.v1`·`tip.theme`·`tip.accent`)을 건드리지 않고 `tip.mdx.v1`·`tip.fx.v1`·`tip.fx.manual.v1`만 추가.
+- **라이브 검증** (2026-11-23 00:26 KST, <https://appfle-io.github.io/tool-in-pack/>): `sw.js`가 `tip-v1.7.0`을 서빙, 홈 17카드·섹션(고정됨 1 · 문서 2 · 미디어 4 · 유틸리티 10), '꺼진 모듈' 이동/복귀, 17개 모듈 모두 열림, 단위 1 m → 100 cm, 환율 실제 API 갱신(1 USD = 1,342.28 KRW · 2026-11-22 09:02 기준), 마크다운 GFM 표/체크박스/코드, 이미지 1.1 MB → 363 KB(68%), 영상 모자이크 MP4 722 KB · 640×360 인코딩, 390·1280 가로 넘침 0, 콘솔·404 0, SW 캐시 51개·오프라인 재로드 정상 — **23항목 전부 통과**. 스크린샷 12장 `work/tip-mockups/tip-v17-live-*.png`.
 
 ### v1.6.0 — 2026-11-22 23:43 (KST) · 커밋 `2e09ce0` · `tip-v1.6.0`
 
