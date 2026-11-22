@@ -213,7 +213,7 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 
 ## 3. 버전 기록 (최신이 위)
 
-### v1.9.0 — 2026-11-23 (KST) · `tip-v1.9.0` · macOS 앱 + 반원 퀵바
+### v1.9.0 — 2026-11-23 (KST) · 커밋 `de05252`, `ff7afe3` · `tip-v1.9.0` · macOS 앱 + 반원 퀵바
 
 - **작성자**: 유동규(기획·반원 퀵바 컨셉·퀵바 전용 순서 요청·검수) + Pickle(AI) 구현
 - **개발 내용** (macOS 앱 신규 + 웹에 퀵바 순서 설정 추가 — 모듈 17종 그대로)
@@ -230,12 +230,24 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
   - `sw.js` — `tip-v1.9.0`, 프리캐시에 `radial.html`·`css/radial.css`·`js/radial.js`·`js/quickbar.js` 추가.
   - `.gitignore` — `mac/dist-web/`·`node_modules/`·`target/`·`gen/`.
 - **사용한 언어·라이브러리·세팅**: 프런트엔드는 그대로 Vanilla(빌드 없음) + Tauri 2 `withGlobalTauri`(npm 프런트엔드 빌드 없음). Rust `tauri 2`(tray-icon, image-png, macos-private-api), CLI `@tauri-apps/cli 2.12.6`(mac/package-lock.json 고정). 아이콘은 Python Pillow.
-- **검증**: 아래 '검증 결과' 참고(로컬 웹 32항목 + GitHub Actions macos-latest 빌드).
+- **로컬 검증** (2026-11-23 07:2x KST, `work/tip-v19/test_web.py` — 샌드박스 headless Chromium, 390×844·1280×800): **32항목 전부 통과**. 홈 17카드·17모듈 화면 mount·콘솔 0·404 0, 설정 시트 `반원 퀵바 순서` 17줄·기본 순서(고정됨 먼저), ↑ 버튼·**⋮⋮ 드래그**로 순서 변경 → `tip.radialOrder.v1`(17개 id) 저장 → 새로고침 유지, `radial.html` 가운데 칸이 지정 1번, 7칸 표시, 휠·‹› 회전, 모듈 클릭 → `index.html?module=<id>#/<id>`, 라이트/다크·딥그린 반영, 켜기/끄기 필터(꺼도 순서 기억 → 다시 켜면 원래 자리), '메인 순서 따르기' 초기화, 데스크톱 가로 넘침 0.
+- **라이브 검증** (2026-11-23 07:3x KST, `work/tip-v19/live_check.py` — 실제 GitHub Pages): **9/9 통과**. `sw.js` = `tip-v1.9.0`, 라이브 홈 17카드·오류 0·4xx 0, 설정 시트 퀵바 17줄, `radial.html` 7칸·휠 회전·새 창에서도 저장 순서 유지. 스크린샷 `work/tip-mockups/tip-v19-live-radial-*.png`.
+- **CI 빌드** (2026-11-23 07:33~07:40 KST, GitHub Actions run `45078383799`, `macos-latest`, macOS 26.7.2 · rustc 1.100.0 · node 20): **전 단계 초록불**, 아티팩트 `tip-mac-universal-ff7afe3f7d727b6930e658c42e0a8885ba340256`.
+  - `dist-web: 65 files` 복사 확인(beforeBuildCommand 동작).
+  - Universal 확인: `Architectures in the fat file … are: x86_64 arm64`.
+  - Info.plist: `CFBundleShortVersionString 1.9.0` · `CFBundleIdentifier io.appfle.tip` · `LSMinimumSystemVersion 11.0` · `CFBundleExecutable tip` · `LSUIElement` 없음(Dock 아이콘 유지).
+  - 코드 서명: `flags=0x10002(adhoc,runtime)` — Ad-hoc(Secrets 없음) + hardened runtime, `codesign --verify --deep --strict` 통과.
+  - DMG: `hdiutil verify` 전 항목 CRC verified, 마운트 내용 `.VolumeIcon.icns` · `Applications → /Applications` · `TIP.app`.
+  - 산출물: `TIP_1.9.0_universal.dmg` 30,568,090 bytes (sha256 `d8742ad9045c8195919522012fd5d34f40dfcaf6efceaade7feef6c57c0cfd63`), `TIP_1.9.0_universal.app.tar.gz` 29,237,570 bytes (sha256 `1610c031ac3f14bac122c30686a1b99941568e6b4b2c1106d1ebb012d898e4fb`).
+  - 첫 실행은 실패했다(원인·수정은 커밋 `ff7afe3`): ① `tauri::generate_context!` 가 `icons/icon.png` 를 요구 → `tools/make-mac-icons.py` 가 `icon.png`(1024)도 만들도록 수정, ② `TrayIconEvent::Click.rect` 의 `position`/`size` 는 dpi **열거형**(`tauri::Position`/`tauri::Size`)이라 `.x`/`.width` 가 없다 → Physical/Logical 을 직접 매칭해 물리 픽셀로 변환.
 - **주의·제약**:
   - 서명 Secrets 가 없으면 Ad-hoc 서명이라 첫 실행에 Finder 우클릭 → 열기(또는 `xattr -dr com.apple.quarantine`)가 필요하다.
   - 반원 창은 **포커스 아웃 시 자동으로 숨는다.** 컴팩트 창은 파일 선택 대화상자를 써도 닫히지 않게 일반 창(타이틀바 있음)으로 띄운다.
   - 퀵바 순서는 웹 `localStorage` 에만 저장된다(계정·서버 없음). 웹과 Mac 앱은 서로 다른 origin 이므로 **각각 따로** 저장된다(웹 브라우저 ↔ Mac 앱 사이 동기화는 없음).
-  - DMG/앱은 Universal 이지만, CI 는 실제 실행 테스트를 하지 않는다(빌드·서명·번들 구조 검사까지).
+  - DMG/앱은 Universal 이지만, CI 는 실제 실행 테스트를 하지 않는다(빌드·서명·번들 구조 검사까지). 앱 실행·트레이 동작은 macOS 실기에서 확인해야 한다.
+  - Mac 앱은 WKWebView 안에서 돈다. 워커·wasm 을 쓰는 모듈(OCR 의 tesseract worker, 영상 모자이크의 MediaRecorder 등)은 커스텀 프로토콜(tauri://) 환경에서 동작이 다를 수 있어 **실기 확인이 필요하다**. 나머지 17개 모듈의 순수 JS 경로는 웹과 같은 파일이다.
+  - **GitHub App 권한 제약**: 이 저장소에 연결된 GitHub App 에 `workflows` 스코프가 없어 `.github/workflows/` 파일은 CLI 로 push 할 수 없다(`refusing to allow a GitHub App to create or update workflow`). 그래서 `build-mac.yml` 은 GitHub 웹 업로드(커밋 `d2b635d`)로 추가했고, **앞으로 이 파일을 고칠 때도 웹 편집이나 `workflows` 권한이 있는 계정이 필요하다**. `mac/**` 등 나머지 변경은 그대로 push 가능하다.
+  - 기존 PWA 사용자가 배포 직후 `radial.html` 을 직접 열면 옛 서비스 워커 캐시와 섞여 빈 화면이 될 수 있다(새로고침 1회면 정상). Mac 앱은 서비스 워커를 등록하지 않아 영향이 없다.
 
 ### v1.8.0 — 2026-11-23 00:38 (KST) · 커밋 `8ee58b7` · `tip-v1.8.0`
 

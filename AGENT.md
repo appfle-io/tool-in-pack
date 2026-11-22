@@ -141,10 +141,12 @@ css/radial.css      반원 퀵바 창 전용 스타일
   | `quickbar` | 580×260 | 반원 퀵바. 투명·무테두리·always on top·skip taskbar, **포커스 아웃 시 hide** |
   | `tool` | 420×680 | 모듈별 컴팩트 창. `index.html?module=<id>` 로 열고, 이미 있으면 `tip://open-module` 이벤트로 모듈만 바꾼다 |
 - **트레이**: `icons/trayTemplate.png`(흑백 템플릿, `icon_as_template(true)`) — 라이트/다크 메뉴 막대에 자동으로 맞는다. 좌클릭 = 퀵바 토글, 우클릭 = 메뉴(앱 열기·퀵바·종료). 아이콘 좌표(`TrayIconEvent::Click.rect`)를 저장해 창을 그 아래에 놓는다.
-- **아이콘 재생성**: `python3 tools/make-mac-icons.py` (`icon.icns`, `trayTemplate.png`, `trayTemplate@2x.png`). 결과물은 커밋한다.
+- **아이콘 재생성**: `python3 tools/make-mac-icons.py` (`icon.icns`, `icon.png`, `trayTemplate.png`, `trayTemplate@2x.png`). 결과물은 커밋한다. `icon.png` 는 `tauri::generate_context!` 가 기본 창 아이콘으로 읽으므로 **없으면 빌드가 panic** 한다.
+- **트레이 좌표**: `TrayIconEvent::Click.rect` 의 `position`·`size` 는 dpi **열거형**(`tauri::Position` / `tauri::Size`)이다. `.x`·`.width` 필드가 없으므로 `Position::Physical/Logical` 을 직접 매칭해 물리 픽셀로 바꾼 뒤 저장한다(`lib.rs` 의 `on_tray_icon_event`).
 - **빌드**: `.github/workflows/build-mac.yml` — `macos-latest`, Universal(`aarch64-apple-darwin` + `x86_64-apple-darwin`), `npx tauri build --target universal-apple-darwin --bundles app,dmg`. 로컬(Mac)에서는 `cd mac && npm install && npm run build`.
 - **서명 분기**: Secrets `APPLE_CERTIFICATE`·`APPLE_CERTIFICATE_PASSWORD`·`APPLE_SIGNING_IDENTITY`(+공증용 `APPLE_ID`·`APPLE_PASSWORD`·`APPLE_TEAM_ID`)가 있으면 Developer ID 서명·공증, 없으면 Ad-hoc(`APPLE_SIGNING_IDENTITY=-`). **Secrets 를 if 조건에 직접 쓸 수 없어** job `env.SIGNING_CERT` 로 내려받아 조건에 쓴다.
 - **버전 일치**: `mac/package.json` · `mac/src-tauri/Cargo.toml` · `mac/src-tauri/tauri.conf.json` 의 `version` 을 `sw.js` 와 같은 값으로 올린다(Info.plist `CFBundleShortVersionString` 이 된다).
+- **주의 — 워크플로우 파일은 CLI 로 못 올린다**: 이 저장소의 GitHub App 에 `workflows` 스코프가 없어 `.github/workflows/*` push 는 거부된다. 빌드 워크플로우를 고칠 때는 GitHub 웹 편집으로 커밋하고, 나머지 코드는 평소처럼 push 한다.
 
 ### 반원 퀵바 순서 (`tip.radialOrder.v1`) 관례 — v1.9.0
 
