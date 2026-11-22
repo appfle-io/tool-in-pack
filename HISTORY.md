@@ -45,10 +45,10 @@
 | 라이브 | <https://appfle-io.github.io/tool-in-pack/> (GitHub Pages, `/tool-in-pack/` 서브 경로) |
 | 저장소 | <https://github.com/appfle-io/tool-in-pack> (public, `main` 브랜치가 곧 배포본) |
 | 소유·기획 | 유동규 (@papaleo / GitHub @appfle-io) |
-| 현재 버전 | **v1.5.1** (`sw.js` → `CACHE_VERSION = 'tip-v1.5.1'`) · 모듈 6종 |
+| 현재 버전 | **v1.6.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.6.0'`) · 모듈 12종 |
 | 라이선스 | MIT (본 저장소 코드) + 서드파티 라이브러리는 각 라이선스 (LICENSE 참고) |
 
-### 모듈 목록 (v1.5.0 기준) · 홈 섹션 순서와 같다
+### 모듈 목록 (v1.6.0 기준) · 홈 섹션 순서와 같다
 
 | # | id | 이름 | `category` (홈 섹션) | 한 줄 기능 |
 | --- | --- | --- | --- | --- |
@@ -58,6 +58,12 @@
 | 4 | `photo-privacy` | 모자이크 · 위치정보 제거 | `media` (미디어) | EXIF/GPS 확인 → 모자이크·블러 → 메타데이터 삭제 저장 |
 | 5 | `qr-gen` | QR 생성기 | `utility` (유틸리티) | URL · 텍스트 · 와이파이 QR → PNG/SVG |
 | 6 | `video-gif` | 동영상 자르기 · GIF | `media` (미디어) | 구간 잘라 GIF 변환 / 클립 저장 |
+| 7 | `dev-tools` | 개발자 툴팩 | `utility` (유틸리티) | JSON 정렬·압축·검증 · Base64/URL · JWT 디코드 · 타임스탬프 · UUID v4 |
+| 8 | `text-diff` | 텍스트 비교 · 정리 | `utility` (유틸리티) | 줄 단위 LCS diff · 글자/단어/줄/바이트 통계 · 빈 줄·중복 줄 정리 |
+| 9 | `regex-tester` | 정규식 테스터 | `utility` (유틸리티) | 실시간 매치 하이라이트 · 캡처 그룹 · 프리셋 6종 |
+| 10 | `color-tools` | 색상 · 대비 체크 | `utility` (유틸리티) | HEX/RGB/HSL 변환 · WCAG 대비율·AA/AAA 배지 · 스포이드(지원 시) |
+| 11 | `icon-gen` | 앱 아이콘 생성기 | `utility` (유틸리티) | 16~1024px PNG 7종 + manifest 스니펫 ZIP |
+| 12 | `ocr-reader` | 이미지 텍스트 추출 | `utility` (유틸리티) | OCR(한국어·영어) · 진행률 · 편집/복사/TXT 저장 |
 
 `modules/registry.js`가 홈 섹션 순서를 정한다: `CATEGORIES = [docs 문서, media 미디어, utility 유틸리티]` → 홈은 **고정됨 → 문서 → 미디어 → 유틸리티** 순서로 그린다. `category`가 없거나 모르는 값이면 `FALLBACK_CATEGORY`(`utility`)로 모인다.
 
@@ -90,6 +96,12 @@ modules/pdf-tools/        PDF 합치기·페이지 추출 (module.js)
 modules/photo-privacy/    모자이크·EXIF 제거 (module.js, exif.js — EXIF/GPS 파서)
 modules/qr-gen/           QR 생성기 (module.js)
 modules/video-gif/        동영상 자르기·GIF (module.js)
+modules/dev-tools/        개발자 툴팩 — JSON·Base64/URL·JWT·타임스탬프·UUID (module.js)
+modules/text-diff/        텍스트 비교·정리 — LCS diff·통계·정리 (module.js)
+modules/regex-tester/     정규식 테스터 — 매치 하이라이트·캡처 그룹 (module.js)
+modules/color-tools/      색상·대비 체크 — HEX/RGB/HSL·WCAG (module.js)
+modules/icon-gen/         앱 아이콘 생성기 — Canvas 리사이즈·JSZip (module.js)
+modules/ocr-reader/       이미지 텍스트 추출 — tesseract.js (module.js)
 vendor/                   셀프호스팅 라이브러리 (아래 표)
 icons/                    PWA 아이콘 (1024 마스터 / 512 / maskable / 192 / apple-touch / favicon·32)
 tools/make-icons.py       아이콘 재생성 스크립트 (Python + Pillow)
@@ -111,6 +123,9 @@ LICENSE                   MIT + 서드파티 라이선스 목록
 | `vendor/pdf-lib/pdf-lib.min.js` | pdf-lib | 1.17.1 | MIT | PDF 병합·페이지 추출 | 없음 (UMD, `window.PDFLib` 사용) |
 | `vendor/qrcode/qrcode.mjs` | qrcode-generator | 2.0.4 | MIT | QR 모듈 생성 | 없음 (ESM 그대로) |
 | `vendor/gifenc/gifenc.esm.js` | gifenc | 1.0.3 | MIT | GIF 인코딩(양자화·LZW) | `sourceMappingURL` 주석만 제거 |
+| `vendor/tesseract/tesseract.min.js`, `worker.min.js` | tesseract.js | 6.0.1 | Apache-2.0 | OCR 메인 스레드·워커 | 없음 (지연 로드, `window.Tesseract`) |
+| `vendor/tesseract/core/tesseract-core-{simd-,}lstm.wasm.js` | tesseract.js-core | 6.0.0 | Apache-2.0 | Tesseract WASM(LSTM 전용, wasm 내장 단일 파일) | 없음 (SIMD 지원 여부로 파일 선택, 프리캐시 제외) |
+| `vendor/tesseract/lang/kor.traineddata.gz`, `eng.traineddata.gz` | tessdata_fast | 4.x(2026-07 배포본) | Apache-2.0 | OCR 한국어·영어 학습 데이터 | gzip -9 재압축만 (프리캐시 제외) |
 | `vendor/fonts/PretendardVariable.woff2` | Pretendard | Variable | SIL OFL 1.1 | 전체 UI 폰트 | 없음 |
 
 라이브러리를 새로 넣을 때: `npm pack`/`npm i`로 받아 **minified 배포본만** `vendor/<이름>/`에 복사하고, 라이선스 파일을 함께 두고, `LICENSE`의 서드파티 목록에 한 줄 추가하고, `sw.js` 프리캐시 목록에 경로를 넣는다.
@@ -129,14 +144,15 @@ python3 -m http.server 8000
 
 서비스 워커가 캐시를 물고 있으므로 **검증은 항상 새 브라우저 컨텍스트**(시크릿 창 또는 새 프로필)에서 한다.
 
-1. **수동 확인** — 홈에서 6개 카드 → 각 모듈을 실제 파일로 실행. 모바일 390×844, 데스크톱 1280×800 두 크기에서 확인.
-2. **헤드리스 자동 검증(v1.4.0 때 사용)** — 이 개발 환경(워크스페이스)의 `work/tipv14/`에 하네스가 있다(저장소에는 넣지 않음).
+1. **수동 확인** — 홈에서 12개 카드 → 각 모듈을 실제 파일로 실행. 모바일 390×844, 데스크톱 1280×800 두 크기에서 확인.
+2. **헤드리스 자동 검증(v1.6.0 때 사용)** — `work/v16/`(저장소 밖)에 Python + Playwright 하네스가 있다. `harness.py`가 `work/tip`을 정적 서빙하고 `chrome-linux64`를 띄운다. `test_func.py`(유틸리티 5종 실데이터 56항목), `test_ocr.py`·`test_ocr2.py`(OCR 31항목, 오프라인 콜드 스타트 포함), `shots_all.py`(390·1280 × 라이트/다크 스크린샷·넘침·콘솔), `test_lang.py`(언어 3종). 결과 JSON은 `work/v16/results-*.json`, 스크린샷은 `work/v16/shots/v160-*.png`.
+3. **헤드리스 자동 검증(v1.4.0 때 사용)** — 이 개발 환경(워크스페이스)의 `work/tipv14/`에 하네스가 있다(저장소에는 넣지 않음).
    - `static-server.js` — 저장소 루트를 서빙하는 최소 Node 정적 서버
    - `make-pdfs.js` — pdf-lib로 페이지 크기가 다른 테스트 PDF 생성 (병합 순서 검증용)
    - `make-exif-photo.py` — Pillow + 직접 작성한 APP1(TIFF)으로 GPS 포함 EXIF JPEG 생성, Pillow로 재검증
    - `test-v14.js` — Playwright(헤드리스 Chromium)로 58개 항목 검증: PDF 병합/추출 바이트·페이지 수, EXIF 표시·모자이크 픽셀 변화·저장 파일 EXIF 0건, QR PNG 치수·SVG, GIF 헤더/프레임 수/지연, 클립 길이·해상도, 드래그앤드롭, 데스크톱 2열 레이아웃, 가로 넘침, 콘솔/페이지 에러 0건, 404 0건, SW 캐시 버전
    - 테스트 영상은 브라우저 안에서 `canvas.captureStream()` + `MediaRecorder`로 생성한다(외부 툴 불필요).
-3. **푸시 후 라이브 확인** — GitHub Pages 반영(보통 30~90초)을 `sw.js`의 `CACHE_VERSION`으로 확인하고, 라이브 URL에서 홈 6개 카드와 신규 모듈을 실제 파일로 다시 실행한다. 기존 방문자는 서비스 워커 때문에 **한 번 새로고침**해야 새 버전으로 바뀐다(설계된 동작: `skipWaiting` + `clients.claim`).
+4. **푸시 후 라이브 확인** — GitHub Pages 반영(보통 30~90초)을 `sw.js`의 `CACHE_VERSION`으로 확인하고, 라이브 URL에서 홈 6개 카드와 신규 모듈을 실제 파일로 다시 실행한다. 기존 방문자는 서비스 워커 때문에 **한 번 새로고침**해야 새 버전으로 바뀐다(설계된 동작: `skipWaiting` + `clients.claim`).
 
 ### 배포 절차
 
@@ -151,6 +167,54 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 ---
 
 ## 3. 버전 기록 (최신이 위)
+
+### v1.6.0 — 2026-11-22 23:43 (KST) · 커밋 `2e09ce0` · `tip-v1.6.0`
+
+- **작성자**: 유동규(기획·6종 기능 지정·검수) + Pickle(AI) 구현
+- **개발 내용** (Mac·개발자용 유틸리티 모듈 6종 추가 · 모듈 6종 → 12종)
+  - `modules/dev-tools/module.js` — **개발자 툴팩**(`utility`). 상단 탭 5개, 탭은 `role="tablist"` + 좌우 화살표 키 이동.
+    - **JSON**: 정렬 2칸 / 4칸 / 압축 / 검증. 결과는 아래 결과 칸에 따로 쓰고, 상태 줄에 `객체 · 키 12개 · 1.2 KB`처럼 종류·크기를 표시. 오류는 `JSON 문법 오류 — <메시지> (3번째 줄 12번째 글자 부근)`. 최신 V8은 `position` 대신 문제 구간만 알려 주므로(`"{"a":}" is not valid JSON`) 그 구간을 원문에서 찾아 줄·칸을 계산하고, 계산할 수 없으면 메시지만 보여 준다.
+    - **Base64 · URL**: UTF-8 안전(TextEncoder → 32KB 청크 `btoa`), 디코딩은 `atob` → `TextDecoder`. Base64url(`-_`)도 디코딩. `결과를 입력으로` 버튼으로 연쇄 변환.
+    - **JWT**: Header/Payload를 `JSON.parse`로 펼쳐 복사 버튼과 함께 표시. `iat`·`nbf`·`exp`는 **KST(고정 +9h, 서머타임 없음)** 로 변환하고 `exp`는 `만료까지 3시간 12분` / `만료됨 (1103일 15시간 전)` 형태로 덧붙인다. 서명은 길이만 표시하고 **검증하지 않는다**고 화면에 명시.
+    - **타임스탬프**: 10자리는 초, 13자리는 밀리초로 읽는다(`toMs`). 출력은 한국 시간·ISO 8601·Unix 초·Unix 밀리초 4줄, 각 줄 복사 버튼. `datetime-local` 입력은 KST로 해석해 `Date.UTC(...) - 9h`로 초를 계산.
+    - **UUID**: `crypto.randomUUID()` 우선, 없으면 `getRandomValues`로 v4 직접 생성(비보안 컨텍스트 대비). 1·5·10개 생성, 전체 복사.
+  - `modules/text-diff/module.js` — **텍스트 비교 · 정리**(`utility`).
+    - 비교: 줄 단위 **LCS DP**(`Int32Array`, `(n+1)*(m+1)`). 1,200줄×1,200줄(약 400만 칸) 초과 시 자리 기준 비교로 대체하고 `줄이 너무 많아 자리 기준으로 비교했습니다` 칩을 띄운다. 행은 `same/add/del` 클래스로 색을 나누고 양쪽 줄 번호를 함께 그린다.
+    - 정리·통계: 글자수(공백 포함/제외)·단어·줄·UTF-8 바이트(TextEncoder). 앞뒤 공백 정리(3줄 이상 연속 빈 줄은 2줄로), 빈 줄 제거, 중복 줄 제거(앞뒤 공백 무시), 오름차순/내림차순(`localeCompare('ko')`), **1단계 되돌리기**.
+  - `modules/regex-tester/module.js` — **정규식 테스터**(`utility`).
+    - 오버레이 하이라이트: textarea는 글자를 투명하게 하고(`color: transparent; caret-color`) 같은 폰트·패딩의 `div`에 `<mark>`를 그린다. textarea는 내용에 맞춰 자동 높이(최대 420px)로 늘고 스크롤을 동기화한다.
+    - `g`가 꺼져 있으면 첫 매치만 강조하고 전체 개수는 참고로 표시. 매치 목록에 값·위치·번호/이름 캡처 그룹. 빈 매치(`^`, ``)는 `lastIndex`를 강제로 넘겨 무한 루프를 막고 하이라이트에서는 제외. 최대 500매치.
+    - 프리셋 6종(이메일·휴대폰·URL·IPv4·한글만·숫자만). 잘못된 패턴은 `new RegExp` 예외를 잡아 문법 오류 문구만 표시.
+  - `modules/color-tools/module.js` — **색상 · 대비 체크**(`utility`).
+    - HEX/RGB/HSL 세 칸이 서로를 갱신(입력 중인 칸은 건드리지 않고, blur에서 정규화). native `<input type=color>`와 동기화.
+    - WCAG 상대 휘도(0.2126/0.7152/0.0722, sRGB 감마)로 대비율 계산 → `X.XX : 1`, 일반 AA(4.5)/AAA(7)/큰 텍스트 AA(3) 배지, 실제 색 미리보기(24px·14px). `글자 ↔ 배경` 맞바꾸기.
+    - `window.EyeDropper`가 있을 때만 스포이드 버튼 노출(iPhone Safari에는 없음).
+  - `modules/icon-gen/module.js` — **앱 아이콘 생성기**(`utility`).
+    - `createImageBitmap(file, {imageOrientation:'from-image'})`(실패 시 `<img>` 폴백) → **정사각 크롭(cover)** 또는 **여백 맞춤(contain + 배경색)**으로 16·32·48·180·192·512·1024px 캔버스에 그려 PNG 생성(Canvas `toBlob`).
+    - 미리보기 격자(클릭하면 그 크기 하나 저장). **ZIP 저장**은 `vendor/jszip`(`window.JSZip`)을 재사용해 `icons/icon-*.png` 7개 + `manifest-snippet.json`(icons 배열, `src: icons/icon-N.png`)을 `app-icons.zip`으로 묶는다(무압축 STORE — PNG 재압축은 의미 없음).
+  - `modules/ocr-reader/module.js` — **이미지 텍스트 추출**(`utility`).
+    - `tesseract.js 6.0.1`을 `vendor/tesseract/`에서 **지연 로드**(`<script>` 주입, `window.Tesseract`). `createWorker(lang, 1, {...})` with `workerBlobURL:false`(워커를 blob이 아닌 동일 출처 URL로 띄워 서비스 워커가 fetch를 가로챌 수 있게), `cacheMethod:'none'`(IndexedDB 중복 저장 없이 SW 캐시 사용), `gzip:true`.
+    - `corePath`는 **WASM SIMD 지원을 1바이트 프로브(`WebAssembly.validate`)로 확인**해 `tesseract-core-simd-lstm.wasm.js` 또는 `tesseract-core-lstm.wasm.js`를 고른다(LSTM 전용이라 크기가 작다). `langPath`는 문서 기준 절대 URL.
+    - **언어 데이터 캐시**: `CacheStorage('tip-ocr-lang-v1')`에 `kor/eng.traineddata.gz`를 최초 실행 때만 `fetch → cache.put`. `sw.js`의 `caches.match(request)`가 모든 캐시를 찾으므로 워커의 언어 데이터 요청도 오프라인에서 해결된다. **`APP_SHELL`에는 넣지 않았고**, `sw.js`는 이 경로를 런타임 캐시에도 저장하지 않는다(중복 방지). activate에서 `tip-ocr-lang-*` 캐시는 지우지 않는다(버전 업데이트 후 재다운로드 방지).
+    - 언어 3종(`kor+eng`·`kor`·`eng`), 진행률 바 + 상태 문구 한국어 매핑(`loading tesseract core` → `인식 엔진 불러오는 중` 등), 완료 시 `완료 · 평균 신뢰도 94%`. 결과는 편집 가능한 textarea, 글자·바이트 수, 복사, `TXT 저장`(`원본이름-text.txt`).
+  - `vendor/tesseract/` — tesseract.min.js(62KB)·worker.min.js(111KB)·LSTM 코어 2종(각 3.9MB, wasm 내장)·`lang/kor.traineddata.gz`(1.1MB)·`eng.traineddata.gz`(2.0MB)·LICENSE(tesseract.js, core, tessdata).
+  - `sw.js` — `CACHE_VERSION = 'tip-v1.6.0'`. `APP_SHELL`에 새 모듈 6종·`vendor/tesseract/{tesseract.min.js, worker.min.js}` 추가(43항목). 언어 데이터·코어는 **프리캐시 제외**(설치 속도 보호, AGENT §2-5). `isOcrLang`으로 `.traineddata.gz`는 런타임 캐시에 넣지 않고, `KEPT_CACHES = /^tip-ocr-lang-/`로 activate 정리에서 제외.
+  - `css/app.css` — v1.6.0 섹션 추가(약 460줄). 공용 부품 `.v16`·`.v16-tabs`·`.v16-panel`·`.v16-field`·`.v16-ta`·`.v16-btn`·`.v16-mini`·`.v16-status`·`.v16-kv`·`.v16-block`·`.v16-out`·`.v16-stats`·`.v16-note` + 모듈 접두사(`td-` `rx-` `ct-` `ig-` `ocr-`). diff 색은 라이트/다크 변수(`--diff-add-bg` 등)로 분리. 720px에서 통계 5열, 960px에서 비교·색상 2열.
+  - `modules/registry.js` — import 6줄 + registry 6줄(유틸리티 섹션 7개).
+  - `README.md` — 모듈 표 6줄, §2에 사용법 7)~12), 프라이버시(OCR 첫 다운로드·이미지 미전송), 제한사항(OCR 정확도·스포이드·정규식 문법), §7 버전 표 v1.6.0.
+  - `LICENSE` — tesseract.js·tesseract.js-core·tessdata_fast·Pretendard 항목 추가. `AGENT.md` — 현재 버전 1.6.0.
+- **사용한 언어·세팅**: Vanilla HTML/CSS/ES Modules 그대로(빌드 도구·프레임워크 없음). 새 라이브러리는 `vendor/tesseract/`에 셀프호스팅(tesseract.js 6.0.1, tesseract.js-core 6.0.0, tessdata_fast kor/eng — CDN 런타임 의존 없음). 검증은 Python + Playwright(헤드리스 Chrome 159) 하네스 `work/v16/`, 390×844 · 1280×800, 라이트/다크.
+- **검증 결과**: 로컬 자동 검증 **122/122 통과**.
+  - 유틸리티 5종 실데이터 56항목(`test_func.py`): JSON 정렬/압축/검증(오류 위치 포함), Base64·URL 왕복(한글·이모지), JWT payload·exp KST, 초/밀리초/KST→Unix, UUID v4 5개, diff 통계(추가2·삭제1·동일2·전체5), 정리 5종+되돌리기, 정규식 하이라이트 3개·캡처 그룹·프리셋 이메일 2건·문법 오류, 대비율 계산(#2E5E4E/#FFF 7.43, #777/#FFF 4.48 → 배지 미달2·통과1, 21.00, HSL→#FF0000, 맞바꾸기), 아이콘 7종 생성·192px 크롭 픽셀·**ZIP 내부 7 PNG IHDR 치수(16~1024)·manifest JSON 7항목**·여백 모드 배경 픽셀.
+  - OCR 31항목(`test_ocr.py`·`test_ocr2.py`·`test_lang.py`): 실제 한글+영문 PNG(`assets/ocr-sample.png`, Pretendard로 렌더)에서 `TIP OCR 테스트 / Hello World 2026 / 가방에 챙길 것을 확인하세요`를 **평균 신뢰도 94%** 로 그대로 인식, `kor+eng`·`kor`·`eng` 언어 전환, TXT 저장 내용 일치, `tip-v1.6.0` 프리캐시에 traineddata 0건·코어 1건 런타임 캐시, `tip-ocr-lang-v1`에 kor·eng 저장, **오프라인 전환 후 새 문서 콜드 스타트에서도 동일 결과(1.4초)**, 콘솔·페이지 에러 0, 실패 요청 0.
+  - 스크린샷·넘침 32항목(`shots_all.py`): 390·1280 × 라이트/다크에서 홈·6개 모듈 모두 **가로 넘침 0**, 콘솔 에러 0, HTTP 404 0. 스크린샷 `work/v16/shots/v160-*.png`.
+- **주의·제약**:
+  - 언어 데이터(합 3.1MB)와 코어(3.9MB)는 **프리캐시 제외** → 첫 OCR 실행 때만 받는다. 그래서 설치 직후 오프라인에서는 OCR만 첫 실행이 불가능하고, 한 번 실행한 뒤에는 오프라인이 된다.
+  - tesseract.js는 GPU/스레드 없이 단일 스레드 WASM으로 돈다(GitHub Pages에 COOP/COEP가 없어 `SharedArrayBuffer` 불가 — AGENT §2-5와 같은 이유). 900×420 이미지 기준 약 1초.
+  - `kor`/`eng` 단독 선택은 다른 문자를 거의 읽지 못한다(설계된 동작, README에 안내).
+  - `input[type=color]`·`EyeDropper`·`datetime-local`은 브라우저별 UI가 다르다(iPhone Safari는 스포이드 없음, 색 선택기는 iOS 전용 시트).
+  - ZIP은 JSZip을 재사용하므로 `window.JSZip`이 없으면(스크립트 로드 실패) 안내 문구만 띄운다.
+  - 기존 방문자는 **새로고침 1회** 후 v1.6.0을 받는다.
 
 ### v1.5.1 — 2026-11-22 23:33 (KST) · 커밋 `0cdb04f` · `tip-v1.5.1`
 
