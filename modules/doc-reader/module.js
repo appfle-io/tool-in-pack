@@ -4,7 +4,7 @@
  * 파일 바이트는 어디로도 전송되지 않는다 — 모든 파서가 이 앱 안에서 돈다.
  */
 
-import { formatBytes } from '../../ui.js';
+import { formatBytes } from '../../js/ui.js';
 import {
   filebarTemplate,
   extLabel,

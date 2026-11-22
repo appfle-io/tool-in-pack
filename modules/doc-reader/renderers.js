@@ -1,6 +1,6 @@
 /* Shared view builders for the doc reader (toolbar, file bar, stage). */
 
-import { icons } from '../../ui.js';
+import { icons } from '../../js/ui.js';
 
 export const STAGE_ID = 'dr-stage';
 
