@@ -81,7 +81,7 @@ function moduleRow(mod, state) {
   row.append(
     el('div', { class: 'module-icon', html: mod.icon }),
     el('div', { class: 'module-title' }, [
-      el('h2', { text: mod.name }),
+      el('h2', { text: mod.shortName || mod.name }),
       el('p', { text: mod.subtitle }),
     ]),
     el('div', { class: 'module-controls' }, [pinBtn, toggle, openBtn]),

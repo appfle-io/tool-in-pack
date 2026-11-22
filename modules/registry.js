@@ -17,10 +17,18 @@
 
 import docReader from './doc-reader/module.js';
 import imgConverter from './img-converter/module.js';
+import pdfTools from './pdf-tools/module.js';
+import photoPrivacy from './photo-privacy/module.js';
+import qrGen from './qr-gen/module.js';
+import videoGif from './video-gif/module.js';
 
 export const registry = [
   docReader,
   imgConverter,
+  pdfTools,
+  photoPrivacy,
+  qrGen,
+  videoGif,
 ];
 
 export function listModules() {

@@ -1,6 +1,6 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.3.0';
+const CACHE_VERSION = 'tip-v1.4.0';
 const APP_SHELL = [
   './',
   './index.html',
@@ -18,11 +18,19 @@ const APP_SHELL = [
   './modules/doc-reader/hwpx.js',
   './modules/img-converter/module.js',
   './modules/img-converter/encoders.js',
+  './modules/pdf-tools/module.js',
+  './modules/photo-privacy/module.js',
+  './modules/photo-privacy/exif.js',
+  './modules/qr-gen/module.js',
+  './modules/video-gif/module.js',
   './vendor/heic2any.min.js',
   './vendor/pdfjs/pdf.min.js',
   './vendor/pdfjs/pdf.worker.min.js',
   './vendor/jszip/jszip.min.js',
   './vendor/hwpjs/hwp.esm.js',
+  './vendor/pdf-lib/pdf-lib.min.js',
+  './vendor/qrcode/qrcode.mjs',
+  './vendor/gifenc/gifenc.esm.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',

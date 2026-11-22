@@ -10,6 +10,12 @@ licenses, listed below:
 - hwp.js 0.0.3 (Apache-2.0) — Copyright Han Lee and contributors
   (https://github.com/hahnlee/hwp.js), built from the official HWP 5.0 format
   specification published by Hancom.
+- heic2any 0.0.4 (MIT) — Copyright Alexander Larin
+- pdf-lib 1.17.1 (MIT) — Copyright Andrew Dillon
+- qrcode-generator 2.0.4 (MIT) — Copyright Kazuhiko Arase
+  (https://github.com/kazuhikoarase/qrcode-generator); the word "QR Code" is a
+  registered trademark of DENSO WAVE INCORPORATED.
+- gifenc 1.0.3 (MIT) — Copyright Matt DesLauriers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
