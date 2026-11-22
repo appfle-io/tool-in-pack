@@ -1,78 +1,48 @@
-/* TIP app shell — hash routing, home hub, PWA install/SW plumbing. */
+/* TIP app shell — hash routing, home hub, theme, PWA install/SW plumbing. */
 
 import { listModules, getModule } from '../modules/registry.js';
-import { moduleState, setModuleState } from './store.js';
+import { moduleState, setModuleState, getTheme, setTheme, applyTheme } from './store.js';
 import { el, toast, icons } from './ui.js';
 
 const view = document.getElementById('view');
 
 /* ------------------------------ home hub ------------------------------ */
 
-function kindLabel(kind) {
-  return { tool: 'TOOL', reader: 'READER', service: 'SERVICE' }[kind] || 'MODULE';
-}
-
 function renderHome() {
   view.innerHTML = '';
+
+  const list = el('div', { class: 'module-list' });
   const mods = listModules().map((mod) => ({ mod, state: moduleState(mod) }));
-
-  const hero = el('section', { class: 'home-hero' }, [
-    el('h1', { text: '작은 도구들의 도구함' }),
-    el('p', {
-      text: 'TIP은 모듈을 하나씩 끼워 넣는 유틸리티 PWA입니다. 모든 처리는 이 기기 안에서 끝납니다.',
-    }),
-    el('div', { class: 'home-meta' }, [
-      el('span', { class: 'chip', text: `${mods.length}개 모듈` }),
-      el('span', { class: 'chip neutral', text: '100% 오프라인 처리' }),
-      el('span', { class: 'chip neutral', text: 'v1.0.0' }),
-    ]),
-  ]);
-
-  const grid = el('div', { class: 'module-grid' });
 
   const pinned = mods.filter(({ state }) => state.pinned);
   const rest = mods.filter(({ state }) => !state.pinned);
 
   [...pinned, ...rest].forEach(({ mod, state }) => {
-    grid.append(moduleCard(mod, state));
+    list.append(moduleRow(mod, state));
   });
 
-  view.append(hero, grid);
+  view.append(list);
 }
 
-function moduleCard(mod, state) {
-  const enabled = state.enabled;
-
-  const title = el('div', { class: 'module-title' }, [
-    el('h2', {}, [mod.name, el('span', { class: 'kind', text: kindLabel(mod.kind) })]),
-    el('p', { text: mod.subtitle }),
-  ]);
-
-  const openBtn = el('button', {
-    class: 'open-btn',
-    type: 'button',
-    text: enabled ? '실행' : '사용 중지됨',
-    'aria-label': `${mod.name} 실행`,
+function moduleRow(mod, state) {
+  const row = el('article', {
+    class: `module-card${state.enabled ? '' : ' is-off'}`,
+    role: 'button',
+    tabindex: '0',
+    'aria-label': `${mod.name} 열기`,
   });
 
-  openBtn.addEventListener('click', (event) => {
-    event.stopPropagation();
-    if (moduleState(mod).enabled) {
-      location.hash = `#/${mod.id}`;
-    } else {
-      toast(`"${mod.name}"이(가) 사용 중지되어 있습니다. 스위치로 켠 뒤 실행하세요.`);
-    }
-  });
+  const open = () => {
+    if (moduleState(mod).enabled) location.hash = `#/${mod.id}`;
+    else toast(`${mod.name}이(가) 사용 중지되어 있습니다. 스위치로 켠 뒤 실행하세요.`);
+  };
 
   const toggle = el('button', {
     class: 'switch',
     type: 'button',
-    'aria-pressed': String(enabled),
+    'aria-pressed': String(state.enabled),
     'aria-label': `${mod.name} 사용 여부`,
-  }, [
-    el('span', { class: 'switch-track' }, el('span', { class: 'switch-thumb' })),
-    el('span', { text: '사용' }),
-  ]);
+  }, el('span', { class: 'switch-track' }, el('span', { class: 'switch-thumb' })));
 
   toggle.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -97,38 +67,40 @@ function moduleCard(mod, state) {
     toast(next ? '상단에 고정했습니다' : '고정을 해제했습니다');
   });
 
-  const card = el('article', {
-    class: `module-card${state.pinned ? ' pinned' : ''}${enabled ? '' : ' is-off'}`,
-    role: 'button',
-    tabindex: '0',
-    'aria-label': `${mod.name} 열기`,
-  }, [
-    el('div', { class: 'module-head' }, [
-      el('div', { class: 'module-icon', html: mod.icon }),
-      title,
-      pinBtn,
-    ]),
-    el('p', { class: 'module-desc', text: mod.description }),
-    el('div', { class: 'module-foot' }, [toggle, openBtn]),
-  ]);
+  const openBtn = el('button', {
+    class: 'open-btn',
+    type: 'button',
+    text: state.enabled ? '실행' : '중지',
+    'aria-label': `${mod.name} 실행`,
+  });
+  openBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    open();
+  });
 
-  const open = () => {
-    if (moduleState(mod).enabled) location.hash = `#/${mod.id}`;
-    else toast(`"${mod.name}"이(가) 사용 중지되어 있습니다. 스위치로 켠 뒤 실행하세요.`);
-  };
-  card.addEventListener('click', open);
-  card.addEventListener('keydown', (event) => {
+  row.append(
+    el('div', { class: 'module-icon', html: mod.icon }),
+    el('div', { class: 'module-title' }, [
+      el('h2', { text: mod.name }),
+      el('p', { text: mod.subtitle }),
+    ]),
+    el('div', { class: 'module-controls' }, [pinBtn, toggle, openBtn]),
+  );
+
+  row.addEventListener('click', open);
+  row.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       open();
     }
   });
 
-  return card;
+  return row;
 }
 
 function rerenderHome() {
-  if ((location.hash || '#/').replace(/\/+$/, '') === '#' || location.hash === '') renderHome();
+  const hash = (location.hash || '#/').replace(/^#\/?/, '').replace(/\/+$/, '');
+  if (!hash) renderHome();
 }
 
 /* ---------------------------- module screens --------------------------- */
@@ -178,11 +150,25 @@ function route() {
     renderModule(mod);
   } else {
     renderHome();
-    if (mod) toast(`"${mod.name}"이(가) 사용 중지되어 있습니다. 스위치로 켠 뒤 실행하세요.`);
+    if (mod) toast(`${mod.name}이(가) 사용 중지되어 있습니다. 스위치로 켠 뒤 실행하세요.`);
   }
 }
 
 window.addEventListener('hashchange', route);
+
+/* ------------------------------ theme ------------------------------- */
+
+const themeBtn = document.getElementById('theme-btn');
+applyTheme(getTheme());
+
+themeBtn.addEventListener('click', () => {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  setTheme(dark ? 'light' : 'dark');
+});
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (!getTheme()) applyTheme(null);
+});
 
 /* ----------------------------- SW / install ---------------------------- */
 

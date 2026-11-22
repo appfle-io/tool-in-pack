@@ -4,7 +4,7 @@
  * 파일 바이트는 어디로도 전송되지 않는다 — 모든 파서가 이 앱 안에서 돈다.
  */
 
-import { formatBytes } from '../../js/ui.js';
+import { formatBytes, icons } from '../../js/ui.js';
 import {
   filebarTemplate,
   extLabel,
@@ -19,7 +19,7 @@ import { renderSections as renderHwpxSections, errorHint as hwpxErrorHint } from
 const ACCEPT = '.pdf,.hwp,.hwpx';
 
 function noticeBox(kind, title, body) {
-  const glyph = { warn: '⚠️', bad: '🚫', info: 'ℹ️' }[kind] || 'ℹ️';
+  const glyph = { warn: '⚠', bad: '✕', info: 'ℹ' }[kind] || 'ℹ';
   const box = document.createElement('div');
   box.className = `notice ${kind === 'info' ? '' : kind}`;
   box.innerHTML = `<span class="n-icon">${glyph}</span>
@@ -29,10 +29,10 @@ function noticeBox(kind, title, body) {
   return box;
 }
 
-function loadingBox(text) {
+function loadingEl(text) {
   const wrap = document.createElement('div');
-  wrap.innerHTML = `<div class="loading"><span class="spinner"></span><span></span></div>`;
-  wrap.querySelector('span:last-child').textContent = text;
+  wrap.innerHTML = '<div class="loading"><span class="spinner"></span><span></span></div>';
+  wrap.querySelector('.loading span:last-child').textContent = text;
   return wrap.firstElementChild;
 }
 
@@ -55,27 +55,16 @@ const module = {
 
     root.innerHTML = `
       <div class="dr">
-        <div class="dropzone" id="dr-drop">
-          <div class="dz-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h4"/></svg>
-          </div>
-          <h2>문서를 열어서 읽어 드립니다</h2>
-          <p><b>PDF · HWP · HWPX</b>를 여기에 끌어다 놓거나 아래 버튼으로 고르세요.<br>파일은 이 기기 밖으로 나가지 않습니다 — 브라우저에서만 읽습니다.</p>
-          <div class="dz-actions">
-            <button class="primary-btn" type="button" id="dr-browse">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-              파일 선택
-            </button>
-          </div>
+        <div class="dr-empty" id="dr-empty">
+          <div class="dz-icon">${icons.doc}</div>
+          <button class="primary-btn" type="button" id="dr-browse">${icons.upload} 파일 열기</button>
+          <p>PDF · HWP · HWPX — 이 기기 안에서만 처리됩니다</p>
         </div>
         <input type="file" id="dr-input" class="sr-only" accept="${ACCEPT}">
         <div id="dr-result"></div>
-        <p style="margin:0;color:var(--muted-2);font-size:11.5px;">
-          지원 형식: PDF · HWP 5.x · HWPX — 암호 문서와 복잡한 서식은 일부 제한이 있을 수 있습니다
-        </p>
       </div>`;
 
-    const dropzone = root.querySelector('#dr-drop');
+    const empty = root.querySelector('#dr-empty');
     const input = root.querySelector('#dr-input');
     const result = root.querySelector('#dr-result');
 
@@ -88,19 +77,20 @@ const module = {
       input.value = '';
     }, { signal });
 
+    // drag & drop on the whole module area (no dashed box needed)
     ['dragenter', 'dragover'].forEach((type) =>
-      dropzone.addEventListener(type, (event) => {
+      root.addEventListener(type, (event) => {
         event.preventDefault();
-        dropzone.classList.add('over');
+        root.classList.add('dr-over');
       }, { signal }));
 
     ['dragleave', 'drop'].forEach((type) =>
-      dropzone.addEventListener(type, (event) => {
+      root.addEventListener(type, (event) => {
         event.preventDefault();
-        dropzone.classList.remove('over');
+        root.classList.remove('dr-over');
       }, { signal }));
 
-    dropzone.addEventListener('drop', (event) => {
+    root.addEventListener('drop', (event) => {
       const file = event.dataTransfer?.files?.[0];
       if (file) openFile(file);
     }, { signal });
@@ -110,7 +100,6 @@ const module = {
     async function openFile(file) {
       const ext = extLabel(file.name).toLowerCase();
       if (!['pdf', 'hwp', 'hwpx'].includes(ext)) {
-        reset();
         result.innerHTML = '';
         result.append(noticeBox('bad', '열 수 없는 형식', `".${ext}" 파일은 지원하지 않습니다. PDF · HWP · HWPX 파일을 넣어 주세요.`));
         return;
@@ -130,13 +119,14 @@ const module = {
 
     function buildChrome(file, extraHTML = '') {
       resetSessionOnly();
+      empty.hidden = true;
       result.innerHTML = `
-        ${filebarTemplate(file.name)}
+        ${filebarTemplate()}
         ${extraHTML}
         <div class="doc-stage" id="${STAGE_ID}"></div>
         <div id="dr-msg"></div>`;
       result.querySelector('#dr-f-name').textContent = file.name;
-      result.querySelector('#dr-f-meta').textContent = `${formatBytes(file.size)} · 이 기기 안에서만 처리됩니다`;
+      result.querySelector('#dr-f-meta').textContent = formatBytes(file.size);
       result.querySelector('#dr-f-icon').textContent = extLabel(file.name);
       result.querySelector('#dr-reopen').addEventListener('click', () => input.click(), { signal });
       result.querySelector('#dr-close').addEventListener('click', reset, { signal });
@@ -158,6 +148,7 @@ const module = {
     function reset() {
       resetSessionOnly();
       result.innerHTML = '';
+      empty.hidden = false;
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -165,7 +156,7 @@ const module = {
 
     async function openPdf(file) {
       const { stage } = buildChrome(file, pdfToolbarHTML());
-      stage.innerHTML = loadingBox('PDF를 준비하는 중…').outerHTML;
+      stage.innerHTML = loadingEl('PDF를 준비하는 중…').outerHTML;
 
       session = createPdfSession(file);
       session.onChange = (page, total, zoomPercent) => {
@@ -204,28 +195,25 @@ const module = {
     /* -------------------------------- HWP -------------------------------- */
 
     async function openHwp(file) {
-      const { stage, msg } = buildChrome(file);
+      const { stage } = buildChrome(file);
       stage.innerHTML = paperShell();
       const paper = stage.querySelector('#dr-paper');
-      paper.innerHTML = loadingBox('한글 문서를 해석하는 중…').outerHTML;
+      paper.innerHTML = loadingEl('한글 문서를 해석하는 중…').outerHTML;
 
       const { parse } = await import('../../vendor/hwpjs/hwp.esm.js');
       const data = await file.arrayBuffer();
-      // cfb.read의 type:'binary'는 문자열 입력 전용 — Uint8Array는 옵션 없이 직접 넘긴다
       const doc = parse(new Uint8Array(data));
       if (document.fonts?.ready) await document.fonts.ready;
       paper.innerHTML = renderHwp(doc);
-      msg.append(noticeBox('warn', 'HWP 렌더링 참고',
-        '본문·표·그림·기본 글자 서식을 기기에서 바로 그려 보여 줍니다. 눈금 맞춤·수식·머리글/바닥글 같은 복잡한 서식은 단순화되거나 생략될 수 있습니다.'));
     }
 
     /* ------------------------------- HWPX -------------------------------- */
 
     async function openHwpx(file) {
-      const { stage, msg } = buildChrome(file);
+      const { stage } = buildChrome(file);
       stage.innerHTML = paperShell();
       const paper = stage.querySelector('#dr-paper');
-      paper.innerHTML = loadingBox('HWPX 압축을 푸는 중…').outerHTML;
+      paper.innerHTML = loadingEl('HWPX 압축을 푸는 중…').outerHTML;
 
       const zip = await window.JSZip.loadAsync(file);
       const sectionNames = Object.keys(zip.files)
@@ -233,7 +221,7 @@ const module = {
         .sort((a, b) => sectionNumber(a) - sectionNumber(b));
       if (!sectionNames.length) throw new Error('올바른 HWPX 구조가 아닙니다(Contents/section*.xml 없음).');
 
-      paper.innerHTML = loadingBox('문서 내용을 해석하는 중…').outerHTML;
+      paper.innerHTML = loadingEl('문서 내용을 해석하는 중…').outerHTML;
       const xmlList = await Promise.all(sectionNames.map((name) => zip.files[name].async('string')));
 
       // embedded images → blob URLs
