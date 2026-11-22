@@ -1,0 +1,189 @@
+name: build-mac
+
+# TIP macOS 앱(.dmg) 빌드 — macos-latest 에서 Universal(arm64 + x86_64)로 만든다.
+#
+# 서명 분기
+#  · GitHub Secrets 에 APPLE_CERTIFICATE(base64 .p12)·APPLE_CERTIFICATE_PASSWORD·
+#    APPLE_SIGNING_IDENTITY 가 있으면 → Developer ID 서명 + Apple 공증(Notarize).
+#    APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID 도 있으면 공증까지 수행한다.
+#  · 없으면 → Ad-hoc 서명(codesign --sign -)으로 패키징. 지금 당장 내려받아
+#    시험할 수 있고, 배포용 정식 서명은 Secrets 를 넣는 것만으로 켜진다.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+    paths:
+      - 'mac/**'
+      - '.github/workflows/build-mac.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Universal .dmg (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 75
+    env:
+      # 서명 인증서가 있는지만 단계 조건으로 쓴다(secrets 는 if 에서 직접 못 씀).
+      SIGNING_CERT: ${{ secrets.APPLE_CERTIFICATE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Rust — Universal 타깃 추가
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mac/src-tauri -> target
+          key: universal-${{ hashFiles('mac/src-tauri/Cargo.toml') }}
+
+      - name: Tauri CLI 설치
+        working-directory: mac
+        run: npm ci --no-audit --no-fund
+
+      - name: 서명 인증서 가져오기 (Developer ID)
+        if: env.SIGNING_CERT != ''
+        env:
+          CERT_B64: ${{ secrets.APPLE_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo -n "$CERT_B64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN" \
+            -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          echo "인증서를 키체인에 넣었습니다."
+
+      - name: 서명 방식 — Developer ID (+ 공증)
+        if: env.SIGNING_CERT != ''
+        env:
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          NOTARY_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_PW: ${{ secrets.APPLE_PASSWORD }}
+          NOTARY_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          echo "SIGNING=developer-id" >> "$GITHUB_ENV"
+          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          if [ -n "$NOTARY_ID" ] && [ -n "$NOTARY_PW" ] && [ -n "$NOTARY_TEAM" ]; then
+            {
+              echo "APPLE_ID=$NOTARY_ID"
+              echo "APPLE_PASSWORD=$NOTARY_PW"
+              echo "APPLE_TEAM_ID=$NOTARY_TEAM"
+              echo "NOTARIZE=on"
+            } >> "$GITHUB_ENV"
+            echo "Developer ID 서명 + Apple 공증으로 빌드합니다."
+          else
+            echo "Developer ID 서명으로 빌드합니다(공증 정보 없음)."
+          fi
+
+      - name: 서명 방식 — Ad-hoc
+        if: env.SIGNING_CERT == ''
+        run: |
+          set -euo pipefail
+          echo "SIGNING=adhoc" >> "$GITHUB_ENV"
+          echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+          echo "::warning::서명 Secrets 가 없어 Ad-hoc 서명으로 빌드합니다. 첫 실행은 Finder 에서 우클릭 → 열기(또는 xattr -dr com.apple.quarantine /Applications/TIP.app)가 필요합니다."
+
+      - name: 빌드 (.app + .dmg, universal)
+        working-directory: mac
+        run: npx tauri build --target universal-apple-darwin --bundles app,dmg --verbose
+
+      - name: 결과 검증
+        id: verify
+        run: |
+          set -euo pipefail
+          OUT="mac/src-tauri/target/universal-apple-darwin/release/bundle"
+          APP="$OUT/macos/TIP.app"
+          DMG="$(ls "$OUT"/dmg/*.dmg | head -1)"
+          VERSION="$(node -p "require('./mac/package.json').version")"
+          mkdir -p artifacts
+
+          test -d "$APP" || { echo "::error::TIP.app 이 없습니다"; exit 1; }
+          test -f "$DMG" || { echo "::error::.dmg 가 없습니다"; exit 1; }
+
+          echo "## TIP macOS 빌드 결과" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 버전: $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 서명: $SIGNING${NOTARIZE:+, 공증 $NOTARIZE}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- .dmg: $(basename "$DMG") ($(du -h "$DMG" | cut -f1))" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "--- 빌드 환경 ---"
+          sw_vers | tee artifacts/env.txt
+          rustc --version | tee -a artifacts/env.txt
+          node --version | tee -a artifacts/env.txt
+
+          echo "--- 아키텍처 (Universal 확인) ---"
+          BIN="$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP/Contents/Info.plist")"
+          lipo -info "$APP/Contents/MacOS/$BIN" | tee artifacts/lipo.txt
+          grep -q "arm64" artifacts/lipo.txt && grep -q "x86_64" artifacts/lipo.txt \
+            || { echo "::error::Universal 바이너리가 아닙니다"; exit 1; }
+
+          echo "--- 버전 (Info.plist) ---"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist" | tee artifacts/version.txt
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Contents/Info.plist" | tee artifacts/bundle-id.txt
+          test "$(cat artifacts/version.txt)" = "$VERSION" || { echo "::error::Info.plist 버전이 v$VERSION 과 다릅니다"; exit 1; }
+
+          echo "--- 코드 서명 ---"
+          codesign -dv --verbose=4 "$APP" 2>&1 | tee artifacts/codesign.txt || true
+          codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | tee -a artifacts/codesign.txt || true
+
+          echo "--- DMG 무결성 ---"
+          hdiutil verify "$DMG" | tee artifacts/hdiutil-verify.txt
+
+          echo "--- DMG 안의 앱 ---"
+          MNT="$(mktemp -d)"
+          hdiutil attach "$DMG" -mountpoint "$MNT" -nobrowse -quiet
+          ls -la "$MNT" | tee artifacts/dmg-contents.txt
+          test -d "$MNT/TIP.app" || { echo "::error::DMG 안에 TIP.app 이 없습니다"; hdiutil detach "$MNT" -quiet || true; exit 1; }
+          hdiutil detach "$MNT" -quiet
+
+          cp "$DMG" "artifacts/TIP_${VERSION}_universal.dmg"
+          ( cd "$OUT/macos" && tar -czf "$GITHUB_WORKSPACE/artifacts/TIP_${VERSION}_universal.app.tar.gz" "TIP.app" )
+          ( cd artifacts && shasum -a 256 *.dmg *.app.tar.gz > SHA256SUMS.txt && cat SHA256SUMS.txt )
+          echo "- 산출물: $(ls artifacts)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 아티팩트 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: tip-mac-universal-${{ github.sha }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 태그면 Release 에도 첨부
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "이미 있는 Release 에 파일을 올립니다."
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "TIP $TAG" --generate-notes
+          fi
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber \
+            artifacts/*.dmg artifacts/*.app.tar.gz artifacts/SHA256SUMS.txt
