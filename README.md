@@ -9,12 +9,12 @@ PDF·이미지·PDF 병합·모자이크·QR·동영상 GIF까지, 파일을 서
 
 | 모듈 | 하는 일 |
 | --- | --- |
-| 📄 문서 리더 | PDF · HWP · HWPX 열람 |
-| 🖼 이미지 컨버터 | JPG·PNG·WebP·HEIC 등 9종 → PNG·JPG·WebP·ICO·BMP·PDF |
-| 📑 PDF 합치기 · 페이지 추출 | 여러 PDF 합치기, 원하는 페이지만 뽑기 |
-| 🔒 모자이크 · 위치정보 제거 | 사진의 EXIF/GPS 확인 → 가리기 → 메타데이터 삭제 |
-| 🔳 QR 생성기 | URL · 텍스트 · 와이파이 QR (PNG/SVG) |
-| 🎬 동영상 자르기 · GIF | 구간 잘라 GIF 변환 / 클립 저장 |
+| 문서 리더 | PDF · HWP · HWPX 열람 |
+| 이미지 컨버터 | JPG·PNG·WebP·HEIC 등 9종 → PNG·JPG·WebP·ICO·BMP·PDF |
+| PDF 합치기 · 페이지 추출 | 여러 PDF 합치기, 원하는 페이지만 뽑기 |
+| 모자이크 · 위치정보 제거 | 사진의 EXIF/GPS 확인 → 가리기 → 메타데이터 삭제 |
+| QR 생성기 | URL · 텍스트 · 와이파이 QR (PNG/SVG) |
+| 동영상 자르기 · GIF | 구간 잘라 GIF 변환 / 클립 저장 |
 
 ---
 
