@@ -1249,6 +1249,12 @@ var cfb = createCommonjsModule(function (module) {
     }
 
     function read(blob, options) {
+      /* TIP patch: typed-array input goes straight to parse() — the original
+         dispatch defaults to base64 when no type is given and strings are
+         expected for the 'binary' case, so Uint8Array input crashed. */
+      if (typeof Uint8Array !== "undefined" && blob instanceof Uint8Array) {
+        return parse(blob, options);
+      }
       switch (options && options.type || "base64") {
         case "file":
           return read_file(blob, options);
