@@ -152,6 +152,33 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 
 ## 3. 버전 기록 (최신이 위)
 
+### v1.5.0 — 2026-11-22 23:06 (KST) · 커밋 `fad7233` · `tip-v1.5.0`
+
+- **작성자**: 유동규(기획·카테고리 구분 지시·버전/커밋 규칙 지시·검수) + Pickle(AI) 구현
+- **개발 내용** (홈 화면 카테고리 섹션 + 카테고리 메타데이터 + 개발 지침 갱신)
+  - `modules/*/module.js` (6개) — default export에 **`category`** 추가. 값은 `docs` / `media` / `utility` 세 가지.
+    - `doc-reader` → `docs`, `pdf-tools` → `docs`
+    - `img-converter` → `media`, `photo-privacy` → `media`, `video-gif` → `media`
+    - `qr-gen` → `utility`
+  - `modules/registry.js` — 홈 섹션 규칙을 한 곳에 모음.
+    - `CATEGORIES = [{ id: 'docs', label: '문서' }, { id: 'media', label: '미디어' }, { id: 'utility', label: '유틸리티' }]` (배열 순서 = 홈 표시 순서)
+    - `FALLBACK_CATEGORY = 'utility'` · `categoryOf(mod)` — `category`가 없거나 모르는 값이면 유틸리티로 모은다(카드가 사라지지 않게).
+    - 새 모듈 추가 절차(import 1줄 + registry 1줄)는 그대로. `category`만 함께 적는다.
+  - `js/app.js` — `renderHome()`이 카테고리 섹션을 그리도록 개편.
+    - 구조: `<div class="home-sections">` 안에 `<section class="home-section" data-section="pinned|docs|media|utility">` + `<h2 class="home-section-title">라벨 <span class="home-section-count">n</span></h2>` + `<div class="module-list">카드들</div>`. (기존 `.module-list`를 섹션마다 재사용해 900px 이상 2열 그리드가 섹션별로 그대로 적용된다)
+    - **고정됨**: `pinned` 모듈이 1개 이상일 때만 맨 위에 생성. 0개면 섹션 자체를 만들지 않는다.
+    - **카테고리 섹션**: 고정되지 않은 모듈을 `CATEGORIES` 순서(문서 → 미디어 → 유틸리티)대로 묶고, 모듈이 없는 섹션은 만들지 않는다.
+    - 카드 안 핀·스위치 버튼에 `data-module-id` / `data-control`(`pin` / `switch`) 부여. `rerenderHome({ id, control })`가 다시 그린 뒤 **방금 누른 컨트롤로 초점과 화면 위치를 되돌려** 카드가 다른 섹션으로 옮겨가도 사용자가 놓치지 않게 했다.
+  - `css/app.css` — 끝에 v1.5.0 섹션 추가(약 40줄). `.home-sections`(flex, gap 22px / 720px 이상 20px), `.home-section-title`(13px·650·`--text`, 여백만), `.home-section-count`(11.5px·`--muted-2`, tabular-nums), `.home-section[data-section='pinned'] .home-section-title`만 `var(--accent)` 색. 배지·그라데이션·그림자 없음 → 6종 액센트와 라이트/다크 모두 그대로 어울린다.
+  - `sw.js` — `CACHE_VERSION = 'tip-v1.5.0'`. 새 파일은 없어 `APP_SHELL` 변경 없음(기존 6개 모듈 파일이 이미 프리캐시 대상).
+  - `AGENT.md` — 새 모듈 규칙에 `category` 반영.
+    - §1에 **지침 3(버전 관리: MAJOR/MINOR/PATCH 기준, `sw.js`·`HISTORY.md`·`README.md` 세 곳 일치)** 과 **지침 4(커밋 메시지 `[vX.Y.Z] type: 내용`, type 6종: feat/fix·error/docs/style/refactor/chore)** 를 추가.
+    - §2-3 모듈 default export 목록에 `category`, §3에 **카테고리 관례 표**(분류별 모듈·새 분류 추가 방법·`kind`와의 구분), §4 체크리스트 1·6·7·9번, §6 금지 항목에 버전·커밋 규칙 항목 추가.
+  - `README.md` — 모듈 표에 **분류** 열 추가(문서/미디어/유틸리티), §1 "홈 화면(모듈 목록)"에 고정됨·문서·미디어·유틸리티 섹션과 핀 동작 설명, §7 버전 표에 v1.5.0 줄 추가.
+- **사용한 언어·세팅**: Vanilla HTML/CSS/ES Modules 그대로(빌드 도구·새 라이브러리 없음). 로컬은 `python3 -m http.server 8901`, 검증은 Playwright + 헤드리스 Chromium(`work/headless-shell`) 390×844 / 1280×800, 라이트·다크·퍼플 액센트.
+- **검증 결과**: 로컬 자동 검증 **27/27 통과** — 섹션 순서(고정됨→문서→미디어→유틸리티), 고정됨 1개 기본값(문서 리더), 핀 해제 시 고정됨 섹션 사라지고 문서 섹션으로 복귀, 핀 켜기 시 해당 카테고리에서 빠지고 고정됨으로 이동, 초점 유지, 2열 그리드(520px×2), 가로 넘침 0(390·1280 모두), 콘솔·페이지 에러 0·404 0. 스크린샷 `browser/tip-v15-01~09-*.png`(사본 `work/tip-mockups/`).
+- **주의·제약**: `category`를 빠뜨린 모듈은 유틸리티 섹션으로 모인다(사라지지 않지만 분류가 틀어짐) → 새 모듈 체크리스트에서 반드시 지정. 기존 사용자의 `localStorage`(`tip.settings.v1`의 enabled/pinned)는 그대로라 업데이트 후에도 고정 상태가 유지된다. 기존 방문자는 새로고침 1회 후 v1.5.0을 받는다.
+
 ### v1.4.0 — 2026-11-22 22:47 (KST) · 커밋 `4eb0039` · `tip-v1.4.0`
 
 - **작성자**: 유동규(기획·요청·검수·Mac 대응 지시·문서 요구) + Pickle(AI) 구현
