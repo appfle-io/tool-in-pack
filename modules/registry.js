@@ -16,9 +16,11 @@
  */
 
 import docReader from './doc-reader/module.js';
+import imgConverter from './img-converter/module.js';
 
 export const registry = [
   docReader,
+  imgConverter,
 ];
 
 export function listModules() {
