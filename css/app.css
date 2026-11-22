@@ -2681,3 +2681,114 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
 @media (prefers-reduced-motion: reduce) {
   .module-card.is-lifted { transform: none; }
 }
+
+/* =========================================================================
+   v1.9.0 — 반원 퀵바(Mac 메뉴 막대) 순서
+   설정 시트 안에서 켜 둔 모듈의 순서를 바꾼다. 홈 카드와 같은 PointerEvent
+   드래그(⋮⋮ 핸들)이고, 키보드·버튼용 ↑/↓ 도 함께 둔다.
+   ========================================================================= */
+
+/* 모듈이 많으면 시트가 화면을 넘지 않게 스크롤한다. */
+.sheet {
+  max-height: 88vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.qb-note {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted-2);
+}
+
+.qb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.qb-empty {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.qb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 4px 6px 4px 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+}
+
+.qb-row.is-dragging {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.qb-handle {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-2);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.qb-handle svg { width: 13px; height: 13px; }
+.qb-handle:active { cursor: grabbing; }
+.qb-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; color: var(--text); }
+
+.qb-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: var(--text);
+}
+.qb-icon svg { width: 16px; height: 16px; }
+
+.qb-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.qb-move {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--card-2);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.qb-move:hover { color: var(--text); border-color: var(--line-strong); }
+.qb-move:disabled { opacity: 0.3; cursor: default; }
+.qb-move:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

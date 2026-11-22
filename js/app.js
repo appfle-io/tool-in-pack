@@ -3,9 +3,13 @@
 import { listModules, getModule, CATEGORIES, categoryOf } from '../modules/registry.js';
 import {
   moduleState, setModuleState, getTheme, setTheme, applyTheme, getAccent, setAccent, ACCENTS,
-  getSectionOrder, setSectionOrder, hasSectionOrder, resetSectionOrder,
+  getSectionOrder, setSectionOrder, hasSectionOrder, resetSectionOrder, resetRadialOrder,
 } from './store.js';
+import { quickOrderIds, saveQuickOrder } from './quickbar.js';
 import { el, toast, icons } from './ui.js';
+
+/* Mac 앱(Tauri) 안에서 실행 중인지 — 메뉴 막대 퀵바와 창을 주고받는 데 쓴다. */
+const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
 const view = document.getElementById('view');
 
@@ -479,6 +483,146 @@ const SWATCH_COLORS = {
   slate: ['#475569', '#64748B'],
 };
 
+/* ---------------------- 반원 퀵바 순서 (v1.9.0) ---------------------- */
+
+function quickbarSection(rerenderSheet) {
+  const ids = quickOrderIds();
+  const mods = ids.map((id) => getModule(id)).filter(Boolean);
+  const list = el('div', { class: 'qb-list', role: 'list' });
+
+  if (!mods.length) {
+    list.append(el('p', { class: 'qb-empty', text: '켜 둔 모듈이 없습니다. 모듈을 켜면 여기에 나타납니다.' }));
+  }
+
+  const save = () => {
+    const next = [...list.querySelectorAll('.qb-row')].map((row) => row.dataset.moduleId);
+    if (!next.length) return;
+    saveQuickOrder(next);
+    toast('반원 퀵바 순서를 저장했습니다');
+  };
+
+  mods.forEach((mod) => list.append(quickbarRow(mod, save)));
+  refreshQuickbarButtons(list);
+
+  return el('div', { class: 'sheet-section qb-section' }, [
+    el('h3', { text: '반원 퀵바 순서' }),
+    el('p', { class: 'qb-note', text: 'Mac 메뉴 막대에서 반원으로 열릴 때의 순서입니다. 끌어서 바꾸세요.' }),
+    list,
+    el('button', {
+      class: 'sheet-reset',
+      type: 'button',
+      text: '메인 순서 따르기',
+      onclick: () => {
+        resetRadialOrder();
+        rerenderSheet();
+        toast('퀵바 순서를 메인 화면 순서로 되돌렸습니다');
+      },
+    }),
+  ]);
+}
+
+function quickbarRow(mod, save) {
+  const row = el('div', { class: 'qb-row', role: 'listitem', 'data-module-id': mod.id });
+
+  const handle = el('button', {
+    class: 'qb-handle',
+    type: 'button',
+    'aria-label': `${mod.name} 퀵바 순서 바꾸기`,
+    title: '끌어서 순서 바꾸기',
+    html: icons.grip,
+  });
+  handle.addEventListener('pointerdown', (event) => startQuickbarDrag(event, row, handle, save));
+
+  const up = el('button', { class: 'qb-move', type: 'button', 'data-dir': 'up', 'aria-label': `${mod.name} 위로`, text: '↑' });
+  const down = el('button', { class: 'qb-move', type: 'button', 'data-dir': 'down', 'aria-label': `${mod.name} 아래로`, text: '↓' });
+  const list = () => row.parentElement;
+  up.addEventListener('click', () => {
+    const prev = row.previousElementSibling;
+    if (!prev) return;
+    prev.before(row);
+    save();
+    refreshQuickbarButtons(list());
+  });
+  down.addEventListener('click', () => {
+    const next = row.nextElementSibling;
+    if (!next) return;
+    next.after(row);
+    save();
+    refreshQuickbarButtons(list());
+  });
+
+  row.append(
+    handle,
+    el('span', { class: 'qb-icon', html: mod.icon || '' }),
+    el('span', { class: 'qb-name', text: mod.shortName || mod.name }),
+    up,
+    down,
+  );
+  return row;
+}
+
+/** 목록의 첫 줄·마지막 줄에서는 위/아래 버튼을 끈다. */
+function refreshQuickbarButtons(list) {
+  if (!list) return;
+  const rows = [...list.querySelectorAll('.qb-row')];
+  rows.forEach((row, index) => {
+    const up = row.querySelector('.qb-move[data-dir="up"]');
+    const down = row.querySelector('.qb-move[data-dir="down"]');
+    if (up) up.disabled = index === 0;
+    if (down) down.disabled = index === rows.length - 1;
+  });
+}
+
+/** 목록 안 드래그 — 잡은 줄을 포인터 위치에 따라 위아래로 옮긴다(시트 스크롤도 따라간다). */
+function startQuickbarDrag(event, row, handle, save) {
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  const list = row.parentElement;
+  if (!list || list.querySelectorAll('.qb-row').length < 2) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  const panel = row.closest('.sheet');
+  row.classList.add('is-dragging');
+  document.body.classList.add('is-dragging');
+
+  const onMove = (moveEvent) => {
+    moveEvent.preventDefault();
+    const y = moveEvent.clientY;
+
+    if (panel) {
+      const box = panel.getBoundingClientRect();
+      if (y < box.top + 48) panel.scrollTop -= 10;
+      else if (y > box.bottom - 48) panel.scrollTop += 10;
+    }
+
+    const others = [...list.querySelectorAll('.qb-row')].filter((node) => node !== row);
+    const target = others.find((node) => {
+      const rect = node.getBoundingClientRect();
+      return y < rect.top + rect.height / 2;
+    });
+    if (target) {
+      if (target.previousElementSibling !== row) target.before(row);
+    } else if (list.lastElementChild !== row) {
+      list.append(row);
+    }
+  };
+
+  const onEnd = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onEnd);
+    window.removeEventListener('pointercancel', onEnd);
+    row.classList.remove('is-dragging');
+    document.body.classList.remove('is-dragging');
+    save();
+    refreshQuickbarButtons(list);
+  };
+
+  // 줄을 DOM 안에서 옮기면 핸들의 포인터 캡처가 풀리므로, 창 전체에서 포인터를 받는다.
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onEnd);
+  window.addEventListener('pointercancel', onEnd);
+}
+
 function closeSheet() {
   if (!sheet) return;
   const { backdrop, panel } = sheet;
@@ -558,6 +702,9 @@ function openSheet() {
     });
     panel.append(el('div', { class: 'sheet-section' }, el('h3', { text: '기본 색상' }), swatches));
 
+    // 반원 퀵바 순서 — Mac 메뉴 막대에서 열리는 순서(웹에서도 미리 정할 수 있다).
+    panel.append(quickbarSection(render));
+
     // 홈 카드 순서를 바꾼 적이 있을 때만 되돌리기 버튼을 보여 준다.
     if (hasSectionOrder()) {
       panel.append(el('div', { class: 'sheet-section' }, [
@@ -601,7 +748,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 
 /* ----------------------------- SW / install ---------------------------- */
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && !TAURI) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js', { scope: './' }).catch((error) => {
       console.warn('[TIP] service worker registration failed:', error);
@@ -633,6 +780,27 @@ window.addEventListener('appinstalled', () => {
   toast('홈 화면에 TIP이 추가되었습니다');
 });
 
+/* ------------------------- Mac 앱(메뉴 막대) 연동 ------------------------- */
+
+// 반원 퀵바에서 모듈을 고르면 이 창을 그 모듈로 바로 띄운다.
+if (TAURI && window.__TAURI__.event) {
+  window.__TAURI__.event.listen('tip://open-module', (event) => {
+    const id = event.payload;
+    const mod = getModule(id);
+    if (!mod) return;
+    if (moduleState(mod).enabled) location.hash = `#/${id}`;
+    else toast(`${mod.name}이(가) 사용 중지되어 있습니다. 스위치로 켠 뒤 실행하세요.`);
+  });
+  window.__TAURI__.event.listen('tip://open-home', () => { location.hash = '#/'; });
+}
+
 /* -------------------------------- boot --------------------------------- */
+
+// 컴팩트 창은 index.html?module=<id> 로 열린다 — 그 모듈 화면에서 시작한다.
+const deepId = new URLSearchParams(location.search).get('module');
+const deepMod = deepId ? getModule(deepId) : null;
+if (deepMod && moduleState(deepMod).enabled) {
+  try { history.replaceState(null, '', `#/${deepMod.id}`); } catch { /* 해시만 못 바꿔도 동작에는 지장이 없다 */ }
+}
 
 route();

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TIP · 메뉴 막대 퀵바</title>
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex">
+
+  <!-- 메인 창과 같은 테마·색상을 첫 페인트 전에 적용한다. -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('tip.theme');
+        var dark = saved ? saved === 'dark'
+          : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        var accent = localStorage.getItem('tip.accent');
+        document.documentElement.setAttribute('data-accent',
+          ['green', 'blue', 'purple', 'orange', 'rose', 'slate'].indexOf(accent) >= 0 ? accent : 'green');
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+
+  <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+  <link rel="stylesheet" href="./css/app.css">
+  <link rel="stylesheet" href="./css/radial.css">
+  <script type="module" src="./js/radial.js"></script>
+</head>
+<body class="rw-body">
+  <div class="rw" id="rw" role="dialog" aria-label="TIP 메뉴 막대 퀵바">
+    <!-- 반원(부채꼴) 유리 배경 — clip-path 는 radial.js 가 같은 곡선으로 만든다. -->
+    <div class="rw-fan" aria-hidden="true">
+      <div class="rw-fan-glass" id="fan-glass"></div>
+    </div>
+    <svg class="rw-edge" id="fan-edge" aria-hidden="true"><path id="fan-path" fill="none"></path></svg>
+
+    <div class="rw-top">
+      <button id="prev" class="rw-arrow" type="button" aria-label="이전 모듈" title="이전 모듈">‹</button>
+      <button id="open-app" class="rw-open" type="button" aria-label="TIP 앱 열기" title="TIP 앱 열기">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+      </button>
+      <button id="next" class="rw-arrow" type="button" aria-label="다음 모듈" title="다음 모듈">›</button>
+      <span class="rw-open-label" aria-hidden="true">앱 열기</span>
+    </div>
+
+    <div class="rw-slots" id="slots" role="menu" aria-label="켜 둔 모듈"></div>
+
+    <p class="rw-empty" id="empty" hidden>켜 둔 모듈이 없습니다.<br>TIP 앱 설정에서 모듈을 켜세요.</p>
+  </div>
+</body>
+</html>

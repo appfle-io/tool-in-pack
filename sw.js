@@ -1,15 +1,19 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.8.0';
+const CACHE_VERSION = 'tip-v1.9.0';
 const APP_SHELL = [
   './',
   './index.html',
+  './radial.html',
   './manifest.json',
   './css/app.css',
+  './css/radial.css',
   './vendor/fonts/PretendardVariable.woff2',
   './js/app.js',
   './js/ui.js',
   './js/store.js',
+  './js/quickbar.js',
+  './js/radial.js',
   './modules/registry.js',
   './modules/doc-reader/module.js',
   './modules/doc-reader/renderers.js',

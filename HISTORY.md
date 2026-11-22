@@ -45,10 +45,10 @@
 | 라이브 | <https://appfle-io.github.io/tool-in-pack/> (GitHub Pages, `/tool-in-pack/` 서브 경로) |
 | 저장소 | <https://github.com/appfle-io/tool-in-pack> (public, `main` 브랜치가 곧 배포본) |
 | 소유·기획 | 유동규 (@papaleo / GitHub @appfle-io) |
-| 현재 버전 | **v1.8.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.8.0'`) · 모듈 17종 |
+| 현재 버전 | **v1.9.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.9.0'`) · 모듈 17종 · macOS 앱 포함 |
 | 라이선스 | MIT (본 저장소 코드) + 서드파티 라이브러리는 각 라이선스 (LICENSE 참고) |
 
-### 모듈 목록 (v1.8.0 기준) · 기본 순서 = 홈 섹션 순서
+### 모듈 목록 (v1.9.0 기준) · 기본 순서 = 홈 섹션 순서 = 반원 퀵바 기본 순서
 
 | # | id | 이름 | `category` (홈 섹션) | 한 줄 기능 |
 | --- | --- | --- | --- | --- |
@@ -91,6 +91,11 @@ v1.8.0부터 사용자가 **카드 왼쪽 핸들(⋮⋮)을 끌어 같은 섹션
 index.html                앱 셸 (PWA 메타 태그, 테마 프리페인트 스크립트, 벤더 스크립트 로드)
 manifest.json             PWA 매니페스트 (이름·아이콘·start_url·shortcuts)
 sw.js                     서비스 워커 — 앱 셸 프리캐시 (배포 시 CACHE_VERSION 갱신)
+radial.html               Mac 메뉴 막대 반원 퀵바 창 (투명 창 · 580×260)
+css/radial.css            반원 판(clip-path)·타일·위쪽 컨트롤 스타일
+js/radial.js              반원 퀵바 렌더·회전(휠/화살표)·모듈 열기·테마 실시간 동기화
+js/quickbar.js            퀵바 순서 계산 (기본값 = 홈 순서, 사용자 지정 = tip.radialOrder.v1)
+mac/                      macOS 앱 (Tauri 2) — 아래 'macOS 앱' 절 참고
 .nojekyll                 GitHub Pages Jekyll 처리 비활성
 css/app.css               전체 스타일 (모바일 퍼스트 + Safe Area + 라이트/다크 + 데스크톱 미디어쿼리)
 js/app.js                 해시 라우터(#/<module-id>), 홈 허브(고정됨·카테고리 섹션), ⚙️ 환경설정 시트, SW 등록
@@ -112,12 +117,34 @@ modules/ocr-reader/       이미지 텍스트 추출 — tesseract.js (module.js
 vendor/                   셀프호스팅 라이브러리 (아래 표)
 icons/                    PWA 아이콘 (1024 마스터 / 512 / maskable / 192 / apple-touch / favicon·32)
 tools/make-icons.py       아이콘 재생성 스크립트 (Python + Pillow)
+tools/make-mac-icons.py   macOS .icns·메뉴 막대 템플릿 아이콘 재생성 (Python + Pillow)
+.github/workflows/build-mac.yml  macOS Universal .dmg 자동 빌드(서명·공증 분기)
 samples/                  테스트용 샘플 문서·이미지 (PDF/HWPX/이미지 자체 생성, HWP는 공개 픽스처)
 README.md                 사용자용 설명서
 AGENT.md                  AI/개발자용 작업 지침
 HISTORY.md                이 문서
 LICENSE                   MIT + 서드파티 라이선스 목록
 ```
+
+### macOS 앱 (`mac/`, Tauri 2)
+
+```
+mac/package.json                    Tauri CLI devDependency(^2), 스크립트(dev/build/collect)
+mac/scripts/collect-web.sh          루트 정적 파일(index.html·radial.html·css·js·modules·vendor·icons)을 mac/dist-web 로 복사
+mac/src-tauri/tauri.conf.json       productName TIP · identifier io.appfle.tip · frontendDist ../dist-web · windows[main 1040×760, min 420×700]
+mac/src-tauri/Cargo.toml            tauri 2 (features: tray-icon, image-png, macos-private-api)
+mac/src-tauri/src/lib.rs            트레이·퀵바·컴팩트 창·메인 창 동작과 명령(hide_radial, open_main, open_tool)
+mac/src-tauri/src/main.rs           tip_lib::run() 진입점
+mac/src-tauri/capabilities/default.json  창 3종(main·quickbar·tool)의 core:default 권한
+mac/src-tauri/icons/                icon.icns, trayTemplate.png(22), trayTemplate@2x.png(44) — tools/make-mac-icons.py 로 생성
+mac/src-tauri/gen/                  tauri-build 자동 생성 (git 제외)
+mac/dist-web/                       collect-web.sh 결과 (git 제외, tauri build 전 자동 실행)
+```
+
+- 웹 자산은 **복사**해서 쓴다. `dist-web` 은 산출물이라 커밋하지 않고, `beforeBuildCommand` 가 매 빌드마다 새로 만든다.
+- 창 3종의 관계: `main`(전체 창) · `quickbar`(메뉴 막대 반원, 투명·무테두리·always on top·포커스 아웃 시 hide) · `tool`(모듈별 420×680 컴팩트 창, `index.html?module=<id>` 로 열린다).
+- 세 창은 같은 origin(`tauri://localhost`)이라 `localStorage` 설정을 공유한다. 메인 창에서 순서를 바꾸면 퀵바가 `storage` 이벤트 + 700ms 폴링으로 따라간다.
+- `withGlobalTauri: true` 라 프런트엔드는 번들러 없이 `window.__TAURI__.core.invoke(...)`·`window.__TAURI__.event.listen(...)` 만 쓴다(웹 빌드 도구 금지 원칙 유지).
 
 ### 셀프호스팅 라이브러리 (`vendor/`)
 
@@ -185,6 +212,30 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 ---
 
 ## 3. 버전 기록 (최신이 위)
+
+### v1.9.0 — 2026-11-23 (KST) · `tip-v1.9.0` · macOS 앱 + 반원 퀵바
+
+- **작성자**: 유동규(기획·반원 퀵바 컨셉·퀵바 전용 순서 요청·검수) + Pickle(AI) 구현
+- **개발 내용** (macOS 앱 신규 + 웹에 퀵바 순서 설정 추가 — 모듈 17종 그대로)
+  - `radial.html` — 메뉴 막대 반원 퀵바 창. 흰/어두운 유리 판 위에 위쪽 `앱 열기` 버튼, 그 아래 반원 호를 따라 켜 둔 모듈 타일. 테마·색상은 `index.html` 과 같은 프리페인트 스크립트로 첫 페인트 전에 적용한다. `?bg=1` 은 미리보기용 배경(스크린샷 전용).
+  - `js/radial.js` — 반원 기하 상수(`G`: 타원 중심 92, 반지름 210×58, 칸 간격 21°, 판 여유 34×22, 판 최대 각 112°)로 **판 테두리(clip-path)와 타일 좌표를 같은 식**으로 만든다. 한 화면 7칸, 넘치는 모듈은 **휠·트랙패드(deltaX/Y)·←→·‹› 버튼**으로 호를 따라 회전(연속 `pos` → 0.3 이징 rAF). 가장자리에 걸친 타일은 먼저 가운데로 끌어오고, 가운데 타일을 누르면 `open_tool`(Tauri) 또는 `index.html?module=<id>`(웹). `Esc`·바깥 클릭은 창을 숨긴다. 테마·순서·켜기/끄기는 `storage` + 포커스 + 700ms 폴링으로 실시간 동기화.
+  - `css/radial.css` — 투명 창 배경, `filter: drop-shadow` 를 건 래퍼 안에 `clip-path` 유리판, 타일 52px 원형 + 10.5px 라벨(말줄임), 액센트 hover, `prefers-reduced-motion` 대응.
+  - `js/quickbar.js` (신규) — 퀵바 순서 계산. 기본값은 홈과 같은 `고정됨 → 문서 → 미디어 → 유틸리티`(각 섹션은 `tip.order.v1`), 사용자가 바꾼 `tip.radialOrder.v1` 이 있으면 그것이 우선. `saveQuickOrder(onIds)` 는 **꺼 둔 모듈의 자리를 지킨 채** 켜 둔 모듈만 새 순서로 치환한다.
+  - `js/store.js` — `tip.radialOrder.v1` 읽기/쓰기/초기화(`getRadialOrder`·`setRadialOrder`·`hasRadialOrder`·`resetRadialOrder`), 창 사이 동기화용 `syncStore()`(캐시 비우기)와 `storage` 이벤트 처리. 기존 키는 그대로.
+  - `js/app.js` — ⚙️ 환경설정 시트에 **반원 퀵바 순서** 섹션(켜 둔 모듈 목록, `⋮⋮` PointerEvent 드래그 + ↑↓ 버튼, `메인 순서 따르기` 초기화). 드래그는 줄을 DOM 안에서 옮기면 핸들의 포인터 캡처가 풀리므로 **window 에 pointermove/pointerup** 을 걸었고, 시트 가장자리에서 자동 스크롤한다. `index.html?module=<id>` 딥링크(컴팩트 창), Tauri 이벤트(`tip://open-module`) 수신, Tauri 안에서는 서비스 워커를 등록하지 않는다.
+  - `css/app.css` — v1.9.0 섹션: `.sheet` 최대 높이 88vh + 스크롤, `.qb-*` (목록·행·핸들·아이콘·이름·↑↓ 버튼) 스타일.
+  - `mac/` — Tauri 2 프로젝트(위 구조 절 참고). 트레이 템플릿 아이콘, 좌클릭 토글, 포커스 아웃 자동 숨김, 메뉴(앱 열기·퀵바·종료), 메인 창 X = 숨김, Dock 재오픈, `open_tool` 은 컴팩트 창 재사용.
+  - `.github/workflows/build-mac.yml` — `macos-latest` 에서 Universal(`aarch64`+`x86_64`) `.app`/`.dmg` 빌드. Secrets 가 있으면 Developer ID 서명 + 공증, 없으면 Ad-hoc(`APPLE_SIGNING_IDENTITY=-`). 빌드 후 **lipo(arm64+x86_64)·Info.plist 버전·codesign·hdiutil verify·DMG 내부 앱**을 검사하고, `.dmg` · `.app.tar.gz` · `SHA256SUMS.txt` 를 아티팩트로 올린다(태그면 Release 첨부).
+  - `tools/make-mac-icons.py` — `icons/icon-1024.png` → `icon.icns`(7종 크기), 메뉴 막대 템플릿 PNG(22/44, 라운드 사각 + 2×2 그리드).
+  - `sw.js` — `tip-v1.9.0`, 프리캐시에 `radial.html`·`css/radial.css`·`js/radial.js`·`js/quickbar.js` 추가.
+  - `.gitignore` — `mac/dist-web/`·`node_modules/`·`target/`·`gen/`.
+- **사용한 언어·라이브러리·세팅**: 프런트엔드는 그대로 Vanilla(빌드 없음) + Tauri 2 `withGlobalTauri`(npm 프런트엔드 빌드 없음). Rust `tauri 2`(tray-icon, image-png, macos-private-api), CLI `@tauri-apps/cli 2.12.6`(mac/package-lock.json 고정). 아이콘은 Python Pillow.
+- **검증**: 아래 '검증 결과' 참고(로컬 웹 32항목 + GitHub Actions macos-latest 빌드).
+- **주의·제약**:
+  - 서명 Secrets 가 없으면 Ad-hoc 서명이라 첫 실행에 Finder 우클릭 → 열기(또는 `xattr -dr com.apple.quarantine`)가 필요하다.
+  - 반원 창은 **포커스 아웃 시 자동으로 숨는다.** 컴팩트 창은 파일 선택 대화상자를 써도 닫히지 않게 일반 창(타이틀바 있음)으로 띄운다.
+  - 퀵바 순서는 웹 `localStorage` 에만 저장된다(계정·서버 없음). 웹과 Mac 앱은 서로 다른 origin 이므로 **각각 따로** 저장된다(웹 브라우저 ↔ Mac 앱 사이 동기화는 없음).
+  - DMG/앱은 Universal 이지만, CI 는 실제 실행 테스트를 하지 않는다(빌드·서명·번들 구조 검사까지).
 
 ### v1.8.0 — 2026-11-23 00:38 (KST) · 커밋 `8ee58b7` · `tip-v1.8.0`
 

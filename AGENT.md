@@ -25,7 +25,7 @@ TIP(TOOL-IN-PACK)을 이어서 개발하는 AI 어시스턴트와 개발자를 �
 
 ### 지침 3 — 버전은 `MAJOR.MINOR.PATCH` 규칙대로 올린다
 
-현재 버전은 **1.8.0** (2026-11-23 기준). 버전은 세 자리 숫자로만 쓰고(`1.5.0`), 어느 자리를 올릴지는 아래 기준을 따른다.
+현재 버전은 **1.9.0** (2026-11-23 기준). 버전은 세 자리 숫자로만 쓰고(`1.5.0`), 어느 자리를 올릴지는 아래 기준을 따른다.
 
 | 자리 | 올리는 때 | 예 |
 | --- | --- | --- |
@@ -82,13 +82,18 @@ TIP(TOOL-IN-PACK)을 이어서 개발하는 AI 어시스턴트와 개발자를 �
 
 ```
 index.html          앱 셸 (테마 프리페인트, 벤더 <script>, #view, #toast)
+radial.html         Mac 메뉴 막대 반원 퀵바 창 (투명 창, 580×260)
 js/app.js           해시 라우터(#/<id>), 홈 허브(고정됨 + 카테고리 섹션), ⚙️ 설정 시트, SW 등록
 js/ui.js            el(), toast(), formatBytes(), 공용 아이콘(icons)
-js/store.js         localStorage — 모듈 enabled/pinned, 테마, 액센트, 홈 카드 순서(tip.order.v1)
+js/store.js         localStorage — 모듈 enabled/pinned, 테마, 액센트, 홈 카드 순서(tip.order.v1), 퀵바 순서(tip.radialOrder.v1)
+js/radial.js        반원 퀵바 렌더·회전·모듈 열기
+js/quickbar.js      퀵바 순서 계산(기본 = 홈 순서, 지정 = tip.radialOrder.v1)
+mac/                macOS 앱 (Tauri 2) — 아래 §3 'macOS 앱' 절
 modules/registry.js 모듈 레지스트리 + CATEGORIES(홈 섹션 순서·라벨)
 modules/<name>/     모듈 구현
 vendor/             셀프호스팅 라이브러리
 css/app.css         전역 스타일 (파일 하나, 끝에 버전별 섹션이 쌓임)
+css/radial.css      반원 퀵바 창 전용 스타일
 ```
 
 ### 모듈 작성 관례
@@ -123,6 +128,31 @@ css/app.css         전역 스타일 (파일 하나, 끝에 버전별 섹션이 
 - `category` 를 빠뜨리거나 모르는 값을 쓰면 `FALLBACK_CATEGORY`(`utility`)로 모인다. (조용히 사라지지는 않지만, 제 분류에 두려면 반드시 지정한다)
 - **새 분류가 필요하면** `CATEGORIES` 에 `{ id, label }` 을 순서에 맞게 추가하고, 이 표와 `README.md` 모듈 표의 "분류"도 함께 고친다. 분류를 늘리는 일은 드물어야 한다(3~4개 유지).
 - 분류는 모듈의 성격을 말한다. `kind`(`reader`/`tool`)는 내부 구분용이므로 홈 표시에는 쓰지 않는다.
+
+### macOS 앱 (`mac/`, Tauri 2) — v1.9.0
+
+- **웹 자산을 복사해서 쓴다.** `mac/scripts/collect-web.sh` 가 루트의 `index.html`·`radial.html`·`css/`·`js/`·`modules/`·`vendor/`·`icons/` 를 `mac/dist-web/` 으로 복사하고, `tauri.conf.json` 의 `beforeBuildCommand` 가 빌드 전에 자동 실행한다. `dist-web` 은 커밋하지 않는다(`.gitignore`).
+- **웹 코드는 그대로 둔다.** Mac 전용 분기는 `js/app.js`·`js/radial.js` 안의 `TAURI = !!window.__TAURI__` 뿐이다. 웹(PWA)에는 영향이 없어야 한다.
+- **Tauri 설정**: `withGlobalTauri: true`(번들러 없이 `window.__TAURI__` 사용), `macOSPrivateApi: true`(투명 창), `csp: null`(벤더 wasm/worker).
+- **창 3종** (`mac/src-tauri/src/lib.rs`):
+  | label | 크기 | 성격 |
+  | --- | --- | --- |
+  | `main` | 1040×760 (최소 420×700) | 전체 창. X 를 누르면 **숨김**(`prevent_close`), Dock·트레이로 재오픈 |
+  | `quickbar` | 580×260 | 반원 퀵바. 투명·무테두리·always on top·skip taskbar, **포커스 아웃 시 hide** |
+  | `tool` | 420×680 | 모듈별 컴팩트 창. `index.html?module=<id>` 로 열고, 이미 있으면 `tip://open-module` 이벤트로 모듈만 바꾼다 |
+- **트레이**: `icons/trayTemplate.png`(흑백 템플릿, `icon_as_template(true)`) — 라이트/다크 메뉴 막대에 자동으로 맞는다. 좌클릭 = 퀵바 토글, 우클릭 = 메뉴(앱 열기·퀵바·종료). 아이콘 좌표(`TrayIconEvent::Click.rect`)를 저장해 창을 그 아래에 놓는다.
+- **아이콘 재생성**: `python3 tools/make-mac-icons.py` (`icon.icns`, `trayTemplate.png`, `trayTemplate@2x.png`). 결과물은 커밋한다.
+- **빌드**: `.github/workflows/build-mac.yml` — `macos-latest`, Universal(`aarch64-apple-darwin` + `x86_64-apple-darwin`), `npx tauri build --target universal-apple-darwin --bundles app,dmg`. 로컬(Mac)에서는 `cd mac && npm install && npm run build`.
+- **서명 분기**: Secrets `APPLE_CERTIFICATE`·`APPLE_CERTIFICATE_PASSWORD`·`APPLE_SIGNING_IDENTITY`(+공증용 `APPLE_ID`·`APPLE_PASSWORD`·`APPLE_TEAM_ID`)가 있으면 Developer ID 서명·공증, 없으면 Ad-hoc(`APPLE_SIGNING_IDENTITY=-`). **Secrets 를 if 조건에 직접 쓸 수 없어** job `env.SIGNING_CERT` 로 내려받아 조건에 쓴다.
+- **버전 일치**: `mac/package.json` · `mac/src-tauri/Cargo.toml` · `mac/src-tauri/tauri.conf.json` 의 `version` 을 `sw.js` 와 같은 값으로 올린다(Info.plist `CFBundleShortVersionString` 이 된다).
+
+### 반원 퀵바 순서 (`tip.radialOrder.v1`) 관례 — v1.9.0
+
+- 기본값은 **홈과 같은 순서**(고정됨 → 문서 → 미디어 → 유틸리티, 각 섹션은 `tip.order.v1`). `js/quickbar.js` 의 `defaultQuickOrder()` 가 만든다.
+- 사용자가 ⚙️ → **반원 퀵바 순서** 에서 한 번이라도 바꾸면 `tip.radialOrder.v1`(카테고리 구분 없는 **module id 배열**)이 우선한다.
+- 배열은 **레지스트리의 모든 모듈 id** 를 담는다. 꺼 둔 모듈의 id 도 남겨 두므로 다시 켜면 원래 자리로 돌아오고, 새로 추가된 모듈(배열에 없는 id)은 뒤에 붙는다(`fullQuickOrder()`).
+- 저장은 `saveQuickOrder(onIds)` 로만 한다 — 켜 둔 모듈만 새 순서로 치환하고 꺼 둔 모듈의 자리는 건드리지 않는다.
+- 퀵바는 **켜 둔 모듈만** 그린다(`quickOrderIds()`). 홈 섹션 순서를 바꿔도 사용자 지정 퀵바 순서는 바뀌지 않는다(초기화 버튼으로만 되돌아간다).
 
 ### 홈 카드 순서 (`tip.order.v1`) 관례 — v1.8.0
 
@@ -167,6 +197,8 @@ python3 -m http.server 8000        # http://127.0.0.1:8000/
 ```
 
 - **항상 새 브라우저 컨텍스트**로 확인한다. 서비스 워커가 옛 파일을 물고 있으면 수정이 반영되지 않는다.
+- **반원 퀵바**는 `http://127.0.0.1:8000/radial.html` 로 직접 열어 확인한다(창 크기 580×260). `?bg=1` 을 붙이면 스크린샷용 배경이 깔린다. 휠·←→ 회전, 타일 클릭(`index.html?module=<id>` 이동), 라이트/다크·색상, 켜기/끄기 필터, `tip.radialOrder.v1` 반영을 본다.
+- **Mac 앱**은 로컬에 Rust·Xcode 가 있어야 빌드된다. 없으면 `gh workflow run build-mac.yml` 로 CI 빌드를 돌리고 `gh run view --log-failed` 로 확인한다.
 - 실제 파일로 끝까지 실행해 **결과 파일을 검사**한다. 예: 병합 PDF는 페이지 수·페이지 크기, 모자이크 저장본은 EXIF 0건, GIF는 `GIF89a` 헤더·프레임 수, 클립은 길이·해상도.
 - 모바일 390×844 + 데스크톱 1280×800 두 크기에서 스크린샷을 남긴다.
 - 확인 항목: 콘솔 에러 0, 페이지 에러 0, 404 0, 가로 스크롤 넘침 없음, 라이트/다크.
@@ -185,7 +217,7 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 ## 6. 하지 말아야 할 것
 
 - 사용자가 요청하지 않은 모듈 비활성화, 기본값 변경, 데이터 삭제.
-- `localStorage` 키 이름 변경(`tip.settings.v1`, `tip.theme`, `tip.accent`, `tip.order.v1`) — 기존 사용자 설정·카드 순서가 날아간다.
+- `localStorage` 키 이름 변경(`tip.settings.v1`, `tip.theme`, `tip.accent`, `tip.order.v1`, `tip.radialOrder.v1`) — 기존 사용자 설정·카드 순서가 날아간다.
 - `app.js`의 라우팅 규칙(`#/<id>`) 변경 — PWA 바로가기(`manifest.json` `shortcuts`)와 홈 화면 링크가 깨진다.
 - 검증 없이 `main`에 푸시. (라이브가 곧 배포본이다)
 - 버전 규칙(지침 3)·커밋 메시지 규칙(지침 4)을 건너뛰는 것 — `CACHE_VERSION`·`HISTORY.md`·`README.md` 버전이 서로 다르거나, `[vX.Y.Z] type:` 없는 커밋 제목.

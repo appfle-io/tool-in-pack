@@ -106,6 +106,59 @@ function writeOrder(order) {
   }
 }
 
+/* 반원 퀵바(메뉴 막대) 순서 — 카테고리와 무관한 module id 배열. (v1.9.0)
+   값이 없으면 메인 화면 순서(고정됨 → 문서 → 미디어 → 유틸리티)를 따른다.
+   꺼 둔 모듈의 id 도 배열에 남겨 두어, 다시 켰을 때 원래 자리로 돌아온다. */
+
+const RADIAL_ORDER_KEY = 'tip.radialOrder.v1';
+
+export function getRadialOrder() {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(localStorage.getItem(RADIAL_ORDER_KEY) || 'null');
+  } catch {
+    parsed = null;
+  }
+  if (!Array.isArray(parsed)) return [];
+  return [...new Set(parsed.filter((id) => typeof id === 'string'))];
+}
+
+export function setRadialOrder(ids) {
+  if (!Array.isArray(ids)) return;
+  const next = [...new Set(ids.filter((id) => typeof id === 'string'))];
+  try {
+    localStorage.setItem(RADIAL_ORDER_KEY, JSON.stringify(next));
+  } catch {
+    /* 저장소를 못 쓰면 순서도 저장되지 않는다 */
+  }
+}
+
+export function hasRadialOrder() {
+  return getRadialOrder().length > 0;
+}
+
+export function resetRadialOrder() {
+  try {
+    localStorage.removeItem(RADIAL_ORDER_KEY);
+  } catch { /* 저장소를 못 쓰면 지울 것도 없다 */ }
+}
+
+/** 다른 창(반원 퀵바)에서 바뀐 설정을 다시 읽도록 캐시를 비운다. */
+export function syncStore() {
+  cache = null;
+  orderCache = null;
+}
+
+/* 다른 탭·창에서 설정을 바꾸면 이 창도 새 값을 읽는다. */
+try {
+  window.addEventListener('storage', (event) => {
+    if (!event.key || event.key === KEY || event.key === ORDER_KEY || event.key === RADIAL_ORDER_KEY) {
+      cache = null;
+      orderCache = null;
+    }
+  });
+} catch { /* window 가 없는 환경 */ }
+
 /* theme: 'light' | 'dark' | null (= follow system) */
 
 const THEME_KEY = 'tip.theme';
