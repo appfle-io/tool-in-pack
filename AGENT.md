@@ -25,7 +25,7 @@ TIP(TOOL-IN-PACK)을 이어서 개발하는 AI 어시스턴트와 개발자를 �
 
 ### 지침 3 — 버전은 `MAJOR.MINOR.PATCH` 규칙대로 올린다
 
-현재 버전은 **1.11.0** (2026-11-23 기준). 버전은 세 자리 숫자로만 쓰고(`1.5.0`), 어느 자리를 올릴지는 아래 기준을 따른다.
+현재 버전은 **1.12.0** (2026-11-23 기준). 버전은 세 자리 숫자로만 쓰고(`1.5.0`), 어느 자리를 올릴지는 아래 기준을 따른다.
 
 | 자리 | 올리는 때 | 예 |
 | --- | --- | --- |
@@ -73,7 +73,12 @@ TIP(TOOL-IN-PACK)을 이어서 개발하는 AI 어시스턴트와 개발자를 �
 4. **배포마다 `sw.js`를 갱신한다.** `CACHE_VERSION`을 올리고(예: `tip-v1.5.0`) 새 모듈·벤더 파일 경로를 `APP_SHELL` 프리캐시에 추가한다. 빠뜨리면 기존 사용자는 옛 파일을 계속 받는다.
 5. **GitHub Pages 제약을 기억한다.** COOP/COEP 헤더가 없어 `SharedArrayBuffer`를 쓸 수 없다. 멀티스레드 `ffmpeg.wasm`, `SharedArrayBuffer` 기반 wasm, 스레드 워커 조합은 라이브에서 실패한다. 큰 wasm을 꼭 써야 하면 프리캐시에 넣지 말고 런타임 캐시로 처리해 초기 설치를 느리게 만들지 않는다.
 6. **모바일과 데스크톱을 함께 본다.** 390×844(iPhone)와 1280×800(데스크톱·Mac 예정) 모두에서 확인한다. Mac 배포가 예정되어 있으므로 **파일 드래그앤드롭, 마우스 드래그(캔버스 편집), 넓은 화면 2열 레이아웃**을 항상 점검한다.
-7. **100% 로컬 처리를 깨지 않는다.** 파일을 서버로 보내는 기능, 계정 로그인, 분석 도구, 외부 API 호출을 추가하지 않는다. 화면 문구도 "기기 안에서만 처리"와 일치해야 한다. **예외는 하나 — 앱 업데이트 확인(v1.10.0)** 이 GitHub Releases 의 공개 최신 버전만 읽는다(사용자 파일·데이터는 보내지 않는다). 그 밖의 외부 호출은 여전히 금지다.
+7. **100% 로컬 처리를 깨지 않는다.** 파일을 서버로 보내는 기능, 계정 로그인, 분석 도구, 외부 API 호출을 추가하지 않는다. 화면 문구도 "기기 안에서만 처리"와 일치해야 한다. **예외 셋**만 허용한다.
+   - **앱 업데이트 확인(v1.10.0)** — GitHub Releases 의 공개 최신 버전만 읽는다(사용자 데이터는 보내지 않는다).
+   - **환율 계산기(v1.7.0)** — 공개 환율표만 받는다(입력 금액은 보내지 않는다).
+   - **주소 검색(v1.12.0, 유동규 님 요청)** — 한국 주소는 다음(카카오) 우편번호 서비스 스크립트, 해외 주소는 OpenStreetMap Nominatim 에 **검색어만** 보낸다. 화면 안내에 "검색어는 그 서비스로만 전송"을 명시한다. 파일·개인정보는 보내지 않는다.
+
+   새 예외를 만들 때는 **반드시 사용자 요청이 있어야** 하고, `README.md` §4 프라이버시·§5 제한사항과 이 문서에 함께 적는다.
 8. **푸시 전에 실제 파일로 검증하고, 푸시 후 라이브에서 다시 확인한다.** (아래 §5)
 
 ---
@@ -83,10 +88,14 @@ TIP(TOOL-IN-PACK)을 이어서 개발하는 AI 어시스턴트와 개발자를 �
 ```
 index.html          앱 셸 (테마 프리페인트, 벤더 <script>, #view, #toast)
 radial.html         Mac 메뉴 막대 반원 퀵바 창 (투명 창, 580×206)
+notch.html          Mac 노치 아일랜드 창 (투명, 접힘 240×46 / 펼침 452×600) — v1.12.0
+search.html         Mac 전역 빠른 실행 검색 팔레트 (투명, 640×440) — v1.12.0
 js/app.js           해시 라우터(#/<id>), 홈 허브(고정됨 + 카테고리 섹션), ⚙️ 설정 시트, SW 등록
 js/ui.js            el(), toast(), formatBytes(), 공용 아이콘(icons)
 js/store.js         localStorage — 모듈 enabled/pinned, 테마, 액센트, 홈 카드 순서(tip.order.v1), 퀵바 순서(tip.radialOrder.v1), 퀵바 투명도(tip.quickbarOpacity.v1)
 js/radial.js        반원 퀵바 렌더·회전·모듈 열기
+js/notch.js         노치 아일랜드 위젯(미디어·캘린더·보관함·타이머·메모·거울·런처) — v1.12.0
+js/search.js        빠른 실행 검색(모듈 이름·키워드 → Enter 실행) — v1.12.0
 js/quickbar.js      퀵바 순서 계산(기본 = 홈 순서, 지정 = tip.radialOrder.v1)
 mac/                macOS 앱 (Tauri 2) — 아래 §3 'macOS 앱' 절
 modules/registry.js 모듈 레지스트리 + CATEGORIES(홈 섹션 순서·라벨)
@@ -94,6 +103,8 @@ modules/<name>/     모듈 구현
 vendor/             셀프호스팅 라이브러리
 css/app.css         전역 스타일 (파일 하나, 끝에 버전별 섹션이 쌓임)
 css/radial.css      반원 퀵바 창 전용 스타일
+css/notch.css       노치 아일랜드 창 전용 스타일 — v1.12.0
+css/search.css      빠른 실행 검색 창 전용 스타일 — v1.12.0
 ```
 
 ### 모듈 작성 관례
@@ -134,15 +145,17 @@ css/radial.css      반원 퀵바 창 전용 스타일
 - **웹 자산을 복사해서 쓴다.** `mac/scripts/collect-web.sh` 가 루트의 `index.html`·`radial.html`·`css/`·`js/`·`modules/`·`vendor/`·`icons/` 를 `mac/dist-web/` 으로 복사하고, `tauri.conf.json` 의 `beforeBuildCommand` 가 빌드 전에 자동 실행한다. `dist-web` 은 커밋하지 않는다(`.gitignore`).
 - **웹 코드는 그대로 둔다.** Mac 전용 분기는 `js/app.js`·`js/radial.js` 안의 `TAURI = !!window.__TAURI__` 뿐이다. 웹(PWA)에는 영향이 없어야 한다.
 - **Tauri 설정**: `withGlobalTauri: true`(번들러 없이 `window.__TAURI__` 사용), `macOSPrivateApi: true`(투명 창), `csp: null`(벤더 wasm/worker).
-- **창 3종** (`mac/src-tauri/src/lib.rs`):
+- **창 5종** (`mac/src-tauri/src/lib.rs`):
   | label | 크기 | 성격 |
   | --- | --- | --- |
   | `main` | 1040×760 (최소 420×700) | 전체 창. X 를 누르면 **숨김**(`prevent_close`), Dock·트레이로 재오픈 |
   | `quickbar` | 580×206 | 반타원(아치) 퀵바 — 판 가로 284·세로 176(`js/radial.js` `G`), 아래 30px 는 그림자 여백. 투명·무테두리·always on top·skip taskbar, **포커스 아웃 시 hide**. 트레이 아이콘 아래 **2px** 에 두어 위쪽 일직선이 메뉴 막대에 붙는다(`place_under_tray(…, gap)`) |
   | `tool` | 420×680 | 모듈별 컴팩트 창. `index.html?module=<id>` 로 열고, 이미 있으면 `tip://open-module` 이벤트로 모듈만 바꾼다 |
+  | `notch` | 접힘 240×46 / 펼침 452×600 | **노치 아일랜드(v1.12.0)** — 화면 최상단 중앙(y=0), 투명·무테두리·always on top·`visible_on_all_workspaces`. `disable_drag_drop_handler()` 로 Finder 파일을 HTML5 drop 으로 받는다. 포커스를 잃으면 접힌다 |
+  | `search` | 640×440 | **빠른 실행 검색(v1.12.0)** — 화면 위쪽 가운데(오프셋 120px), 투명·always on top. 포커스를 잃으면 숨는다 |
 - **트레이**: `mac/src-tauri/icons/tray-icon.png`(44×44 RGBA, **PWA 앱 아이콘과 같은 색**) + `icon_as_template(false)` — v1.10.0 부터 흑백 템플릿 대신 앱 아이콘을 쓴다(사용자 요청). `tools/make-mac-icons.py` 의 `build_tray_color()` 가 `icons/icon-1024.png` 를 라운드 사각형으로 다듬어 만든다(투명 여백 2px). 흑백 템플릿(`trayTemplate*.png`)은 남아 있지만 쓰지 않는다. 좌클릭 = 퀵바 토글, 우클릭 = 메뉴(앱 열기·퀵바·환경설정·종료). 아이콘 좌표(`TrayIconEvent::Click.rect`)를 저장해 창을 그 아래에 놓는다.
 - **환경설정 열기(창 3종 밖의 4번째 길)**: 퀵바의 ⚙ 버튼 → `invoke('open_main', { module: null, settings: true })` → `show_main` 이 메인 창을 띄우고 `tip://open-settings` 이벤트를 보냄 → `js/app.js` 가 `openSheet()`. 창이 이미 떠 있으면 그대로 시트만 앞으로 나온다. 웹에서는 `index.html?settings=1` 로 이동해 같은 시트를 열고, 주소의 파라미터는 `history.replaceState` 로 지운다. 메인 화면이 아직 안 떴을 때를 대비해 Rust 가 `PENDING_SETTINGS` 를 남기고, `app.js` 가 시작할 때 `take_pending_settings` 로 한 번 꺼낸다.
-- **명령 목록** (`invoke_handler`): `hide_radial` · `open_main` · `open_tool` · `take_pending_settings` · `set_tray_visible` · `check_app_update` · `install_app_update_and_restart`.
+- **명령 목록** (`invoke_handler`): `hide_radial` · `open_main` · `open_tool` · `take_pending_settings` · `set_tray_visible` · `check_app_update` · `install_app_update_and_restart` + **v1.12.0**: `clipboard_list` · `clipboard_copy` · `clipboard_pin` · `clipboard_delete` · `clipboard_clear` · `clipboard_add_text` · `clipboard_add_image` · `media_state` · `media_control` · `calendar_today` · `notch_expand` · `notch_collapse` · `set_notch_enabled` · `open_search` · `hide_search` · `set_search_shortcut` · `get_search_shortcut`.
 - **앱 업데이트 (v1.10.0)**: `check_app_update` 가 `https://api.github.com/repos/appfle-io/tool-in-pack/releases/latest` 를 읽어 `CARGO_PKG_VERSION` 과 비교하고, `.app.tar.gz` 에셋의 `browser_download_url` 을 돌려준다. `install_app_update_and_restart(url)` 는 `reqwest` 스트림으로 임시 폴더에 받으면서 `tip://update-progress`(`{stage, percent}`) 를 보내고(프런트가 진행률 로딩바를 그림), `tar -xzf` → `ditto` 로 번들 교체(백업 후, 실패 시 되돌림) → `open -n` → `app.exit(0)`. 릴리스가 없으면 404 를 받아 "공개된 새 버전이 없습니다" 로 응답한다. **이 경로만 외부 네트워크를 쓴다**(5번 지침의 예외 — 공개 릴리스 정보만 읽고 사용자 데이터는 보내지 않는다).
 - **메뉴 막대에 표시 (v1.10.0)**: `localStorage['tip.menuBarVisible.v1']`(`'1'`/`'0'`, 기본 `'1'`) → `set_tray_visible(true|false)` → `tray_by_id("tip").set_visible()`, 끄면 반원 퀵바도 숨긴다. Rust 는 localStorage 를 못 읽으므로 **메인 창이 시작할 때 저장값을 밀어 준다**(`js/app.js` 부트). 도구 창(`?module=`)은 이 동기화를 하지 않는다. 트레이를 꺼도 Dock 아이콘은 남겨 회수 경로를 만든다.
 - **메뉴 도구 투명도 (v1.11.0)**: `localStorage['tip.quickbarOpacity.v1']` 에 `'35'`~`'100'`(정수 %, 기본 `'92'`)을 저장한다. `js/app.js` 의 `quickbarOpacityRow()` 가 ⚙️ → **메뉴 막대** 섹션 안의 슬라이더(`.op-row`, `input[type=range]`)를 그리고, `js/radial.js` 의 `applyOpacity()` 가 `--fan-alpha`(알파 = %/100)를 `<html>` 에 넣어 유리판 배경(`rgba(…, var(--fan-alpha, .92))`)만 바꾼다. 타일·글자는 불투명하게 두어 가독성은 그대로다. 값이 바뀌면 퀵바의 700ms 폴링(`signature()` 에 키 포함)·`storage`·포커스 이벤트로 열려 있는 창에도 반영된다. 슬라이더는 더블클릭하면 기본 92% 로 돌아간다.
@@ -159,6 +172,15 @@ css/radial.css      반원 퀵바 창 전용 스타일
 - **아티팩트·로그 접근 한계** — 자동화 토큰에 `actions`(다운로드)·admin 권한이 없어 `actions/artifacts/{id}/zip` 은 `403`, `actions/runs/{id}/logs` 는 `Must have admin rights` 로 거부된다. 빌드 산출물은 run 페이지에서 내려받거나, 태그 push 로 Release 에 첨부해 공개 URL 로 받는 편이 확실하다.
 - **버전 일치**: `mac/package.json` · `mac/src-tauri/Cargo.toml` · `mac/src-tauri/tauri.conf.json` 의 `version` 을 `sw.js` 와 같은 값으로 올린다(Info.plist `CFBundleShortVersionString` 이 된다).
 - **주의 — 워크플로우 파일은 CLI 로 못 올린다**: 이 저장소의 GitHub App 에 `workflows` 스코프가 없어 `.github/workflows/*` push 는 거부된다. 빌드 워크플로우를 고칠 때는 GitHub 웹 편집으로 커밋하고, 나머지 코드는 평소처럼 push 한다.
+
+### v1.12.0 — 클립보드 히스토리 · 노치 아일랜드 · 전역 검색
+
+- **클립보드 히스토리** (`modules/clipboard-history/module.js`, id `clipboard-history`, `category: utility`, `badge: 'Mac'`): 홈 카드 제목 옆 **동그란 `Mac` 배지**(`js/app.js` `moduleRow()` 가 `mod.badge` 를 그린다 — 다른 Mac 전용 모듈에도 `badge` 를 주면 같은 모양). Mac 앱은 `mac/src-tauri/src/clip.rs` 가 **0.9초마다** `arboard` 로 클립보드를 읽어 텍스트·PNG(최대 100개, 연속 중복 제외, 고정 항목 보존)를 **앱 데이터 폴더 `clipboard.json`** 에 저장하고 `tip://clipboard-changed` 를 보낸다. 이미지는 `image` 크레이트로 PNG 인코딩, 8MB 초과는 건너뛴다. 웹은 자동 감시가 없어 `localStorage['tip.clipboard.v1']` 에 붙여넣기로 보관한다.
+- **노치 아일랜드** (`notch.html` · `js/notch.js` · `css/notch.css`): 창은 Rust `notch_window()` 가 만들고 `set_notch_open()` 이 **크기만** 바꾼다(접힘 240×46 / 펼침 452×600, 항상 화면 최상단 가운데 y=0). 프런트는 `window.innerWidth < 320` 이면 접힘으로 판단(`syncLayout()`)하고, 필에 `mouseenter` 하면 `notch_expand`, 패널 밖으로 나가면 650ms 뒤 `notch_collapse` 를 부른다(입력 중·카메라 켜짐·파일 끌기 중에는 유지). 위젯은 **미디어 · 캘린더 · 임시 보관함 · 타이머 · 빠른 메모 · 웹캠 거울 · 모듈 실행** 7종이고 `tip.notch.v1` 로 각각 켜고 끈다. **미디어·캘린더는 `mac/src-tauri/src/media.rs`** 가 `osascript` 로 Apple Music/Spotify·캘린더를 읽는다(권한 없으면 화면에 안내). **보관함**은 `disable_drag_drop_handler()` 덕분에 HTML5 `drop` 으로 `File` 을 받아 메모리에 보관하고, `[변환]` 등은 파일을 base64 data URL 로 `localStorage['tip.handoff.v1']` 에 넣고 `open_tool` 로 그 모듈 창을 연다 — `js/app.js` `deliverHandoff()` 가 모듈 mount 뒤 **합성 `drop` 이벤트**로 넘긴다(모듈은 손대지 않아도 됨, 3MB 초과는 전달하지 않고 안내).
+- **전역 빠른 실행 검색** (`search.html` · `js/search.js` · `css/search.css`): `tauri-plugin-global-shortcut` 이 Rust 에서 단축키를 잡고 `toggle_search()` 로 창을 연다. 기본 `Alt+Space`, `set_search_shortcut` 으로 바꾸면 `unregister_all()` → `register()` 후 실패 시 기본값으로 되돌린다. 검색은 `js/search.js` 의 `KEYWORDS` 표로 이름·부제·동의어를 훑고 Enter 로 `open_tool`(중지된 모듈은 메인 창)을 부른다.
+- **설정 키**: `tip.notch.v1`(`{ enabled, widgets }`) · `tip.searchShortcut.v1`(accelerator 문자열) · `tip.handoff.v1`(임시, 5분 지나면 무시) · `tip.clipboard.v1`(웹 보관함). `js/app.js` 부트에서 `set_notch_enabled`·`set_search_shortcut` 을 Rust 로 밀어 준다(Rust 는 localStorage 를 못 읽는다).
+- **자동 업데이트 견고화(유동규 님 실기 버그 보고, 2026-11-23)**: `replace_bundle()` 이 ① `AppTranslocation` 경로면 "응용 프로그램 폴더로 옮겨 실행" 안내 ② 백업은 `rename` → `ditto --norsrc` → `cp -pR` ③ 설치도 `rename` 우선(원자적·xattr 문제 없음) 후 `ditto`/`cp` ④ 실패하면 두 명령의 **stderr** 를 사유에 담고 이전 버전으로 롤백 ⑤ 성공하면 `xattr -dr com.apple.quarantine` 을 시도한다.
+- **주소 검색** (`modules/address-search/module.js`): 한국 주소는 다음 우편번호 스크립트를 **동적 로드**해 `postcode.embed()` 로 화면 안에 띄우고 `roadAddressEnglish`·`jibunAddressEnglish`·`zonecode` 를 함께 보여 준다. 해외는 Nominatim `format=jsonv2&addressdetails=1&namedetails=1` 로 **제출할 때만** 조회한다(자동완성 금지 — 이용 정책). 스크립트·API 실패 시 "인터넷 연결이 필요합니다" 안내. **이 모듈만 외부 네트워크 예외**(§2 절대 규칙 7).
 
 ### 반원 퀵바 순서 (`tip.radialOrderMode.v1` · `tip.radialOrder.v1`) 관례 — v1.9.0 / 모드 v1.10.0
 
@@ -192,7 +214,9 @@ css/radial.css      반원 퀵바 창 전용 스타일
 
 ## 4. 새 모듈 추가 체크리스트
 
-1. `modules/<name>/module.js` 작성 — `id`는 URL이 된다(`#/<id>`). `category` 를 `docs` / `media` / `utility` 중에서 지정한다.
+1. `modules/<name>/module.js` 작성 — `id`는 URL이 된다(`#/<id>`). `category` 를 `docs` / `media` / `utility` 중에서 지정한다. Mac 전용이면 `badge: 'Mac'` 을 준다.
+
+   외부 API 를 쓰는 모듈은 **사용자 요청이 있을 때만** 만들고, 화면에 "무엇이 어디로 가는지" 한 줄을 적는다(`address-search` 참고).
 2. `modules/registry.js`에 import + 배열 항목 추가.
 3. `css/app.css` 끝에 해당 모듈 섹션 추가(접두사 클래스로 스코프).
 4. 필요한 라이브러리를 `vendor/`에 추가 + `LICENSE` 서드파티 목록 + `sw.js` 프리캐시.
@@ -235,7 +259,7 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 ## 6. 하지 말아야 할 것
 
 - 사용자가 요청하지 않은 모듈 비활성화, 기본값 변경, 데이터 삭제.
-- `localStorage` 키 이름 변경(`tip.settings.v1`, `tip.theme`, `tip.accent`, `tip.order.v1`, `tip.radialOrder.v1`, `tip.quickbarOpacity.v1`) — 기존 사용자 설정·카드 순서가 날아간다.
+- `localStorage` 키 이름 변경(`tip.settings.v1`, `tip.theme`, `tip.accent`, `tip.order.v1`, `tip.radialOrder.v1`, `tip.quickbarOpacity.v1`, `tip.notch.v1`, `tip.searchShortcut.v1`) — 기존 사용자 설정·카드 순서가 날아간다.
 - `app.js`의 라우팅 규칙(`#/<id>`) 변경 — PWA 바로가기(`manifest.json` `shortcuts`)와 홈 화면 링크가 깨진다.
 - 검증 없이 `main`에 푸시. (라이브가 곧 배포본이다)
 - 버전 규칙(지침 3)·커밋 메시지 규칙(지침 4)을 건너뛰는 것 — `CACHE_VERSION`·`HISTORY.md`·`README.md` 버전이 서로 다르거나, `[vX.Y.Z] type:` 없는 커밋 제목.

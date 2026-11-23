@@ -22,6 +22,7 @@ const APP_SHELL = [
   './js/search.js',
   './modules/registry.js',
   './modules/clipboard-history/module.js',
+  './modules/address-search/module.js',
   './modules/doc-reader/module.js',
   './modules/doc-reader/renderers.js',
   './modules/doc-reader/pdf-viewer.js',
