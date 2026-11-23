@@ -1,6 +1,6 @@
 [package]
 name = "tip"
-version = "1.11.0"
+version = "1.12.0"
 description = "TIP (TOOL-IN-PACK) macOS 앱"
 authors = ["유동규 <appfle.io@gmail.com>"]
 edition = "2021"
@@ -20,3 +20,8 @@ serde_json = "1"
 # 앱 업데이트 확인·다운로드 (GitHub Releases) — 공개 릴리스 정보만 읽는다.
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "native-tls"] }
 futures-util = "0.3"
+# v1.12.0 — 클립보드 히스토리(로컬 백그라운드 감시)와 전역 빠른 실행 단축키
+arboard = "3"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png"] }
+tauri-plugin-global-shortcut = "2"

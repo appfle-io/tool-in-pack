@@ -6,7 +6,8 @@ import {
   getSectionOrder, setSectionOrder, hasSectionOrder, resetSectionOrder, resetRadialOrder,
   getMenuBarVisible, setMenuBarVisible, getRadialOrderMode, setRadialOrderMode,
   getQuickbarOpacity, setQuickbarOpacity, QUICKBAR_OPACITY_MIN, QUICKBAR_OPACITY_MAX,
-  QUICKBAR_OPACITY_DEFAULT,
+  QUICKBAR_OPACITY_DEFAULT, getNotchSettings, setNotchEnabled, setNotchWidget, NOTCH_WIDGETS,
+  getSearchShortcut, setSearchShortcut, SEARCH_SHORTCUT_DEFAULT,
 } from './store.js';
 import { quickOrderIds, customQuickOrderIds, saveQuickOrder } from './quickbar.js';
 import { el, toast, icons } from './ui.js';
@@ -135,7 +136,10 @@ function moduleRow(mod, state, { sectionId = null, sortable = false } = {}) {
   row.append(
     el('div', { class: 'module-icon', html: mod.icon }),
     el('div', { class: 'module-title' }, [
-      el('h2', { text: mod.shortName || mod.name }),
+      el('h2', {}, [
+        el('span', { class: 'module-name', text: mod.shortName || mod.name }),
+        mod.badge ? el('span', { class: 'mac-badge', text: mod.badge, title: 'Mac 앱 전용 기능' }) : null,
+      ]),
       el('p', { text: mod.subtitle }),
     ]),
     el('div', { class: 'module-controls' }, [pinBtn, toggle, openBtn]),
@@ -443,6 +447,41 @@ function renderModule(mod) {
     toast,
     icons,
   }) || null;
+
+  deliverHandoff(mod, root);
+}
+
+/* 노치 아일랜드 보관함에서 [변환] 등으로 보낸 파일을 그 모듈에 넘긴다. (v1.12.0)
+ * 같은 origin 이라 localStorage 로 건네고, 모듈은 평소의 drop 핸들러로 받는다. */
+const HANDOFF_KEY = 'tip.handoff.v1';
+
+function deliverHandoff(mod, root) {
+  let handoff = null;
+  try {
+    handoff = JSON.parse(localStorage.getItem(HANDOFF_KEY) || 'null');
+  } catch {
+    handoff = null;
+  }
+  if (!handoff || handoff.moduleId !== mod.id || !handoff.dataUrl) return;
+  const age = Date.now() - Number(handoff.created || 0);
+  try { localStorage.removeItem(HANDOFF_KEY); } catch { /* 지우지 못해도 한 번은 넘긴다 */ }
+  if (age > 5 * 60 * 1000) return;
+
+  fetch(handoff.dataUrl)
+    .then((response) => response.blob())
+    .then((blob) => {
+      const file = new File([blob], handoff.name || 'file', { type: handoff.type || blob.type });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      root.dispatchEvent(new DragEvent('drop', {
+        bubbles: true, cancelable: true, dataTransfer: transfer,
+      }));
+      toast(`${file.name}을(를) 불러왔습니다`);
+    })
+    .catch((error) => {
+      console.error('[TIP handoff]', error);
+      toast('보낸 파일을 불러오지 못했습니다');
+    });
 }
 
 /* -------------------------------- router ------------------------------- */
@@ -723,7 +762,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '1.12.0';
 
 let updateBusy = false;
 
@@ -811,6 +850,177 @@ function quickbarOpacityRow() {
     range,
     el('p', { class: 'op-note', text: '반원 퀵바 배경의 불투명도입니다. 아이콘과 글자는 그대로 선명합니다.' }),
   ]);
+}
+
+/* ------------------- 노치 아일랜드 설정 (v1.12.0) ------------------- */
+
+/** Mac 앱 — 노치 아일랜드 자체와 위젯별 표시를 정한다. */
+function notchSection(rerenderSheet) {
+  const notch = getNotchSettings();
+
+  const master = el('button', {
+    class: 'switch',
+    type: 'button',
+    'aria-pressed': String(notch.enabled),
+    'aria-label': '노치 아일랜드',
+  }, el('span', { class: 'switch-track' }, el('span', { class: 'switch-thumb' })));
+
+  master.addEventListener('click', async () => {
+    const next = !getNotchSettings().enabled;
+    setNotchEnabled(next);
+    master.setAttribute('aria-pressed', String(next));
+    try {
+      await invokeTauri('set_notch_enabled', { enabled: next });
+      toast(next ? '노치 아일랜드를 켰습니다' : '노치 아일랜드를 껐습니다');
+    } catch (error) {
+      console.error('[TIP notch]', error);
+      setNotchEnabled(!next);
+      master.setAttribute('aria-pressed', String(!next));
+      toast('노치 아일랜드 설정을 바꾸지 못했습니다');
+    }
+    if (rerenderSheet) rerenderSheet();
+  });
+
+  const rows = NOTCH_WIDGETS.map(({ id, label, hint }) => {
+    const on = notch.widgets[id];
+    const toggle = el('button', {
+      class: 'switch',
+      type: 'button',
+      'aria-pressed': String(on),
+      'aria-label': label,
+      disabled: !notch.enabled,
+    }, el('span', { class: 'switch-track' }, el('span', { class: 'switch-thumb' })));
+
+    toggle.addEventListener('click', () => {
+      const next = !getNotchSettings().widgets[id];
+      setNotchWidget(id, next);
+      toggle.setAttribute('aria-pressed', String(next));
+      toast(next ? `${label} 위젯을 표시합니다` : `${label} 위젯을 숨깁니다`);
+    });
+
+    return el('div', { class: `mb-row notch-row${notch.enabled ? '' : ' is-off'}` }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: label }),
+        el('i', { class: 'notch-hint', text: hint }),
+      ]),
+      toggle,
+    ]);
+  });
+
+  return el('div', { class: 'sheet-section mb-section notch-section' }, [
+    el('h3', { text: '노치 아일랜드' }),
+    el('p', {
+      class: 'mb-note',
+      text: '화면 최상단 노치에 마우스를 올리거나 파일을 끌어다 놓으면 펼쳐집니다. 반원 퀵바는 그대로 따로 쓸 수 있습니다.',
+    }),
+    el('div', { class: 'mb-row' }, [
+      el('span', { class: 'mb-label', text: '노치 아일랜드 사용' }),
+      master,
+    ]),
+    ...rows,
+  ]);
+}
+
+/* ------------------- 전역 빠른 실행 검색 (v1.12.0) ------------------- */
+
+const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Alt', 'Shift', 'CapsLock', 'Fn']);
+
+/** 키 이벤트 → Tauri accelerator ('Alt+Space', 'CmdOrCtrl+Shift+KeyK'). */
+function acceleratorOf(event) {
+  if (MODIFIER_KEYS.has(event.key)) return null;
+  const code = event.code || '';
+  const allowed = /^(Key[A-Z]|Digit[0-9]|F[1-9]|F1[0-2]|Space|Enter|Backslash|Slash|Comma|Period|Semicolon|Quote|BracketLeft|BracketRight|Minus|Equal|Backquote)$/;
+  if (!allowed.test(code)) return null;
+  const parts = [];
+  if (event.metaKey || event.ctrlKey) parts.push('CmdOrCtrl');
+  if (event.altKey) parts.push('Alt');
+  if (event.shiftKey) parts.push('Shift');
+  if (!parts.length) return null;
+  parts.push(code);
+  return parts.join('+');
+}
+
+function searchSection(rerenderSheet) {
+  const current = getSearchShortcut();
+  let capturing = false;
+
+  const chip = el('kbd', { class: 'shortcut-chip', text: prettyShortcut(current) });
+  const changeBtn = el('button', { class: 'primary-btn ghost shortcut-change', type: 'button', text: '변경' });
+  const openBtn = el('button', { class: 'icon-btn shortcut-open', type: 'button', text: '열기' });
+
+  changeBtn.addEventListener('click', () => {
+    if (capturing) return;
+    capturing = true;
+    chip.textContent = '새 단축키를 누르세요';
+    chip.classList.add('is-capturing');
+    changeBtn.textContent = '취소';
+    const onKey = async (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        stop();
+        return;
+      }
+      const accelerator = acceleratorOf(event);
+      if (!accelerator) return;
+      event.preventDefault();
+      try {
+        await invokeTauri('set_search_shortcut', { accelerator });
+        setSearchShortcut(accelerator);
+        toast(`빠른 실행 검색 단축키를 ${prettyShortcut(accelerator)} 로 바꿨습니다`);
+      } catch (error) {
+        console.error('[TIP search]', error);
+        toast('단축키를 등록하지 못했습니다. 다른 조합을 써 보세요.');
+      }
+      stop();
+      if (rerenderSheet) rerenderSheet();
+    };
+    const stop = () => {
+      capturing = false;
+      document.removeEventListener('keydown', onKey, true);
+      chip.textContent = prettyShortcut(getSearchShortcut());
+      chip.classList.remove('is-capturing');
+      changeBtn.textContent = '변경';
+    };
+    document.addEventListener('keydown', onKey, true);
+  });
+
+  openBtn.addEventListener('click', () => {
+    invokeTauri('open_search').catch((error) => {
+      console.error('[TIP search]', error);
+      toast('검색창을 열지 못했습니다');
+    });
+  });
+
+  return el('div', { class: 'sheet-section mb-section search-section' }, [
+    el('h3', { text: '빠른 실행 검색' }),
+    el('p', {
+      class: 'mb-note',
+      text: '어디서든 단축키 한 번으로 모듈을 찾아 바로 실행합니다. 입력한 것도, 검색한 것도 기기 밖으로 나가지 않습니다.',
+    }),
+    el('div', { class: 'shortcut-row' }, [
+      el('div', { class: 'shortcut-keys' }, [chip]),
+      el('div', { class: 'shortcut-actions' }, [changeBtn, openBtn]),
+    ]),
+    el('p', { class: 'op-note', text: `기본값은 ${prettyShortcut(SEARCH_SHORTCUT_DEFAULT)} 입니다. 열린 검색창은 Esc 로 닫습니다.` }),
+  ]);
+}
+
+/** 'CmdOrCtrl+Shift+KeyK' → '⌘⇧K' 처럼 보여 준다. */
+function prettyShortcut(accelerator) {
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform || '') || /Mac/.test(navigator.userAgent || '');
+  const map = {
+    CmdOrCtrl: mac ? '⌘' : 'Ctrl', Alt: mac ? '⌥' : 'Alt', Shift: mac ? '⇧' : 'Shift',
+  };
+  const keys = {
+    Space: 'Space', Enter: 'Return', Backslash: '\\', Slash: '/', Comma: ',', Period: '.',
+    Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backquote: '`',
+  };
+  return String(accelerator || '').split('+').map((part) => {
+    if (map[part]) return map[part];
+    if (/^Key[A-Z]$/.test(part)) return part.slice(3);
+    if (/^Digit[0-9]$/.test(part)) return part.slice(5);
+    return keys[part] || part;
+  }).join(mac ? '' : '+');
 }
 
 /** 환경설정 시트의 '앱 업데이트' 섹션 — 현재 버전과 확인 버튼. */
@@ -1140,6 +1350,12 @@ function openSheet() {
     // Mac 앱 — 메뉴 막대 아이콘 표시 여부.
     if (TAURI) panel.append(menuBarSection());
 
+    // Mac 앱 — 노치 아일랜드(자체 + 위젯별 ON/OFF)와 전역 빠른 실행 검색.
+    if (TAURI) {
+      panel.append(notchSection(render));
+      panel.append(searchSection(render));
+    }
+
     // 앱 업데이트 — 현재 버전과 확인 버튼(v1.10.0).
     panel.append(updateSection());
 
@@ -1249,6 +1465,14 @@ if (TAURI && window.__TAURI__.event) {
     // 저장해 둔 '메뉴 막대에 표시' 값을 앱이 켜질 때 트레이에 반영한다.
     window.__TAURI__.core.invoke('set_tray_visible', { visible: getMenuBarVisible() })
       .catch((error) => console.warn('[TIP] tray visible:', error));
+
+    // 노치 아일랜드 사용 여부와 빠른 실행 단축키도 저장값을 Rust 에 밀어 준다(v1.12.0).
+    if (getNotchSettings().enabled) {
+      window.__TAURI__.core.invoke('set_notch_enabled', { enabled: true })
+        .catch((error) => console.warn('[TIP] notch:', error));
+    }
+    window.__TAURI__.core.invoke('set_search_shortcut', { accelerator: getSearchShortcut() })
+      .catch((error) => console.warn('[TIP] search shortcut:', error));
   }
 }
 

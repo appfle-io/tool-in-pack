@@ -3145,3 +3145,272 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
   line-height: 1.5;
   color: var(--muted);
 }
+
+/* ===================================================================
+   v1.12.0 — 클립보드 히스토리 · Mac 배지 · 노치 아일랜드/빠른 실행 설정
+   =================================================================== */
+
+/* 홈 카드 제목 옆 동그란 Mac 배지 (Mac 앱 전용 기능 표시) */
+.mac-badge {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--card-2);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  text-transform: none;
+}
+.module-title h2 .module-name { min-width: 0; }
+.clip-title h1 .mac-badge { width: 22px; height: 22px; font-size: 8.5px; vertical-align: 1px; }
+
+/* ------------------------------ 클립보드 히스토리 ------------------------------ */
+
+.clip {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding-bottom: 32px;
+}
+
+.clip-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.clip-title { display: flex; gap: 10px; align-items: flex-start; }
+.clip-title-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.clip-title-icon svg { width: 19px; height: 19px; }
+.clip-lead {
+  margin: 0;
+  align-self: center;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.clip-lead .mac-badge { margin-left: 4px; vertical-align: -3px; }
+.clip-count { flex: none; color: var(--muted); font-size: 12px; }
+.clip-count b { color: var(--text); font-weight: 700; }
+
+.clip-web-note { font-size: 12.5px; line-height: 1.6; }
+
+.clip-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.clip-search {
+  flex: 1 1 220px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+.clip-search:focus-within { border-color: var(--accent); }
+.clip-search-icon { display: grid; color: var(--muted-2); }
+.clip-search-icon svg { width: 15px; height: 15px; }
+.clip-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.clip-filters { display: flex; gap: 4px; flex: none; }
+.clip-filter {
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.clip-filter.is-on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-weight: 650; }
+
+.clip-add {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 10px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--line-strong);
+  background: var(--card);
+}
+.clip-add textarea {
+  flex: 1;
+  min-height: 46px;
+  max-height: 160px;
+  resize: vertical;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+}
+.clip-add-actions { flex: none; }
+
+.clip-list { display: flex; flex-direction: column; gap: 6px; }
+
+.clip-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  cursor: pointer;
+  transition: border-color 0.13s ease, background 0.13s ease;
+}
+.clip-item:hover { border-color: var(--line-strong); }
+.clip-item:active { background: var(--card-2); }
+.clip-item.is-pinned { border-color: var(--accent); }
+.clip-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.clip-thumb {
+  flex: none;
+  width: 64px;
+  height: 48px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+}
+.clip-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+
+.clip-body { flex: 1; min-width: 0; }
+.clip-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.clip-text-image { color: var(--muted); }
+
+.clip-meta { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.clip-time { font-size: 11px; color: var(--muted-2); white-space: nowrap; }
+.clip-actions { display: flex; gap: 2px; opacity: 0.75; }
+.clip-item:hover .clip-actions, .clip-item:focus-within .clip-actions { opacity: 1; }
+.clip-actions .icon-btn { width: 28px; height: 28px; }
+.clip-actions .icon-btn svg { width: 15px; height: 15px; }
+.clip-pin.is-on { color: var(--accent); background: var(--accent-soft); }
+.clip-del:hover { color: var(--bad); }
+
+.clip-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 2px;
+}
+.clip-hint { font-size: 11.5px; color: var(--muted-2); }
+.clip-clear {
+  flex: none;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.clip-clear:hover { color: var(--bad); border-color: var(--bad); }
+
+@media (max-width: 520px) {
+  .clip-item { flex-wrap: wrap; }
+  .clip-meta { width: 100%; flex-direction: row; justify-content: space-between; align-items: center; }
+  .clip-thumb { width: 52px; height: 40px; }
+}
+
+/* ------------------------------ 노치·검색 설정 ------------------------------ */
+
+.notch-hint {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted-2);
+}
+.notch-row.is-off { opacity: 0.5; }
+.notch-row .mb-label b { font-weight: 600; font-size: 13px; }
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+.shortcut-keys { display: flex; gap: 6px; }
+.shortcut-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--card-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.shortcut-chip.is-capturing {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.shortcut-actions { display: flex; gap: 6px; align-items: center; }
+.shortcut-change { height: 32px; padding: 0 12px; font-size: 12.5px; }
+.shortcut-open {
+  width: auto;
+  height: 32px;
+  padding: 0 11px;
+  font-size: 12.5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+.shortcut-open:hover { color: var(--accent); border-color: var(--accent); }

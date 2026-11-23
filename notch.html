@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TIP · 노치 아일랜드</title>
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex">
+
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('tip.theme');
+        var dark = saved ? saved === 'dark'
+          : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        var accent = localStorage.getItem('tip.accent');
+        document.documentElement.setAttribute('data-accent',
+          ['green', 'blue', 'purple', 'orange', 'rose', 'slate'].indexOf(accent) >= 0 ? accent : 'green');
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+
+  <link rel="stylesheet" href="./css/app.css">
+  <link rel="stylesheet" href="./css/notch.css">
+  <script type="module" src="./js/notch.js"></script>
+</head>
+<body class="notch-body">
+  <div class="notch is-collapsed" id="notch" role="dialog" aria-label="TIP 노치 아일랜드">
+    <!-- 접힌 상태 — 노치 아래에 붙은 작은 필 -->
+    <button class="pill" id="pill" type="button" aria-label="TIP 노치 아일랜드 펼치기">
+      <span class="pill-logo">TIP</span>
+      <span class="pill-dot" id="pill-dot" aria-hidden="true"></span>
+    </button>
+
+    <!-- 펼친 상태 -->
+    <section class="panel" id="panel" aria-label="노치 아일랜드 위젯">
+      <header class="panel-head">
+        <span class="panel-logo">TIP</span>
+        <span class="panel-handle" aria-hidden="true"></span>
+        <div class="panel-actions">
+          <button class="panel-btn" id="open-home" type="button" aria-label="TIP 앱 열기" title="TIP 앱 열기">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5"/><path d="M6 9.5V20h12V9.5"/></svg>
+          </button>
+          <button class="panel-btn" id="open-settings" type="button" aria-label="환경설정" title="환경설정">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          </button>
+          <button class="panel-btn" id="collapse" type="button" aria-label="접기" title="접기">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 6-6 6 6"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="widgets" id="widgets"></div>
+
+      <p class="panel-empty" id="panel-empty" hidden>
+        표시할 위젯이 없습니다.<br>TIP 환경설정 → 노치 아일랜드에서 켜세요.
+      </p>
+
+      <p class="panel-hint" id="panel-hint">노치에서 마우스를 내리면 접힙니다 · Esc</p>
+    </section>
+  </div>
+
+  <div class="notch-toast" id="notch-toast" role="status" aria-live="polite"></div>
+</body>
+</html>

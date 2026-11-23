@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>노치 아일랜드의 거울 위젯에서 카메라 화면을 보여 주는 데 사용합니다. 영상은 기기 밖으로 나가지 않습니다.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>노치 아일랜드에서 재생 중인 음악을 확인하고 오늘 일정을 읽는 데 사용합니다.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>노치 아일랜드에 오늘 일정을 표시하는 데 사용합니다.</string>
+</dict>
+</plist>

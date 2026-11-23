@@ -1,0 +1,327 @@
+// TIP 클립보드 히스토리 — v1.12.0
+//
+// macOS 앱에서만 도는 백그라운드 감시. 0.9초마다 클립보드를 살펴 텍스트·이미지(PNG)를
+// 최대 100개까지 앱 데이터 폴더(clipboard.json)에만 저장한다. 서버로 보내지 않는다.
+// 브라우저(PWA)는 이 파일을 쓰지 않고 모듈이 localStorage 로 직접 보관한다.
+
+use std::borrow::Cow;
+use std::collections::hash_map::DefaultHasher;
+use std::fs;
+use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use base64::Engine as _;
+use image::ImageEncoder as _;
+use tauri::{AppHandle, Emitter, Manager};
+
+const LIMIT: usize = 100;
+const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ClipItem {
+    pub id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub png: Option<String>,
+    #[serde(default)]
+    pub w: u32,
+    #[serde(default)]
+    pub h: u32,
+    #[serde(default)]
+    pub bytes: usize,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub created: i64,
+}
+
+static CLIP: Mutex<Option<Vec<ClipItem>>> = Mutex::new(None);
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn store_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    let _ = fs::create_dir_all(&dir);
+    Some(dir.join("clipboard.json"))
+}
+
+fn save(app: &AppHandle) {
+    let Some(path) = store_path(app) else { return };
+    let snapshot = CLIP.lock().unwrap().clone().unwrap_or_default();
+    let Ok(json) = serde_json::to_string(&snapshot) else { return };
+    let temp = path.with_extension("json.tmp");
+    if fs::write(&temp, json).is_ok() {
+        let _ = fs::rename(&temp, &path);
+    }
+}
+
+fn items_mut<T>(f: impl FnOnce(&mut Vec<ClipItem>) -> T) -> T {
+    let mut guard = CLIP.lock().unwrap();
+    if guard.is_none() {
+        *guard = Some(Vec::new());
+    }
+    f(guard.as_mut().unwrap())
+}
+
+fn trim(items: &mut Vec<ClipItem>) {
+    let pinned = items.iter().filter(|item| item.pinned).count();
+    let room = LIMIT.saturating_sub(pinned);
+    let mut kept_unpinned = 0;
+    items.retain(|item| {
+        if item.pinned {
+            return true;
+        }
+        if kept_unpinned < room {
+            kept_unpinned += 1;
+            return true;
+        }
+        false
+    });
+}
+
+fn notify(app: &AppHandle) {
+    let _ = app.emit("tip://clipboard-changed", ());
+}
+
+fn push(app: &AppHandle, item: ClipItem) {
+    items_mut(|items| {
+        // 맨 앞(최신)과 같은 내용이면 쌓지 않는다 — 연속 중복 방지.
+        if let Some(first) = items.first() {
+            let same_text = item.kind == "text"
+                && first.kind == "text"
+                && first.text.as_deref().unwrap_or("") == item.text.as_deref().unwrap_or("");
+            let same_image = item.kind == "image" && first.kind == "image" && first.png == item.png;
+            if same_text || same_image {
+                return;
+            }
+        }
+        items.insert(0, item);
+        trim(items);
+    });
+    save(app);
+    notify(app);
+}
+
+fn hash_bytes(bytes: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn encode_png(image: &arboard::ImageData<'_>) -> Option<(String, usize)> {
+    let width = image.width as u32;
+    let height = image.height as u32;
+    if image.bytes.len() != (width as usize) * (height as usize) * 4 {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    let encoder = image::codecs::png::PngEncoder::new(&mut bytes);
+    encoder
+        .write_image(image.bytes.as_ref(), width, height, image::ExtendedColorType::Rgba8)
+        .ok()?;
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return None;
+    }
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Some((encoded, bytes.len()))
+}
+
+fn new_id() -> String {
+    format!("{}-{}", now_ms(), std::process::id())
+}
+
+/* ------------------------------ 감시 시작 ------------------------------ */
+
+pub fn start(app: AppHandle) {
+    if let Some(path) = store_path(&app) {
+        if let Ok(raw) = fs::read_to_string(&path) {
+            if let Ok(items) = serde_json::from_str::<Vec<ClipItem>>(&raw) {
+                *CLIP.lock().unwrap() = Some(items);
+            }
+        }
+    }
+
+    std::thread::spawn(move || {
+        let mut last_text = String::new();
+        let mut last_image: u64 = 0;
+        let mut clipboard = arboard::Clipboard::new().ok();
+
+        loop {
+            std::thread::sleep(Duration::from_millis(900));
+
+            if clipboard.is_none() {
+                clipboard = arboard::Clipboard::new().ok();
+            }
+            let Some(board) = clipboard.as_mut() else { continue };
+
+            // 이미지가 있으면 이미지부터 본다 — 텍스트 클립보드에서는 get_image 가 실패한다.
+            if let Ok(image) = board.get_image() {
+                let signature = hash_bytes(&image.bytes);
+                if signature != last_image {
+                    last_image = signature;
+                    last_text.clear();
+                    if let Some((png, size)) = encode_png(&image) {
+                        push(&app, ClipItem {
+                            id: new_id(),
+                            kind: "image".into(),
+                            text: None,
+                            png: Some(png),
+                            w: image.width as u32,
+                            h: image.height as u32,
+                            bytes: size,
+                            pinned: false,
+                            created: now_ms(),
+                        });
+                    }
+                }
+                continue;
+            }
+
+            if let Ok(text) = board.get_text() {
+                let trimmed = text.trim_end_matches(['\r', '\n', ' ', '\t']).to_string();
+                if !trimmed.trim().is_empty() && trimmed != last_text {
+                    last_text = trimmed.clone();
+                    last_image = 0;
+                    push(&app, ClipItem {
+                        id: new_id(),
+                        kind: "text".into(),
+                        text: Some(trimmed),
+                        png: None,
+                        w: 0,
+                        h: 0,
+                        bytes: 0,
+                        pinned: false,
+                        created: now_ms(),
+                    });
+                }
+            }
+        }
+    });
+}
+
+/* -------------------------------- 명령 -------------------------------- */
+
+#[tauri::command]
+pub fn clipboard_list() -> Vec<ClipItem> {
+    CLIP.lock().unwrap().clone().unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn clipboard_copy(app: AppHandle, id: String) -> Result<(), String> {
+    let item = items_mut(|items| items.iter().find(|entry| entry.id == id).cloned())
+        .ok_or_else(|| "항목을 찾지 못했습니다".to_string())?;
+
+    let mut board = arboard::Clipboard::new().map_err(|error| error.to_string())?;
+    if item.kind == "image" {
+        let encoded = item.png.clone().ok_or_else(|| "이미지가 없습니다".to_string())?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|error| error.to_string())?;
+        let image = image::load_from_memory(&bytes).map_err(|error| error.to_string())?.to_rgba8();
+        board
+            .set_image(arboard::ImageData {
+                width: image.width() as usize,
+                height: image.height() as usize,
+                bytes: Cow::Owned(image.into_raw()),
+            })
+            .map_err(|error| error.to_string())?;
+    } else {
+        board
+            .set_text(item.text.clone().unwrap_or_default())
+            .map_err(|error| error.to_string())?;
+    }
+
+    // 다시 복사한 항목을 맨 위로 — 감시 스레드가 중복으로 쌓지 않게 먼저 올려 둔다.
+    items_mut(|items| {
+        if let Some(index) = items.iter().position(|entry| entry.id == id) {
+            let mut entry = items.remove(index);
+            entry.created = now_ms();
+            items.insert(0, entry);
+        }
+    });
+    save(&app);
+    notify(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn clipboard_pin(app: AppHandle, id: String, pinned: bool) -> Result<(), String> {
+    let found = items_mut(|items| {
+        let mut found = false;
+        for item in items.iter_mut() {
+            if item.id == id {
+                item.pinned = pinned;
+                found = true;
+            }
+        }
+        if found {
+            trim(items);
+        }
+        found
+    });
+    if !found {
+        return Err("항목을 찾지 못했습니다".into());
+    }
+    save(&app);
+    notify(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn clipboard_delete(app: AppHandle, id: String) {
+    items_mut(|items| items.retain(|item| item.id != id));
+    save(&app);
+    notify(&app);
+}
+
+#[tauri::command]
+pub fn clipboard_clear(app: AppHandle) {
+    items_mut(|items| items.clear());
+    save(&app);
+    notify(&app);
+}
+
+#[tauri::command]
+pub fn clipboard_add_text(app: AppHandle, text: String) {
+    let value = text.trim().to_string();
+    if value.is_empty() {
+        return;
+    }
+    push(&app, ClipItem {
+        id: new_id(),
+        kind: "text".into(),
+        text: Some(value),
+        png: None,
+        w: 0,
+        h: 0,
+        bytes: 0,
+        pinned: false,
+        created: now_ms(),
+    });
+}
+
+#[tauri::command]
+pub fn clipboard_add_image(app: AppHandle, png: String, width: u32, height: u32) {
+    let bytes = png.len();
+    push(&app, ClipItem {
+        id: new_id(),
+        kind: "image".into(),
+        text: None,
+        png: Some(png),
+        w: width,
+        h: height,
+        bytes,
+        pinned: false,
+        created: now_ms(),
+    });
+}

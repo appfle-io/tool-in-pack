@@ -33,6 +33,7 @@ import mdEditor from './md-editor/module.js';
 import fileCompress from './file-compress/module.js';
 import unitConverter from './unit-converter/module.js';
 import currencyCalc from './currency-calc/module.js';
+import clipboardHistory from './clipboard-history/module.js';
 
 /**
  * 홈 화면 섹션 순서. 여기에 적은 순서대로 홈이 그려진다.
@@ -54,6 +55,7 @@ export function categoryOf(mod) {
 
 export const registry = [
   docReader,
+  clipboardHistory,
   imgConverter,
   pdfTools,
   mdEditor,

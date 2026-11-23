@@ -16,12 +16,18 @@ use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, LogicalPosition, Manager, Position, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+mod clip;
+mod media;
 
 const QUICKBAR: &str = "quickbar";
 const TOOL: &str = "tool";
+const NOTCH: &str = "notch";
+const SEARCH: &str = "search";
 
 // 퀵바 창 — 납작한 반타원 판(가로 284·세로 176)이 위쪽 일직선으로 메뉴 막대에 붙고,
 // 아래로 176px 내려간다. 창 높이 206 = 판 176 + 아래 그림자 여백 30.
@@ -30,6 +36,17 @@ const QUICKBAR_H: f64 = 206.0;
 const TOOL_W: f64 = 420.0;
 const TOOL_H: f64 = 680.0;
 
+// 노치 아일랜드 — 화면 최상단 중앙(y=0, 노치 자리). 접힌 필과 펼친 패널의 크기만 다르다.
+const NOTCH_PILL_W: f64 = 240.0;
+const NOTCH_PILL_H: f64 = 46.0;
+const NOTCH_OPEN_W: f64 = 452.0;
+const NOTCH_OPEN_H: f64 = 600.0;
+
+// 전역 빠른 실행 검색 — 화면 가운데 위쪽의 작은 팔레트.
+const SEARCH_W: f64 = 640.0;
+const SEARCH_H: f64 = 440.0;
+const DEFAULT_SEARCH_SHORTCUT: &str = "Alt+Space";
+
 const RELEASES_LATEST: &str = "https://api.github.com/repos/appfle-io/tool-in-pack/releases/latest";
 
 /// 마지막으로 누른 메뉴 막대 아이콘의 사각형(물리 픽셀: x, y, w, h).
@@ -37,6 +54,12 @@ static TRAY_RECT: Mutex<Option<(f64, f64, f64, f64)>> = Mutex::new(None);
 
 /// 메인 창의 화면이 아직 준비되기 전에 환경설정 요청이 왔는지 — 앱이 켜질 때 한 번 꺼낸다.
 static PENDING_SETTINGS: Mutex<bool> = Mutex::new(false);
+
+/// 노치 아일랜드가 펼쳐져 있는지(창 크기 상태).
+static NOTCH_OPEN: Mutex<bool> = Mutex::new(false);
+
+/// 지금 등록된 전역 빠른 실행 단축키.
+static SEARCH_SHORTCUT: Mutex<Option<String>> = Mutex::new(None);
 
 /* ----------------------------- 창 위치 계산 ----------------------------- */
 
@@ -143,6 +166,231 @@ fn toggle_quickbar(app: &AppHandle) {
         }
     }
     show_quickbar(app);
+}
+
+/* --------------------------- 노치 아일랜드 창 (v1.12.0) --------------------------- */
+
+/// 화면 최상단 가운데 — 노치 자리. `offset` 만큼 아래로 내린다.
+fn place_top_center(app: &AppHandle, win: &WebviewWindow, width: f64, height: f64, offset: f64) {
+    let monitor = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| win.current_monitor().ok().flatten());
+    let Some(monitor) = monitor else { return };
+
+    let scale = monitor.scale_factor();
+    let screen = monitor.size().to_logical::<f64>(scale);
+    let origin = monitor.position().to_logical::<f64>(scale);
+    let x = origin.x + (screen.width - width) / 2.0;
+    let y = origin.y + offset;
+
+    let _ = win.set_size(Size::Logical(LogicalSize::new(width, height)));
+    let _ = win.set_position(Position::Logical(LogicalPosition::new(x, y)));
+}
+
+fn notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    if let Some(win) = app.get_webview_window(NOTCH) {
+        return Ok(win);
+    }
+
+    let mut builder = WebviewWindowBuilder::new(app, NOTCH, WebviewUrl::App("notch.html".into()))
+        .title("TIP 노치 아일랜드")
+        .inner_size(NOTCH_PILL_W, NOTCH_PILL_H)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(false)
+        // Finder 에서 끌어온 파일을 HTML5 drop 으로 받는다(보관함 위젯).
+        .disable_drag_drop_handler();
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.accept_first_mouse(true);
+    }
+
+    let win = builder.build()?;
+    place_top_center(app, &win, NOTCH_PILL_W, NOTCH_PILL_H, 0.0);
+
+    // 다른 앱을 누르면 펼친 패널을 접는다(입력 중인 메모는 프런트가 다시 연다).
+    let handle = win.clone();
+    win.on_window_event(move |event| {
+        if matches!(event, WindowEvent::Focused(false)) {
+            if *NOTCH_OPEN.lock().unwrap() {
+                set_notch_open(handle.app_handle(), false);
+            }
+        }
+    });
+
+    Ok(win)
+}
+
+/// 접힘/펼침 — 창 크기를 바꾸고 다시 화면 최상단 가운데에 붙인다.
+fn set_notch_open(app: &AppHandle, open: bool) {
+    let Some(win) = app.get_webview_window(NOTCH) else { return };
+    let (width, height) = if open {
+        (NOTCH_OPEN_W, NOTCH_OPEN_H)
+    } else {
+        (NOTCH_PILL_W, NOTCH_PILL_H)
+    };
+    *NOTCH_OPEN.lock().unwrap() = open;
+    place_top_center(app, &win, width, height, 0.0);
+}
+
+fn show_notch(app: &AppHandle) {
+    let win = match notch_window(app) {
+        Ok(win) => win,
+        Err(error) => {
+            eprintln!("[TIP] 노치 창을 만들지 못했습니다: {error}");
+            return;
+        }
+    };
+    let open = *NOTCH_OPEN.lock().unwrap();
+    let (width, height) = if open {
+        (NOTCH_OPEN_W, NOTCH_OPEN_H)
+    } else {
+        (NOTCH_PILL_W, NOTCH_PILL_H)
+    };
+    place_top_center(app, &win, width, height, 0.0);
+    let _ = win.show();
+    let _ = win.emit("tip://notch-refresh", ());
+}
+
+#[tauri::command]
+fn notch_expand(app: AppHandle) {
+    set_notch_open(&app, true);
+}
+
+#[tauri::command]
+fn notch_collapse(app: AppHandle) {
+    set_notch_open(&app, false);
+}
+
+/// 환경설정의 '노치 아일랜드 사용' 스위치 — 끄면 창을 숨긴다.
+#[tauri::command]
+fn set_notch_enabled(app: AppHandle, enabled: bool) {
+    if enabled {
+        show_notch(&app);
+    } else {
+        set_notch_open(&app, false);
+        if let Some(win) = app.get_webview_window(NOTCH) {
+            let _ = win.hide();
+        }
+    }
+}
+
+/* --------------------------- 빠른 실행 검색 창 (v1.12.0) --------------------------- */
+
+fn search_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    if let Some(win) = app.get_webview_window(SEARCH) {
+        return Ok(win);
+    }
+
+    let win = WebviewWindowBuilder::new(app, SEARCH, WebviewUrl::App("search.html".into()))
+        .title("TIP 빠른 실행 검색")
+        .inner_size(SEARCH_W, SEARCH_H)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(true)
+        .build()?;
+
+    // 바깥을 누르면 닫는다.
+    let handle = win.clone();
+    win.on_window_event(move |event| {
+        if matches!(event, WindowEvent::Focused(false)) {
+            let _ = handle.hide();
+        }
+    });
+
+    Ok(win)
+}
+
+fn show_search(app: &AppHandle) {
+    let win = match search_window(app) {
+        Ok(win) => win,
+        Err(error) => {
+            eprintln!("[TIP] 검색 창을 만들지 못했습니다: {error}");
+            return;
+        }
+    };
+    place_top_center(app, &win, SEARCH_W, SEARCH_H, 120.0);
+    let _ = win.show();
+    let _ = win.set_focus();
+    let _ = win.emit("tip://search-refresh", ());
+}
+
+fn toggle_search(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(SEARCH) {
+        if win.is_visible().unwrap_or(false) {
+            let _ = win.hide();
+            return;
+        }
+    }
+    show_search(app);
+}
+
+#[tauri::command]
+fn open_search(app: AppHandle) {
+    show_search(&app);
+}
+
+#[tauri::command]
+fn hide_search(app: AppHandle) {
+    if let Some(win) = app.get_webview_window(SEARCH) {
+        let _ = win.hide();
+    }
+}
+
+/// 전역 단축키를 새 값으로 바꾼다. 실패하면 기본값으로 되돌린다.
+fn apply_search_shortcut(app: &AppHandle, accelerator: &str) -> Result<(), String> {
+    let shortcuts = app.global_shortcut();
+    let _ = shortcuts.unregister_all();
+    match shortcuts.register(accelerator) {
+        Ok(()) => {
+            *SEARCH_SHORTCUT.lock().unwrap() = Some(accelerator.to_string());
+            Ok(())
+        }
+        Err(error) => {
+            let fallback = shortcuts.register(DEFAULT_SEARCH_SHORTCUT);
+            *SEARCH_SHORTCUT.lock().unwrap() = Some(DEFAULT_SEARCH_SHORTCUT.to_string());
+            if fallback.is_err() {
+                return Err(format!("단축키를 등록하지 못했습니다: {error}"));
+            }
+            Err(format!("{accelerator} 를 등록하지 못해 기본값으로 되돌렸습니다"))
+        }
+    }
+}
+
+#[tauri::command]
+fn set_search_shortcut(app: AppHandle, accelerator: String) -> Result<(), String> {
+    let value = accelerator.trim().to_string();
+    if value.is_empty() {
+        return Err("단축키가 비어 있습니다".into());
+    }
+    apply_search_shortcut(&app, &value)
+}
+
+#[tauri::command]
+fn get_search_shortcut() -> String {
+    SEARCH_SHORTCUT
+        .lock()
+        .unwrap()
+        .clone()
+        .unwrap_or_else(|| DEFAULT_SEARCH_SHORTCUT.to_string())
 }
 
 /* ------------------------------- 메인 창 ------------------------------- */
@@ -387,35 +635,99 @@ fn current_bundle_path() -> Option<PathBuf> {
     }
 }
 
-/// 기존 번들을 백업하고 새 번들로 교체한다. 실패하면 이전 버전으로 되돌린다.
+/// 외부 명령을 실행하고, 실패하면 stderr 를 담은 오류를 돌려준다(v1.12.0).
+fn run_tool(program: &str, args: &[&str]) -> Result<(), String> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|error| format!("{program} 를 실행하지 못했습니다: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let text = stderr.trim();
+    Err(if text.is_empty() {
+        format!("{program} 가 실패했습니다 (종료 코드 {:?})", output.status.code())
+    } else {
+        format!("{program} 실패: {text}")
+    })
+}
+
+/// 폴더를 복사한다 — ditto --norsrc 를 먼저, 안 되면 cp -pR. 두 오류를 함께 남긴다.
+fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
+    let from = from.to_string_lossy().to_string();
+    let to = to.to_string_lossy().to_string();
+    run_tool("ditto", &["--norsrc", &from, &to]).or_else(|first| {
+        run_tool("cp", &["-pR", &from, &to]).map_err(|second| format!("{first} / {second}"))
+    })
+}
+
+/// 같은 볼륨이면 rename(즉시·원자적), 다른 볼륨이면 복사.
+fn move_or_copy(from: &Path, to: &Path) -> Result<(), String> {
+    if fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    copy_dir(from, to)
+}
+
+/// 기존 번들을 백업하고 새 번들로 교체한다. 실패하면 이전 버전으로 되돌리고 stderr 를 함께 알린다.
 fn replace_bundle(target: &Path, new_app: &Path, work: &Path) -> Result<(), String> {
+    // 다운로드 폴더에서 바로 실행하면 App Translocation 경로라 번들을 바꿀 수 없다.
+    if target.to_string_lossy().contains("AppTranslocation") {
+        return Err("다운로드 폴더에서 바로 실행한 앱이라 스스로 업데이트할 수 없습니다. \
+응용 프로그램(Applications) 폴더로 옮겨 실행한 뒤 다시 업데이트해 주세요."
+            .into());
+    }
+
     let backup = work.join("backup.app");
     let _ = fs::remove_dir_all(&backup);
 
-    // 같은 볼륨이면 rename(빠름), 아니면 ditto 로 복사해 백업한다.
+    // 1) 기존 앱 백업 — rename 우선, 실패하면 복사.
     if fs::rename(target, &backup).is_err() {
-        let copied = std::process::Command::new("ditto")
-            .arg(target)
-            .arg(&backup)
-            .status();
-        if !matches!(copied, Ok(status) if status.success()) {
-            return Err("기존 앱을 백업하지 못했습니다. /Applications 쓰기 권한을 확인하세요.".into());
-        }
+        copy_dir(target, &backup).map_err(|error| {
+            format!("기존 앱을 백업하지 못했습니다: {error}. /Applications 쓰기 권한을 확인하세요.")
+        })?;
         let _ = fs::remove_dir_all(target);
     }
 
-    let copied = std::process::Command::new("ditto")
-        .arg(new_app)
-        .arg(target)
-        .status();
-    let ok = matches!(copied, Ok(status) if status.success())
-        && target.join("Contents/Info.plist").exists();
+    // 2) 새 앱 설치 — rename(같은 볼륨) 우선, 아니면 ditto --norsrc → cp -pR.
+    let install_error = match fs::rename(new_app, target) {
+        Ok(()) => String::new(),
+        Err(rename_error) => {
+            let mut message = format!("rename 실패({rename_error})");
+            if let Err(error) = copy_dir(new_app, target) {
+                message = format!("{message} / {error}");
+            }
+            message
+        }
+    };
 
+    let ok = target.join("Contents/Info.plist").exists();
     if !ok {
         let _ = fs::remove_dir_all(target);
-        let _ = fs::rename(&backup, target);
-        return Err("새 앱을 설치하지 못했습니다. 이전 버전으로 되돌렸습니다.".into());
+        let rollback = if fs::rename(&backup, target).is_ok() {
+            Ok(())
+        } else {
+            copy_dir(&backup, target)
+        };
+        let suffix = if rollback.is_ok() {
+            "이전 버전으로 되돌렸습니다."
+        } else {
+            "이전 버전으로 되돌리지도 못했습니다. 릴리스 페이지에서 다시 내려받아 설치해 주세요."
+        };
+        return Err(format!(
+            "새 앱을 설치하지 못했습니다{}
+{suffix}",
+            if install_error.is_empty() { String::new() } else { format!(" ({install_error})") }
+        ));
     }
+
+    // 3) 격리 표시 제거 — 다시 열 때 Gatekeeper 경고가 뜨지 않게. 실패해도 설치는 유지한다.
+    let _ = std::process::Command::new("xattr")
+        .args(["-dr", "com.apple.quarantine"])
+        .arg(target)
+        .status();
+
     Ok(())
 }
 
@@ -499,6 +811,15 @@ async fn install_app_update_and_restart(app: AppHandle, url: String) -> Result<(
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        toggle_search(app);
+                    }
+                })
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             hide_radial,
             open_main,
@@ -506,10 +827,31 @@ pub fn run() {
             take_pending_settings,
             set_tray_visible,
             check_app_update,
-            install_app_update_and_restart
+            install_app_update_and_restart,
+            clip::clipboard_list,
+            clip::clipboard_copy,
+            clip::clipboard_pin,
+            clip::clipboard_delete,
+            clip::clipboard_clear,
+            clip::clipboard_add_text,
+            clip::clipboard_add_image,
+            media::media_state,
+            media::media_control,
+            media::calendar_today,
+            notch_expand,
+            notch_collapse,
+            set_notch_enabled,
+            open_search,
+            hide_search,
+            set_search_shortcut,
+            get_search_shortcut
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // v1.12.0 — 클립보드 히스토리 감시(기기 안에서만)와 기본 전역 단축키.
+            clip::start(handle.clone());
+            let _ = apply_search_shortcut(&handle, DEFAULT_SEARCH_SHORTCUT);
 
             // 메인 창 X — 앱을 끄지 않고 숨긴다. 메뉴 막대·Dock 에서 다시 연다.
             if let Some(main) = app.get_webview_window("main") {
@@ -530,6 +872,10 @@ pub fn run() {
                 MenuItem::with_id(&handle, "open_main", "TIP 열기", true, None::<&str>)?;
             let open_quickbar_item =
                 MenuItem::with_id(&handle, "open_quickbar", "메뉴 막대 퀵바", true, None::<&str>)?;
+            let open_notch_item =
+                MenuItem::with_id(&handle, "open_notch", "노치 아일랜드", true, None::<&str>)?;
+            let open_search_item =
+                MenuItem::with_id(&handle, "open_search_menu", "빠른 실행 검색…", true, None::<&str>)?;
             let open_settings_item =
                 MenuItem::with_id(&handle, "open_settings", "환경설정…", true, None::<&str>)?;
             let quit_item =
@@ -537,6 +883,8 @@ pub fn run() {
             let menu = MenuBuilder::new(&handle)
                 .item(&open_main_item)
                 .item(&open_quickbar_item)
+                .item(&open_notch_item)
+                .item(&open_search_item)
                 .item(&open_settings_item)
                 .separator()
                 .item(&quit_item)
@@ -584,6 +932,8 @@ pub fn run() {
                         let _ = show_main(app, None, false);
                     }
                     "open_quickbar" => show_quickbar(app),
+                    "open_notch" => show_notch(app),
+                    "open_search_menu" => show_search(app),
                     "open_settings" => {
                         let _ = show_main(app, None, true);
                     }

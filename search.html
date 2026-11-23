@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TIP · 빠른 실행 검색</title>
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex">
+
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('tip.theme');
+        var dark = saved ? saved === 'dark'
+          : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        var accent = localStorage.getItem('tip.accent');
+        document.documentElement.setAttribute('data-accent',
+          ['green', 'blue', 'purple', 'orange', 'rose', 'slate'].indexOf(accent) >= 0 ? accent : 'green');
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+
+  <link rel="stylesheet" href="./css/app.css">
+  <link rel="stylesheet" href="./css/search.css">
+  <script type="module" src="./js/search.js"></script>
+</head>
+<body class="search-body">
+  <main class="palette" role="dialog" aria-label="TIP 빠른 실행 검색">
+    <div class="palette-field">
+      <span class="palette-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
+      </span>
+      <input id="palette-input" type="text" placeholder="모듈 이름이나 키워드로 검색 — 바로 실행" autocomplete="off" spellcheck="false" aria-label="모듈 검색">
+      <kbd class="palette-esc">Esc</kbd>
+    </div>
+    <ul class="palette-list" id="palette-list" role="listbox" aria-label="검색 결과"></ul>
+    <p class="palette-empty" id="palette-empty" hidden>맞는 모듈이 없습니다.<br>이름 일부나 'pdf'·'이미지' 같은 키워드로 찾아보세요.</p>
+    <footer class="palette-foot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> 이동</span>
+      <span><kbd>↵</kbd> 실행</span>
+      <span class="palette-brand">TIP · TOOL-IN-PACK</span>
+    </footer>
+  </main>
+</body>
+</html>

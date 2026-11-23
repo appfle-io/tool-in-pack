@@ -219,12 +219,89 @@ export function setQuickbarOpacity(percent) {
   } catch { /* 저장하지 못하면 이번에만 적용된다 */ }
 }
 
+/* 노치 아일랜드 — macOS 앱 전용. 노치 자체와 위젯별 표시를 따로 켜고 끈다. 기본 OFF. (v1.12.0)
+   값: { enabled: boolean, widgets: { media, calendar, shelf, timer, memo, mirror, launcher } }
+   위젯 기본값은 모두 ON — 노치를 켜면 바로 다 보이고, 필요 없는 것만 끈다. */
+
+const NOTCH_KEY = 'tip.notch.v1';
+
+export const NOTCH_WIDGETS = [
+  { id: 'media', label: '미디어', hint: '지금 재생 중인 곡과 재생·이전·다음' },
+  { id: 'calendar', label: '캘린더', hint: '오늘 다가오는 일정' },
+  { id: 'shelf', label: '임시 보관함', hint: '끌어다 놓은 파일 보관과 바로 변환' },
+  { id: 'timer', label: '타이머', hint: '한 번에 도는 미니 타이머' },
+  { id: 'memo', label: '빠른 메모', hint: '한 줄 메모' },
+  { id: 'mirror', label: '웹캠 거울', hint: '카메라 화면을 거울처럼' },
+  { id: 'launcher', label: '모듈 실행', hint: '켜 둔 모듈을 노치에서 바로 실행' },
+];
+
+let notchCache = null;
+
+export function getNotchSettings() {
+  if (notchCache) return notchCache;
+  let parsed = null;
+  try {
+    parsed = JSON.parse(localStorage.getItem(NOTCH_KEY) || 'null');
+  } catch {
+    parsed = null;
+  }
+  const saved = parsed && typeof parsed === 'object' ? parsed : {};
+  const widgets = {};
+  NOTCH_WIDGETS.forEach(({ id }) => {
+    widgets[id] = saved.widgets && saved.widgets[id] === false ? false : true;
+  });
+  notchCache = { enabled: saved.enabled === true, widgets };
+  return notchCache;
+}
+
+function writeNotch(next) {
+  notchCache = next;
+  try {
+    localStorage.setItem(NOTCH_KEY, JSON.stringify(next));
+  } catch { /* 저장하지 못하면 이번 실행에만 적용된다 */ }
+}
+
+export function setNotchEnabled(enabled) {
+  const current = getNotchSettings();
+  writeNotch({ ...current, enabled: !!enabled });
+}
+
+export function setNotchWidget(id, on) {
+  if (!NOTCH_WIDGETS.some((widget) => widget.id === id)) return;
+  const current = getNotchSettings();
+  writeNotch({ ...current, widgets: { ...current.widgets, [id]: !!on } });
+}
+
+/* 전역 빠른 실행 검색 단축키 — macOS 앱이 이 값을 그대로 등록한다. (v1.12.0)
+   표기: 'Alt+Space' · 'CmdOrCtrl+Shift+K' 같은 Tauri accelerator 문자열. */
+
+const SEARCH_SHORTCUT_KEY = 'tip.searchShortcut.v1';
+export const SEARCH_SHORTCUT_DEFAULT = 'Alt+Space';
+
+export function getSearchShortcut() {
+  try {
+    const saved = localStorage.getItem(SEARCH_SHORTCUT_KEY);
+    return saved && saved.trim() ? saved.trim() : SEARCH_SHORTCUT_DEFAULT;
+  } catch {
+    return SEARCH_SHORTCUT_DEFAULT;
+  }
+}
+
+export function setSearchShortcut(accelerator) {
+  const value = String(accelerator || '').trim();
+  if (!value) return;
+  try {
+    localStorage.setItem(SEARCH_SHORTCUT_KEY, value);
+  } catch { /* 저장하지 못하면 이번 실행에만 적용된다 */ }
+}
+
 /* 다른 탭·창에서 설정을 바꾸면 이 창도 새 값을 읽는다. */
 try {
   window.addEventListener('storage', (event) => {
-    if (!event.key || event.key === KEY || event.key === ORDER_KEY || event.key === RADIAL_ORDER_KEY || event.key === MENUBAR_KEY || event.key === RADIAL_MODE_KEY || event.key === QUICKBAR_OPACITY_KEY) {
+    if (!event.key || event.key === KEY || event.key === ORDER_KEY || event.key === RADIAL_ORDER_KEY || event.key === MENUBAR_KEY || event.key === RADIAL_MODE_KEY || event.key === QUICKBAR_OPACITY_KEY || event.key === NOTCH_KEY) {
       cache = null;
       orderCache = null;
+      notchCache = null;
     }
   });
 } catch { /* window 가 없는 환경 */ }
