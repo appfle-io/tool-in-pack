@@ -36,7 +36,7 @@ const NOTCH_SIDE_ROOM: f64 = 56.0;
 /// 이 클래스로 바꿔야 클릭한 노치 창이 key window 가 되어 입력을 받는다.
 #[cfg(target_os = "macos")]
 fn panel_class() -> Option<&'static objc2::runtime::AnyClass> {
-    use objc2::runtime::{AnyClass, AnyObject, ClassBuilder, Sel};
+    use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
     use objc2::sel;
 
     if let Some(existing) = AnyClass::get(c"TipNotchPanel") {
@@ -47,23 +47,24 @@ fn panel_class() -> Option<&'static objc2::runtime::AnyClass> {
     let mut builder = ClassBuilder::new(c"TipNotchPanel", superclass)?;
 
     // 키보드 입력을 받을 수 있게 한다(기본 NSPanel 은 borderless 일 때 NO).
-    extern "C-unwind" fn can_become_key_window(_this: &AnyObject, _cmd: Sel) -> bool {
-        true
+    // Objective-C BOOL 은 objc2 의 runtime::Bool 로 돌려준다(러스트 bool 은 Encode 가 없다).
+    extern "C-unwind" fn can_become_key_window(_this: &AnyObject, _cmd: Sel) -> Bool {
+        Bool::YES
     }
     // 메인 창은 되지 않는다 — 다른 앱을 가리지 않고 키 입력만 받는다.
-    extern "C-unwind" fn can_become_main_window(_this: &AnyObject, _cmd: Sel) -> bool {
-        false
+    extern "C-unwind" fn can_become_main_window(_this: &AnyObject, _cmd: Sel) -> Bool {
+        Bool::NO
     }
 
     // SAFETY: 두 함수 모두 -(BOOL) 시그니처(수신자 + 셀렉터)와 정확히 일치한다.
     unsafe {
         builder.add_method(
             sel!(canBecomeKeyWindow),
-            can_become_key_window as extern "C-unwind" fn(&AnyObject, Sel) -> bool,
+            can_become_key_window as extern "C-unwind" fn(&AnyObject, Sel) -> Bool,
         );
         builder.add_method(
             sel!(canBecomeMainWindow),
-            can_become_main_window as extern "C-unwind" fn(&AnyObject, Sel) -> bool,
+            can_become_main_window as extern "C-unwind" fn(&AnyObject, Sel) -> Bool,
         );
     }
 
