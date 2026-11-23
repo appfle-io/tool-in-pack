@@ -23,9 +23,10 @@ use tauri::{
 const QUICKBAR: &str = "quickbar";
 const TOOL: &str = "tool";
 
-// 퀵바 창 — 반원 판(반지름 272)이 위쪽 일직선으로 메뉴 막대에 붙고, 아래로 272px 내려간다.
+// 퀵바 창 — 납작한 반타원 판(가로 284·세로 176)이 위쪽 일직선으로 메뉴 막대에 붙고,
+// 아래로 176px 내려간다. 창 높이 206 = 판 176 + 아래 그림자 여백 30.
 const QUICKBAR_W: f64 = 580.0;
-const QUICKBAR_H: f64 = 306.0;
+const QUICKBAR_H: f64 = 206.0;
 const TOOL_W: f64 = 420.0;
 const TOOL_H: f64 = 680.0;
 

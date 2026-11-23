@@ -5,6 +5,8 @@ import {
   moduleState, setModuleState, getTheme, setTheme, applyTheme, getAccent, setAccent, ACCENTS,
   getSectionOrder, setSectionOrder, hasSectionOrder, resetSectionOrder, resetRadialOrder,
   getMenuBarVisible, setMenuBarVisible, getRadialOrderMode, setRadialOrderMode,
+  getQuickbarOpacity, setQuickbarOpacity, QUICKBAR_OPACITY_MIN, QUICKBAR_OPACITY_MAX,
+  QUICKBAR_OPACITY_DEFAULT,
 } from './store.js';
 import { quickOrderIds, customQuickOrderIds, saveQuickOrder } from './quickbar.js';
 import { el, toast, icons } from './ui.js';
@@ -721,7 +723,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.11.0';
 
 let updateBusy = false;
 
@@ -755,15 +757,59 @@ function menuBarSection() {
   });
 
   return el('div', { class: 'sheet-section mb-section' }, [
-    el('h3', { text: '메뉴 막대에 표시' }),
+    el('h3', { text: '메뉴 막대' }),
     el('p', {
       class: 'mb-note',
       text: '상단 메뉴 막대 아이콘과 반원 퀵바를 쓸지 정합니다. 끄면 Dock 아이콘으로만 열 수 있습니다.',
     }),
     el('div', { class: 'mb-row' }, [
-      el('span', { class: 'mb-label', text: '상단 메뉴 막대 아이콘 · 반원 퀵바' }),
+      el('span', { class: 'mb-label', text: '메뉴 막대에 표시' }),
       toggle,
     ]),
+    quickbarOpacityRow(),
+  ]);
+}
+
+/** 반원 퀵바 배경 투명도 — 35~100%, 기본 92%. (v1.11.0)
+ *  값은 tip.quickbarOpacity.v1 에 저장하고, 열려 있는 퀵바도 같은 키를 700ms 안에 다시 읽어 따라온다. */
+function quickbarOpacityRow() {
+  const readout = el('span', { class: 'op-value', text: `${getQuickbarOpacity()}%` });
+  const range = el('input', {
+    class: 'op-range',
+    type: 'range',
+    min: String(QUICKBAR_OPACITY_MIN),
+    max: String(QUICKBAR_OPACITY_MAX),
+    step: '1',
+    value: String(getQuickbarOpacity()),
+    'aria-label': '메뉴 도구 투명도',
+  });
+
+  const paint = () => {
+    const percent = getQuickbarOpacity();
+    readout.textContent = `${percent}%`;
+    range.style.setProperty('--op-fill',
+      `${((percent - QUICKBAR_OPACITY_MIN) / (QUICKBAR_OPACITY_MAX - QUICKBAR_OPACITY_MIN)) * 100}%`);
+  };
+  paint();
+
+  range.addEventListener('input', () => {
+    setQuickbarOpacity(range.value);
+    paint();
+  });
+  // 더블클릭하면 기본값(92%)으로 돌아간다.
+  range.addEventListener('dblclick', () => {
+    setQuickbarOpacity(QUICKBAR_OPACITY_DEFAULT);
+    range.value = String(getQuickbarOpacity());
+    paint();
+  });
+
+  return el('div', { class: 'op-row' }, [
+    el('div', { class: 'op-head' }, [
+      el('span', { class: 'op-label', text: '메뉴 도구 투명도' }),
+      readout,
+    ]),
+    range,
+    el('p', { class: 'op-note', text: '반원 퀵바 배경의 불투명도입니다. 아이콘과 글자는 그대로 선명합니다.' }),
   ]);
 }
 

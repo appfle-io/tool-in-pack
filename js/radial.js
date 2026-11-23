@@ -1,27 +1,32 @@
-/* TIP · 메뉴 막대 반원 퀵바 — v1.10.0
+/* TIP · 메뉴 막대 반원 퀵바 — v1.11.0
  *
- * 판은 위가 일직선(메뉴 막대에 붙는 지름)·아래가 매끈한 반원이고,
- * 켜 둔 모듈만 그 안쪽 호 위에 놓는다. 마우스 휠·트랙패드·좌우 화살표로 돌린다.
+ * 판은 위가 일직선(메뉴 막대에 붙는 선)·아래가 납작한 반타원(아치)이고,
+ * 켜 둔 모듈만 그 안쪽에 바짝 붙은 얕은 호 위에 놓는다. 마우스 휠·트랙패드·좌우 화살표로 돌린다.
  * 순서는 js/quickbar.js 가 정한다(기본: 고정됨 → 문서 → 미디어 → 유틸리티, 사용자 지정: tip.radialOrder.v1).
  * 창을 띄우는 일은 Tauri(mac/src-tauri) 가 하고, 이 파일은 화면만 담당한다.
  */
 
 import { getModule } from '../modules/registry.js';
 import { quickOrderIds } from './quickbar.js';
-import { syncStore } from './store.js';
+import { getQuickbarOpacity, syncStore } from './store.js';
 
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
-/* 반원 기하 — css/radial.css·fanPath() 와 짝을 이룬다.
- * 창(580×306)의 위쪽 가운데를 원의 중심으로 두고, 지름이 위쪽 일직선이 된다. */
+/* 반타원(아치) 기하 — css/radial.css·fanPath() 와 짝을 이룬다. (v1.11.0)
+ * 창(580×206)의 위쪽 일직선이 메뉴 막대에 붙고, 아래는 가로 284·세로 176 의 반타원이다.
+ * 모듈은 반지름 400 의 얕은 호를 따라 놓여 위 버튼 바로 아래(22px)에 바짝 붙는다.
+ * v1.10.0 의 정반원(272)에서는 그 사이가 150px 비어 있었다 — 그 여백을 없앤 것이 이 값들이다. */
 const SLOTS = 7;                    // 한 화면에 보이는 칸 수
-const STEP = 21 * (Math.PI / 180);  // 칸 사이 각도
 const SPILL = 0.55;                 // 가장자리에서 살짝 걸쳐 보이는 정도(칸)
 const G = {
-  R: 272,                           // 반원 판의 반지름(= 창 위쪽에서 아래까지 높이)
-  arc: 208,                         // 타일 중심이 놓이는 호의 반지름
-  pad: 18,                          // 창 좌우 여백(반원이 창에 꽉 차지 않게)
+  a: 284,                           // 판의 가로 반지름(창 580 기준 좌우 6px 여백)
+  b: 176,                           // 판의 세로 깊이(위쪽 일직선에서 가장 아래까지)
+  arc: 400,                         // 타일 중심이 놓이는 호의 반지름 — 클수록 납작하다
+  arcY: 92,                         // 가운데 타일 중심의 y
+  x3: 204,                          // 3칸 옆(가장 바깥) 타일의 x 오프셋
+  pad: 6,                           // 창 좌우 여백
 };
+const STEP = Math.asin(G.x3 / G.arc) / 3;   // 칸 사이 각도(≈10.2°)
 
 const rootEl = document.getElementById('rw');
 const slotsEl = document.getElementById('slots');
@@ -45,22 +50,26 @@ let lastSig = '';
 
 function geometry() {
   const w = window.innerWidth || 580;
-  const scale = Math.min(1, (w - G.pad * 2) / (2 * G.R));
-  return { cx: Math.round(w / 2), R: G.R * scale, arc: G.arc * scale };
+  const k = Math.min(1, w / 580);            // 창이 좁으면 통째로 줄인다(미리보기용)
+  return {
+    cx: Math.round(w / 2),
+    a: (w / 2) - G.pad * k,
+    b: G.b * k,
+    R: G.arc * k,
+    yc: (G.arcY - G.arc) * k,                // 타일 호의 원 중심(화면 위쪽 바깥)
+  };
 }
 
-/** 반원 판 — 위쪽 지름(일직선) + 아래쪽 반원 호. */
+/** 판 — 위쪽 일직선 + 아래쪽 반타원 호. */
 function fanPath(g) {
-  const { cx, R } = g;
-  const r = R.toFixed(1);
-  return `M ${(cx - R).toFixed(1)} 0 L ${(cx + R).toFixed(1)} 0 A ${r} ${r} 0 0 1 ${(cx - R).toFixed(1)} 0 Z`;
+  const { cx, a, b } = g;
+  return `M ${(cx - a).toFixed(1)} 0 L ${(cx + a).toFixed(1)} 0 A ${a.toFixed(1)} ${b.toFixed(1)} 0 0 1 ${(cx - a).toFixed(1)} 0 Z`;
 }
 
 /** 테두리는 호에만 긋는다 — 위쪽 일직선은 메뉴 막대에 붙어 있어 선이 보이지 않게. */
 function fanEdge(g) {
-  const { cx, R } = g;
-  const r = R.toFixed(1);
-  return `M ${(cx + R).toFixed(1)} 0 A ${r} ${r} 0 0 1 ${(cx - R).toFixed(1)} 0`;
+  const { cx, a, b } = g;
+  return `M ${(cx + a).toFixed(1)} 0 A ${a.toFixed(1)} ${b.toFixed(1)} 0 0 1 ${(cx - a).toFixed(1)} 0`;
 }
 
 function applyGeometry(g) {
@@ -68,7 +77,7 @@ function applyGeometry(g) {
   glassEl.style.clipPath = `path("${d}")`;
   glassEl.style.setProperty('-webkit-clip-path', `path("${d}")`);
   const w = window.innerWidth || 580;
-  const h = window.innerHeight || 306;
+  const h = window.innerHeight || 206;
   edgeSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
   fanPathEl.setAttribute('d', fanEdge(g));
 }
@@ -94,6 +103,7 @@ function dialDelta(index, p, n) {
 function render({ keepCenter = true } = {}) {
   syncStore();
   applyTheme();
+  applyOpacity();
 
   const centerId = order.length
     ? order[((Math.round(pos) % order.length) + order.length) % order.length]
@@ -160,8 +170,8 @@ function layout() {
       return;
     }
 
-    const x = g.cx + g.arc * Math.sin(angle);
-    const y = g.arc * Math.cos(angle);
+    const x = g.cx + g.R * Math.sin(angle);
+    const y = g.yc + g.R * Math.cos(angle);
     const t = inner > 0 ? Math.min(1, ad / inner) : 0;
     const fade = ad <= inner ? 1 : 1 - (ad - inner) / (SPILL * STEP);
 
@@ -313,9 +323,16 @@ window.addEventListener('resize', () => {
   layout();
 });
 
-/* --------------------------- 테마 · 실시간 동기화 --------------------------- */
+/* --------------------------- 테마 · 투명도 · 실시간 동기화 --------------------------- */
 
 const ACCENTS = ['green', 'blue', 'purple', 'orange', 'rose', 'slate'];
+
+/** 유리판 배경의 불투명도 — 환경설정의 '메뉴 도구 투명도'(tip.quickbarOpacity.v1). (v1.11.0)
+ *  타일·글자는 불투명하게 두고 판 배경만 바꿔 가독성은 그대로 둔다. */
+function applyOpacity() {
+  const percent = getQuickbarOpacity();
+  document.documentElement.style.setProperty('--fan-alpha', (percent / 100).toFixed(2));
+}
 
 function applyTheme() {
   let dark = false;
@@ -341,6 +358,7 @@ function signature() {
       localStorage.getItem('tip.order.v1'),
       localStorage.getItem('tip.radialOrder.v1'),
       localStorage.getItem('tip.radialOrderMode.v1'),
+      localStorage.getItem('tip.quickbarOpacity.v1'),
     ].join('|');
   } catch {
     return 'unavailable';

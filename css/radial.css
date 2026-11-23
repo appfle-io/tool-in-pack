@@ -1,6 +1,6 @@
-/* TIP · 메뉴 막대 반원 퀵바 — v1.10.0
-   창은 투명(580×306)이고, 위가 일직선·아래가 반원인 유리 판과 그 위의 모듈만 보인다.
-   반원의 좌표는 js/radial.js 의 G(기하) 값과 짝을 이룬다 — 한쪽만 고치면 어긋난다. */
+/* TIP · 메뉴 막대 반원 퀵바 — v1.11.0
+   창은 투명(580×206)이고, 위가 일직선·아래가 납작한 반타원인 유리 판과 그 위의 모듈만 보인다.
+   판의 좌표(a 284 × b 176)는 js/radial.js 의 G(기하) 값과 짝을 이룬다 — 한쪽만 고치면 어긋난다. */
 
 .rw-body {
   margin: 0;
@@ -39,14 +39,15 @@
 .rw-fan-glass {
   position: absolute;
   inset: 0;
-  background: rgba(247, 247, 250, 0.95);
+  /* --fan-alpha 는 환경설정 '메뉴 도구 투명도'(35~100%, 기본 92%) — js/radial.js 가 넣는다(v1.11.0). */
+  background: rgba(247, 247, 250, var(--fan-alpha, 0.92));
   -webkit-backdrop-filter: blur(26px) saturate(180%);
   backdrop-filter: blur(26px) saturate(180%);
   /* clip-path 는 radial.js 가 같은 곡선으로 채운다. */
 }
 
 :root[data-theme='dark'] .rw-fan-glass {
-  background: rgba(26, 26, 31, 0.95);
+  background: rgba(26, 26, 31, var(--fan-alpha, 0.92));
 }
 
 .rw-edge {
@@ -71,11 +72,11 @@
   pointer-events: none;
 }
 
-/* 가운데 허브 — 작은 알약(앱 열기)과 톱니(환경설정)를 나란히 둔다. */
+/* 가운데 허브 — 작은 알약(앱 열기)과 톱니(환경설정)를 나란히 둔다. (v1.11.0: 42 → 30) */
 .rw-hub {
   position: absolute;
   left: var(--cx);
-  top: 42px;
+  top: 30px;
   transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
@@ -126,7 +127,7 @@
 
 .rw-arrow {
   position: absolute;
-  top: 42px;
+  top: 30px;
   display: grid;
   place-items: center;
   width: 26px;
@@ -218,7 +219,7 @@
 .rw-empty {
   position: absolute;
   left: var(--cx);
-  top: 178px;
+  top: 120px;
   transform: translate(-50%, -50%);
   margin: 0;
   text-align: center;

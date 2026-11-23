@@ -190,10 +190,39 @@ export function setMenuBarVisible(visible) {
   } catch { /* 저장하지 못하면 이번 실행에만 적용된다 */ }
 }
 
+/* 메뉴 도구(반원 퀵바) 투명도 — 판 배경의 불투명도(%), 35~100. 기본 92. (v1.11.0) */
+
+const QUICKBAR_OPACITY_KEY = 'tip.quickbarOpacity.v1';
+export const QUICKBAR_OPACITY_MIN = 35;
+export const QUICKBAR_OPACITY_MAX = 100;
+export const QUICKBAR_OPACITY_DEFAULT = 92;
+
+/** 저장된 값을 35~100 정수로 맞춰 돌려준다. 값이 없거나 이상하면 92. */
+export function getQuickbarOpacity() {
+  try {
+    const saved = localStorage.getItem(QUICKBAR_OPACITY_KEY);
+    if (saved === null) return QUICKBAR_OPACITY_DEFAULT;
+    const value = Number(saved);
+    if (!Number.isFinite(value)) return QUICKBAR_OPACITY_DEFAULT;
+    return Math.round(Math.min(QUICKBAR_OPACITY_MAX, Math.max(QUICKBAR_OPACITY_MIN, value)));
+  } catch {
+    return QUICKBAR_OPACITY_DEFAULT;
+  }
+}
+
+export function setQuickbarOpacity(percent) {
+  const value = Number(percent);
+  if (!Number.isFinite(value)) return;
+  const clamped = Math.round(Math.min(QUICKBAR_OPACITY_MAX, Math.max(QUICKBAR_OPACITY_MIN, value)));
+  try {
+    localStorage.setItem(QUICKBAR_OPACITY_KEY, String(clamped));
+  } catch { /* 저장하지 못하면 이번에만 적용된다 */ }
+}
+
 /* 다른 탭·창에서 설정을 바꾸면 이 창도 새 값을 읽는다. */
 try {
   window.addEventListener('storage', (event) => {
-    if (!event.key || event.key === KEY || event.key === ORDER_KEY || event.key === RADIAL_ORDER_KEY || event.key === MENUBAR_KEY || event.key === RADIAL_MODE_KEY) {
+    if (!event.key || event.key === KEY || event.key === ORDER_KEY || event.key === RADIAL_ORDER_KEY || event.key === MENUBAR_KEY || event.key === RADIAL_MODE_KEY || event.key === QUICKBAR_OPACITY_KEY) {
       cache = null;
       orderCache = null;
     }

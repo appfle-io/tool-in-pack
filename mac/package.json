@@ -1,7 +1,7 @@
 {
   "name": "tip-mac",
   "private": true,
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "TIP (TOOL-IN-PACK) macOS 앱 — 메뉴 막대 반원 퀵바 + 전체 창",
   "scripts": {
     "tauri": "tauri",

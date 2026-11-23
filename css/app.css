@@ -3057,3 +3057,91 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
 }
 
 .mode-note { margin: 12px 2px 0; }
+
+/* ==========================================================================
+   v1.11.0 — 메뉴 도구 투명도 슬라이더 (환경설정 · 메뉴 막대 섹션)
+   ========================================================================== */
+
+.op-row {
+  margin-top: 10px;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+}
+
+.op-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.op-label { font-size: 12.5px; font-weight: 600; color: var(--text); }
+
+.op-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 트랙은 채운 부분만 액센트로 — --op-fill 은 app.js 가 지금 값에 맞춰 넣는다. */
+.op-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.op-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--op-fill, 92%),
+    var(--line-strong) var(--op-fill, 92%),
+    var(--line-strong) 100%
+  );
+}
+.op-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+.op-range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+.op-range::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.op-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+}
+.op-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.op-note {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
