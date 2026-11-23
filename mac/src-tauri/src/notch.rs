@@ -57,14 +57,16 @@ fn panel_class() -> Option<&'static objc2::runtime::AnyClass> {
     }
 
     // SAFETY: 두 함수 모두 -(BOOL) 시그니처(수신자 + 셀렉터)와 정확히 일치한다.
+    // 타입 표기는 objc2 문서의 예제처럼 `_` 자리표시자를 씬다 — 명시적으로 `&AnyObject` 를 적으면
+    // 캐스팅이 특정 수명으로 굳어 `MethodImplementation`(higher-ranked) 검사를 통과하지 못한다.
     unsafe {
         builder.add_method(
             sel!(canBecomeKeyWindow),
-            can_become_key_window as extern "C-unwind" fn(&AnyObject, Sel) -> Bool,
+            can_become_key_window as extern "C-unwind" fn(_, _, _) -> _,
         );
         builder.add_method(
             sel!(canBecomeMainWindow),
-            can_become_main_window as extern "C-unwind" fn(&AnyObject, Sel) -> Bool,
+            can_become_main_window as extern "C-unwind" fn(_, _, _) -> _,
         );
     }
 
