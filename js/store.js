@@ -143,6 +143,28 @@ export function resetRadialOrder() {
   } catch { /* 저장소를 못 쓰면 지울 것도 없다 */ }
 }
 
+/* 반원 퀵바 순서 모드 — 'custom'(직접 정한 순서) | 'asc'(이름 오름차순) | 'desc'(내림차순).
+   기본값 'custom' = 지금까지의 동작(메인 순서 또는 사용자가 바꾼 순서). (v1.10.0) */
+
+const RADIAL_MODE_KEY = 'tip.radialOrderMode.v1';
+export const RADIAL_MODES = ['custom', 'asc', 'desc'];
+
+export function getRadialOrderMode() {
+  try {
+    const value = localStorage.getItem(RADIAL_MODE_KEY);
+    return RADIAL_MODES.includes(value) ? value : 'custom';
+  } catch {
+    return 'custom';
+  }
+}
+
+export function setRadialOrderMode(mode) {
+  if (!RADIAL_MODES.includes(mode)) return;
+  try {
+    localStorage.setItem(RADIAL_MODE_KEY, mode);
+  } catch { /* 저장하지 못하면 이번에만 적용된다 */ }
+}
+
 /** 다른 창(반원 퀵바)에서 바뀐 설정을 다시 읽도록 캐시를 비운다. */
 export function syncStore() {
   cache = null;
@@ -171,7 +193,7 @@ export function setMenuBarVisible(visible) {
 /* 다른 탭·창에서 설정을 바꾸면 이 창도 새 값을 읽는다. */
 try {
   window.addEventListener('storage', (event) => {
-    if (!event.key || event.key === KEY || event.key === ORDER_KEY || event.key === RADIAL_ORDER_KEY || event.key === MENUBAR_KEY) {
+    if (!event.key || event.key === KEY || event.key === ORDER_KEY || event.key === RADIAL_ORDER_KEY || event.key === MENUBAR_KEY || event.key === RADIAL_MODE_KEY) {
       cache = null;
       orderCache = null;
     }

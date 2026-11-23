@@ -521,8 +521,9 @@ pub fn run() {
                 });
             }
 
-            // 메뉴 막대 아이콘 — 흑백 템플릿이라 라이트/다크 메뉴 막대에 맞춰 색이 바뀐다.
-            let icon = Image::from_bytes(include_bytes!("../icons/trayTemplate.png"))?;
+            // 메뉴 막대 아이콘 — v1.10.0 부터 PWA 앱 아이콘과 같은 색(tray-icon.png, 44×44).
+            // icon_as_template(false) 라야 macOS 가 흑백 실루엣으로 바꾸지 않는다.
+            let icon = Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
 
             let open_main_item =
                 MenuItem::with_id(&handle, "open_main", "TIP 열기", true, None::<&str>)?;
@@ -542,7 +543,7 @@ pub fn run() {
 
             TrayIconBuilder::with_id("tip")
                 .icon(icon)
-                .icon_as_template(true)
+                .icon_as_template(false)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .tooltip("TIP · TOOL-IN-PACK")

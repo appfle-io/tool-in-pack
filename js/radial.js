@@ -340,6 +340,7 @@ function signature() {
       localStorage.getItem('tip.settings.v1'),
       localStorage.getItem('tip.order.v1'),
       localStorage.getItem('tip.radialOrder.v1'),
+      localStorage.getItem('tip.radialOrderMode.v1'),
     ].join('|');
   } catch {
     return 'unavailable';

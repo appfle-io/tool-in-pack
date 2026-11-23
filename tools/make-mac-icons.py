@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""TIP Mac 앱 아이콘 생성 — macOS .icns + 메뉴 막대(트레이) 템플릿 아이콘.
+"""TIP Mac 앱 아이콘 생성 — macOS .icns + 메뉴 막대(트레이) 아이콘.
 
     python3 tools/make-mac-icons.py
 
 - `icons/icon-1024.png`(마스터)에서 macOS 번들용 `mac/src-tauri/icons/icon.icns` 와
   `tauri::generate_context!` 가 요구하는 기본 창 아이콘 `icon.png` 를 만든다.
-- 메뉴 막대 아이콘은 흑백 템플릿(`trayTemplate.png`, `trayTemplate@2x.png`)으로 그린다.
-  템플릿 아이콘은 macOS 가 라이트/다크 메뉴 막대에 맞춰 알파만 보고 색을 입힌다.
+- 메뉴 막대 아이콘은 v1.10.0 부터 **PWA 앱 아이콘과 같은 색 그대로**(`tray-icon.png`, 44×44)를 쓴다.
+  `icon_as_template(false)` 로 두어야 macOS 가 흑백 실루엣으로 바꾸지 않는다.
+  (이전 흑백 템플릿 `trayTemplate*.png` 도 계속 만들어 두지만 지금은 쓰지 않는다.)
 - 결과물은 커밋한다(빌드 도구 없이 `tauri build` 가 바로 쓰도록).
 """
 from pathlib import Path
@@ -76,6 +77,23 @@ def build_tray(size: int, dest: Path) -> None:
     img.save(dest, format="PNG")
 
 
+def build_tray_color(master: Image.Image, dest: Path, size: int = 44, inset: int = 2) -> None:
+    """PWA 앱 아이콘과 같은 색의 메뉴 막대 아이콘 — 라운드 사각형으로 다듬어 투명 여백과 함께 저장.
+
+    macOS 는 상태 막대 아이콘을 메뉴 막대 높이에 맞춰 줄여 그리므로, 2배(44px)로 넣어야 또렷하다.
+    """
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    inner = size - inset * 2
+    icon = master.resize((inner, inner), Image.LANCZOS)
+
+    mask = Image.new("L", (inner, inner), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, inner - 1, inner - 1), radius=round(inner * 0.235), fill=255
+    )
+    canvas.paste(icon, (inset, inset), mask)
+    canvas.save(dest, format="PNG", optimize=True)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     master = Image.open(MASTER).convert("RGBA")
@@ -87,8 +105,9 @@ def main() -> None:
     master.save(OUT / "icon.png", format="PNG")
     build_tray(22, OUT / "trayTemplate.png")
     build_tray(44, OUT / "trayTemplate@2x.png")
+    build_tray_color(master, OUT / "tray-icon.png", 44)
 
-    for name in ("icon.icns", "icon.png", "trayTemplate.png", "trayTemplate@2x.png"):
+    for name in ("icon.icns", "icon.png", "trayTemplate.png", "trayTemplate@2x.png", "tray-icon.png"):
         print(f"{name:22} {(OUT / name).stat().st_size:>8,} bytes")
 
 

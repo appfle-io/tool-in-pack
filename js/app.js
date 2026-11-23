@@ -4,9 +4,9 @@ import { listModules, getModule, CATEGORIES, categoryOf } from '../modules/regis
 import {
   moduleState, setModuleState, getTheme, setTheme, applyTheme, getAccent, setAccent, ACCENTS,
   getSectionOrder, setSectionOrder, hasSectionOrder, resetSectionOrder, resetRadialOrder,
-  getMenuBarVisible, setMenuBarVisible,
+  getMenuBarVisible, setMenuBarVisible, getRadialOrderMode, setRadialOrderMode,
 } from './store.js';
-import { quickOrderIds, saveQuickOrder } from './quickbar.js';
+import { quickOrderIds, customQuickOrderIds, saveQuickOrder } from './quickbar.js';
 import { el, toast, icons } from './ui.js';
 
 /* Mac 앱(Tauri) 안에서 실행 중인지 — 메뉴 막대 퀵바와 창을 주고받는 데 쓴다. */
@@ -484,10 +484,105 @@ const SWATCH_COLORS = {
   slate: ['#475569', '#64748B'],
 };
 
-/* ---------------------- 반원 퀵바 순서 (v1.9.0) ---------------------- */
+/* ------------------- 반원 퀵바 순서 — 하위 메뉴 (v1.10.0) ------------------- */
 
-function quickbarSection(rerenderSheet) {
-  const ids = quickOrderIds();
+let sheetView = 'main';        // 'main' | 'quickbar'
+let sheetRender = null;        // openSheet() 가 만든 render — 하위 메뉴에서 다시 그릴 때 쓴다
+
+const RADIAL_MODE_LABELS = { asc: '오름차순', desc: '내림차순', custom: '사용자 지정' };
+
+const RADIAL_MODE_OPTIONS = [
+  { id: 'asc', label: '오름차순', hint: '모듈 이름 가나다·알파벳 순' },
+  { id: 'desc', label: '내림차순', hint: '이름 역순' },
+  { id: 'custom', label: '사용자 지정', hint: '직접 끌어서 정한 순서' },
+];
+
+/** 메인 설정 화면의 한 줄 메뉴 — 지금 고른 방식이 오른쪽에 보인다. */
+function quickbarMenuRow() {
+  const mode = getRadialOrderMode();
+  const row = el('button', {
+    class: 'sheet-menu',
+    type: 'button',
+    'aria-label': `반원 퀵바 순서 (지금: ${RADIAL_MODE_LABELS[mode]}) — 열기`,
+  }, [
+    el('span', { class: 'sheet-menu-label', text: '반원 퀵바 순서' }),
+    el('span', { class: 'sheet-menu-value', text: RADIAL_MODE_LABELS[mode] }),
+    el('span', { class: 'sheet-menu-arrow', text: '›', 'aria-hidden': 'true' }),
+  ]);
+  row.addEventListener('click', () => {
+    sheetView = 'quickbar';
+    if (sheetRender) sheetRender();
+  });
+  return el('div', { class: 'sheet-section' }, row);
+}
+
+/** 하위 메뉴 — 방식 선택 + (사용자 지정일 때만) 순서 편집 목록. */
+function quickbarScreen(rerenderSheet) {
+  const mode = getRadialOrderMode();
+
+  const back = el('button', { class: 'sheet-back', type: 'button', 'aria-label': '설정으로 돌아가기' }, [
+    el('span', { class: 'sheet-back-icon', html: icons.back, 'aria-hidden': 'true' }),
+    el('span', { text: '설정' }),
+  ]);
+  back.addEventListener('click', () => {
+    sheetView = 'main';
+    rerenderSheet();
+  });
+
+  const head = el('div', { class: 'sheet-head sheet-head-sub' }, [
+    back,
+    el('h2', { text: '반원 퀵바 순서' }),
+    el('button', {
+      class: 'icon-btn',
+      type: 'button',
+      'aria-label': '닫기',
+      html: icons.close,
+      onclick: closeSheet,
+    }),
+  ]);
+
+  const options = el('div', { class: 'mode-list', role: 'radiogroup', 'aria-label': '반원 퀵바 순서 방식' });
+  RADIAL_MODE_OPTIONS.forEach(({ id, label, hint }) => {
+    const on = mode === id;
+    const row = el('button', {
+      class: `mode-row${on ? ' is-on' : ''}`,
+      type: 'button',
+      role: 'radio',
+      'aria-checked': String(on),
+      'data-mode': id,
+    }, [
+      el('span', { class: 'mode-text' }, [
+        el('b', { text: label }),
+        el('span', { class: 'mode-hint', text: hint }),
+      ]),
+      el('span', { class: 'mode-mark', 'aria-hidden': 'true' }),
+    ]);
+    row.addEventListener('click', () => {
+      if (getRadialOrderMode() === id) return;
+      setRadialOrderMode(id);
+      toast(id === 'custom' ? '사용자 지정 순서로 표시합니다' : `모듈 이름 ${label}으로 표시합니다`);
+      rerenderSheet();
+    });
+    options.append(row);
+  });
+
+  const parts = [head, el('div', { class: 'sheet-section' }, options)];
+
+  if (mode === 'custom') {
+    parts.push(quickbarList(rerenderSheet));
+  } else {
+    parts.push(el('p', {
+      class: 'qb-note mode-note',
+      text: '지금은 이름순으로 보입니다. 직접 정해 둔 순서는 그대로 남아 있고, 사용자 지정을 고르면 다시 적용됩니다.',
+    }));
+  }
+
+  return parts;
+}
+
+/** 사용자 지정 목록 — 끌어서(⋮⋮) 또는 ↑↓ 로 순서를 바꾼다. */
+function quickbarList(rerenderSheet) {
+  const ids = customQuickOrderIds();
   const mods = ids.map((id) => getModule(id)).filter(Boolean);
   const list = el('div', { class: 'qb-list', role: 'list' });
 
@@ -506,8 +601,7 @@ function quickbarSection(rerenderSheet) {
   refreshQuickbarButtons(list);
 
   return el('div', { class: 'sheet-section qb-section' }, [
-    el('h3', { text: '반원 퀵바 순서' }),
-    el('p', { class: 'qb-note', text: 'Mac 메뉴 막대에서 반원으로 열릴 때의 순서입니다. 끌어서 바꾸세요.' }),
+    el('p', { class: 'qb-note', text: '위에서부터 반원 왼쪽 → 오른쪽 순서입니다. 끌어서 바꾸세요.' }),
     list,
     el('button', {
       class: 'sheet-reset',
@@ -913,6 +1007,7 @@ function closeSheet() {
 
 function openSheet() {
   if (sheet) return;
+  sheetView = 'main';
   const backdrop = el('div', { class: 'sheet-backdrop' });
   backdrop.addEventListener('click', closeSheet);
 
@@ -926,6 +1021,12 @@ function openSheet() {
   const render = () => {
     panel.innerHTML = '';
     panel.append(el('div', { class: 'sheet-grab' }));
+
+    // 하위 메뉴 — 반원 퀵바 순서(방식 + 사용자 지정 목록).
+    if (sheetView === 'quickbar') {
+      quickbarScreen(render).forEach((node) => panel.append(node));
+      return;
+    }
 
     const dark = document.documentElement.getAttribute('data-theme') === 'dark';
     const accent = getAccent();
@@ -987,8 +1088,8 @@ function openSheet() {
     // 앱 업데이트 — 현재 버전과 확인 버튼(v1.10.0).
     panel.append(updateSection());
 
-    // 반원 퀵바 순서 — Mac 메뉴 막대에서 열리는 순서(웹에서도 미리 정할 수 있다).
-    panel.append(quickbarSection(render));
+    // 반원 퀵바 순서 — 하위 메뉴로 들어가는 한 줄 메뉴(지금 방식이 오른쪽에 보인다).
+    panel.append(quickbarMenuRow());
 
     // 홈 카드 순서를 바꾼 적이 있을 때만 되돌리기 버튼을 보여 준다.
     if (hasSectionOrder()) {
@@ -1009,6 +1110,7 @@ function openSheet() {
     }
   };
 
+  sheetRender = render;
   render();
   document.body.append(backdrop, panel);
   requestAnimationFrame(() => {

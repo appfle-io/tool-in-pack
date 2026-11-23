@@ -2961,3 +2961,99 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
   font-weight: 600;
   color: var(--text);
 }
+
+/* ==========================================================================
+   v1.10.0 — 반원 퀵바 순서 하위 메뉴 (한 줄 메뉴 → 방식 선택)
+   ========================================================================== */
+
+.sheet-menu {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.sheet-menu:hover { border-color: var(--line-strong); }
+.sheet-menu:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sheet-menu-label { flex: 1; font-weight: 600; }
+.sheet-menu-value { font-size: 12.5px; color: var(--muted); }
+.sheet-menu-arrow { color: var(--muted-2); font-size: 16px; line-height: 1; }
+
+.sheet-head-sub {
+  justify-content: flex-start;
+  gap: 8px;
+}
+.sheet-head-sub h2 { flex: 1; min-width: 0; }
+.sheet-head-sub .icon-btn { margin-left: auto; }
+
+.sheet-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px 4px 2px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sheet-back:hover { background: var(--card-2); }
+.sheet-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sheet-back-icon { display: inline-grid; place-items: center; width: 15px; height: 15px; }
+.sheet-back-icon svg { width: 15px; height: 15px; }
+
+.mode-list { display: flex; flex-direction: column; gap: 8px; }
+
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.mode-row:hover { border-color: var(--line-strong); }
+.mode-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mode-row.is-on { border-color: var(--accent); background: var(--card-2); }
+
+.mode-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.mode-text b { font-size: 13px; font-weight: 650; }
+.mode-hint { font-size: 11.5px; color: var(--muted); }
+
+.mode-mark {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+}
+.mode-row.is-on .mode-mark { border-color: var(--accent); }
+.mode-row.is-on .mode-mark::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.mode-note { margin: 12px 2px 0; }
