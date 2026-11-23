@@ -894,6 +894,15 @@ function askUpdate(info) {
     backdrop.classList.add('show');
     card.classList.add('show');
   });
+
+  // Esc 로도 닫힌다(진행률 카드는 업데이트가 끝날 때까지 닫지 않는다).
+  const onKey = (event) => {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation();
+    window.removeEventListener('keydown', onKey, true);
+    close();
+  };
+  window.addEventListener('keydown', onKey, true);
 }
 
 /** 진행률 카드 — 퍼센트 바 + 상태 문구. 실패하면 닫기 버튼이 나온다. */
