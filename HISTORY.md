@@ -45,10 +45,10 @@
 | 라이브 | <https://appfle-io.github.io/tool-in-pack/> (GitHub Pages, `/tool-in-pack/` 서브 경로) |
 | 저장소 | <https://github.com/appfle-io/tool-in-pack> (public, `main` 브랜치가 곧 배포본) |
 | 소유·기획 | 유동규 (@papaleo / GitHub @appfle-io) |
-| 현재 버전 | **v1.10.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.10.0'`) · 모듈 17종 · macOS 앱 포함 |
+| 현재 버전 | **v1.11.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.11.0'`) · 모듈 17종 · macOS 앱 포함 |
 | 라이선스 | MIT (본 저장소 코드) + 서드파티 라이브러리는 각 라이선스 (LICENSE 참고) |
 
-### 모듈 목록 (v1.10.0 기준) · 기본 순서 = 홈 섹션 순서 = 반원 퀵바 기본 순서
+### 모듈 목록 (v1.11.0 기준) · 기본 순서 = 홈 섹션 순서 = 반원 퀵바 기본 순서
 
 | # | id | 이름 | `category` (홈 섹션) | 한 줄 기능 |
 | --- | --- | --- | --- | --- |
@@ -212,6 +212,30 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 ---
 
 ## 3. 버전 기록 (최신이 위)
+
+### v1.11.0 — 2026-11-23 (KST) · 커밋 `a2e2127` · `tip-v1.11.0` · 퀵바를 납작한 반타원(아치)으로 + 메뉴 도구 투명도
+
+- **작성자**: 유동규(피드백·디자인 지시·검수) + Pickle(AI) 구현
+- **요청 원문(요지)**: "정확히 반원으로 해버렸네 ㅠ 여백이 너무 많아. 설정있는 부분이랑 모듈들 있는부분 사이" → 정반원을 **납작하고 컴팩트한 반타원/아치**로 다시 그리고, ⚙️ 설정에 **메뉴 도구 투명도** 슬라이더(35~100%, 기본 92%) 추가.
+- **개발 내용** (모듈 17종 그대로 — 퀵바 기하·투명도만 바뀜)
+  - `js/radial.js` — 기하 상수를 정반원(`R 272 · arc 208 · 21°`)에서 **반타원**으로 교체: `G = { a 284, b 176, arc 400, arcY 92, x3 204, pad 6 }`. 판은 `fanPath()` 의 **타원 호**(`M (cx−a) 0 L (cx+a) 0 A a b 0 0 1 (cx−a) 0 Z`)이고, 타일은 **반지름 400 의 얕은 호** 위에 놓인다(`x = cx + R·sin θ`, `y = (arcY − R) + R·cos θ`, 칸 각도 `STEP = asin(204/400)/3 ≈ 10.2°`). 그 결과 **위 버튼(허브) 아래와 모듈 사이 여백이 150px → 22px**. 창이 좁으면(미리보기) 가로세로를 비율대로 줄인다. **투명도**: `applyOpacity()` 가 `--fan-alpha`(35~100 → 0.35~1.00)를 `<html>` 에 넣고, `signature()` 에 `tip.quickbarOpacity.v1` 을 넣어 700ms 폴링·`storage`·포커스로 열려 있는 퀵바에도 바로 반영된다.
+  - `css/radial.css` — 창 580×206 기준으로 주석·수치 갱신, `.rw-hub`·`.rw-arrow` `top` 42 → **30px**, `.rw-empty` `top` 178 → **120px**, 유리판 배경을 `rgba(247,247,250, var(--fan-alpha, .92))`(다크 `rgba(26,26,31, …)`)로 바꿔 **알파만** 조절(타일·글자는 불투명 유지), `backdrop-filter: blur(26px) saturate(180%)` 그대로.
+  - `js/store.js` — `tip.quickbarOpacity.v1` 읽기/쓰기(`getQuickbarOpacity`·`setQuickbarOpacity`, 35~100 정수로 자름, 기본 92, 상수 `QUICKBAR_OPACITY_MIN/MAX/DEFAULT`), `storage` 이벤트 키 목록에 추가.
+  - `js/app.js` — ⚙️ 환경설정 시트의 메뉴 막대 섹션 제목을 `메뉴 막대에 표시` → **`메뉴 막대`** 로 바꾸고, 토글 줄 이름을 `메뉴 막대에 표시` 로 두었다. 그 아래 `quickbarOpacityRow()`: **`메뉴 도구 투명도`** 슬라이더(`input[type=range]` 35~100·1% 단위·기본 92) + 실시간 `%` 표시 + 안내 한 줄. `input` 이벤트마다 저장·표시 갱신, **더블클릭하면 92% 로 복귀**. `APP_VERSION` → `1.11.0`.
+  - `css/app.css` — 끝에 v1.11.0 섹션: `.op-row`(카드형 컨테이너)·`.op-head`·`.op-label`·`.op-value`(액센트 색 %)·`.op-range`(채운 만큼 액센트인 트랙 — `--op-fill` 을 app.js 가 넣는다, WebKit/Moz 썸 스타일)·`.op-note`.
+  - `mac/src-tauri/src/lib.rs` — `QUICKBAR_H` 306 → **206**(= 판 176 + 아래 그림자 여백 30), 주석의 반원(272) 설명을 반타원으로.
+  - `sw.js` `tip-v1.11.0` · `mac/package.json`·`mac/src-tauri/Cargo.toml`·`mac/src-tauri/tauri.conf.json` `1.11.0` · `AGENT.md`(창 크기·기하·투명도 관례·localStorage 키 목록) · `README.md`(제한사항의 판 크기, §7 버전 표).
+- **사용한 언어·라이브러리·세팅**: Vanilla HTML/CSS/ES Modules(빌드 없음) + Tauri 2. 새 라이브러리 없음. 반타원은 `clip-path: path()` 의 **타원 호(A rx ry)** 하나, 투명도는 CSS 변수 + `rgba()` 알파.
+- **로컬 검증** (2026-11-23 22:5x~23:1x KST, `work/tip-v111/` — 샌드박스 headless Chromium dsf 2): **91/91 통과**.
+  - `test_v111.py` **38/38** — 창 580×206, `clip-path` 가 `A 284 176 0 0 1`(좌우 6px 여백), 판 픽셀 실루엣(꼭대기 폭 1134≈2a·높이 350≈2b·중간 폭 980≈2a√(1−¼)·바닥 121), **허브와 모듈 사이 22px**, 타일 7칸(3칸 옆 x±204·y 36~92 아치) 모두 반타원 안, 휠·› 회전, 투명도 92→35→77→100·범위 밖 5 는 35·0.92/.35/(rgb 완전 불투명) 확인, 타일 배경 불투명, **다른 창에서 바꾼 투명도가 열린 퀵바에 실시간 반영(.60)**, 빈 상태·모듈 3개 가운데 정렬, 설정 시트(제목 `메뉴 막대`, 토글 아래 슬라이더, 이름·범위·기본값·`%` 표시, 40% 저장, 양 끝, 더블클릭 92% 복귀, 다시 열어도 유지), 웹(비 Tauri)에는 메뉴 막대·투명도 없음, 콘솔 오류 0·404 0.
+  - 회귀(**v1.10.0 스위트를 새 버전·새 제목에 맞춰 실행**): `test_update.py` 22/22 · `test_menubar.py` 14/14 · `test_order.py` 17/17 — 업데이트 카드·진행률, 메뉴 막대 토글, 하위 메뉴·오름차순/내림차순·사용자 지정 순서, 열린 퀵바 동기화 모두 그대로.
+  - 스크린샷: `work/tip-mockups/tip-v111-radial-{light,dark,light-35,dark-35,light-100,empty,3}.png`, `tip-v111-home-{390,1280}-{light,dark}.png`, `tip-v111-settings-sheet.png`, `tip-v111-settings-opacity-40.png`, `tip-v111-sheet-390.png`.
+- **주의·제약**:
+  - 판이 **568×176**(창 580×206)으로 줄어 아래쪽 여백(모듈 라벨 아래 유리)이 약 35px 이다. 켜 둔 모듈이 3개처럼 적으면 판 좌우가 비어 보인다(창 크기는 고정 — 모듈 수에 따라 창을 줄이지는 않는다).
+  - 투명도를 낮추면(특히 35%) 뒤 배경이 어두울 때 판이 거의 사라지고 아이콘·라벨만 남는다. 테두리(`--line-strong`)가 윤곽을 잡아 준다. **타일·글자는 불투명**이라 가독성은 유지된다.
+  - 슬라이더는 **Tauri(Mac)에서만** 보인다(메뉴 막대 섹션 안). 웹 PWA 에는 메뉴 막대·퀵바가 없으므로 노출하지 않는다.
+  - 창 높이가 306 → 206 으로 바뀌어 **기존 설치본은 앱을 새로 받아야** 반영된다(자동 업데이트 경로는 그대로).
+  - CI 는 여전히 앱을 실행하지 않으므로 **실기(WKWebView)에서 반타원 렌더링·반투명 유리(backdrop-filter)·메뉴 막대 2px 여백**은 macOS 에서 확인해야 한다.
 
 ### v1.10.0 — 2026-11-23 (KST) · 커밋 `078f9dd`, `737e2b8`, `1da92ed` · `tip-v1.10.0` · 반원 퀵바 재디자인 + 업데이트·메뉴 막대 설정
 
