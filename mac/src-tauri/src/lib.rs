@@ -2,6 +2,7 @@
 //
 // - 전체 창(main): 웹(PWA)과 같은 화면. 창을 닫아도 앱은 살아 있고 메뉴 막대에서 다시 연다.
 // - 메뉴 막대 아이콘(트레이) 좌클릭: 아이콘 아래에 반원 퀵바(quickbar)를 띄우고, 다시 누르면 닫는다.
+// - 퀵바의 ⚙ 버튼은 메인 창을 띄우고 `tip://open-settings` 로 설정 시트를 연다(창이 이미 떠 있어도).
 // - 퀵바에서 모듈을 고르면 420×680 컴팩트 창(tool)이 그 모듈 화면으로 열린다.
 // - 모든 창은 같은 origin 이라 localStorage(모듈 켜기/끄기, 순서, 테마)를 그대로 공유한다.
 
@@ -18,13 +19,17 @@ use tauri::{
 const QUICKBAR: &str = "quickbar";
 const TOOL: &str = "tool";
 
+// 퀵바 창 — 반원 판(반지름 272)이 위쪽 일직선으로 메뉴 막대에 붙고, 아래로 272px 내려간다.
 const QUICKBAR_W: f64 = 580.0;
-const QUICKBAR_H: f64 = 260.0;
+const QUICKBAR_H: f64 = 306.0;
 const TOOL_W: f64 = 420.0;
 const TOOL_H: f64 = 680.0;
 
 /// 마지막으로 누른 메뉴 막대 아이콘의 사각형(물리 픽셀: x, y, w, h).
 static TRAY_RECT: Mutex<Option<(f64, f64, f64, f64)>> = Mutex::new(None);
+
+/// 메인 창의 화면이 아직 준비되기 전에 환경설정 요청이 왔는지 — 앱이 켜질 때 한 번 꺼낸다.
+static PENDING_SETTINGS: Mutex<bool> = Mutex::new(false);
 
 /* ----------------------------- 창 위치 계산 ----------------------------- */
 
@@ -44,13 +49,14 @@ fn tray_anchor(app: &AppHandle) -> Option<(f64, f64)> {
 }
 
 /// 창을 메뉴 막대 아이콘 바로 아래에 놓는다. 화면 밖으로 나가지 않게 안쪽으로 밀어 넣는다.
-fn place_under_tray(app: &AppHandle, win: &WebviewWindow, width: f64, height: f64) {
+/// `gap` 은 아이콘 아래 여백 — 반원 퀵바는 위쪽 일직선이 메뉴 막대에 붙도록 2px 로 둔다.
+fn place_under_tray(app: &AppHandle, win: &WebviewWindow, width: f64, height: f64, gap: f64) {
     let Some((anchor_x, anchor_y)) = tray_anchor(app) else {
         return;
     };
 
     let mut x = anchor_x - width / 2.0;
-    let mut y = anchor_y + 6.0;
+    let mut y = anchor_y + gap;
 
     if let Ok(Some(monitor)) = win.current_monitor() {
         let scale = monitor.scale_factor();
@@ -61,7 +67,7 @@ fn place_under_tray(app: &AppHandle, win: &WebviewWindow, width: f64, height: f6
         let max_y = origin.y + screen.height - height - 8.0;
 
         x = x.clamp(min_x, max_x.max(min_x));
-        y = y.min(max_y).max(origin.y + 6.0);
+        y = y.min(max_y).max(origin.y + gap);
     }
 
     let _ = win.set_position(Position::Logical(LogicalPosition::new(x, y)));
@@ -116,7 +122,7 @@ fn show_quickbar(app: &AppHandle) {
         }
     };
 
-    place_under_tray(app, &win, QUICKBAR_W, QUICKBAR_H);
+    place_under_tray(app, &win, QUICKBAR_W, QUICKBAR_H, 2.0);
     let _ = win.show();
     let _ = win.set_focus();
     let _ = win.emit("tip://quickbar-refresh", ());
@@ -134,7 +140,8 @@ fn toggle_quickbar(app: &AppHandle) {
 
 /* ------------------------------- 메인 창 ------------------------------- */
 
-fn show_main(app: &AppHandle, module: Option<String>) -> Result<(), String> {
+/// 메인 창을 띄운다. `settings` 면 환경설정 시트를 바로 열게 알린다(퀵바의 ⚙ 버튼).
+fn show_main(app: &AppHandle, module: Option<String>, settings: bool) -> Result<(), String> {
     let win = app
         .get_webview_window("main")
         .ok_or_else(|| "메인 창을 찾을 수 없습니다".to_string())?;
@@ -143,7 +150,11 @@ fn show_main(app: &AppHandle, module: Option<String>) -> Result<(), String> {
     let _ = win.unminimize();
     win.set_focus().map_err(|error| error.to_string())?;
 
-    if let Some(id) = module {
+    if settings {
+        // 화면이 아직 안 떴으면 앱이 시작할 때 take_pending_settings 로 꺼낸다.
+        *PENDING_SETTINGS.lock().unwrap() = true;
+        let _ = win.emit("tip://open-settings", ());
+    } else if let Some(id) = module {
         let _ = win.emit("tip://open-module", id);
     }
     if let Some(quickbar) = app.get_webview_window(QUICKBAR) {
@@ -163,8 +174,17 @@ fn hide_radial(app: AppHandle) {
 }
 
 #[tauri::command]
-fn open_main(app: AppHandle, module: Option<String>) -> Result<(), String> {
-    show_main(&app, module)
+fn open_main(app: AppHandle, module: Option<String>, settings: Option<bool>) -> Result<(), String> {
+    show_main(&app, module, settings.unwrap_or(false))
+}
+
+/// 시작 직후 날아온 환경설정 요청을 화면이 한 번 가져간다.
+#[tauri::command]
+fn take_pending_settings() -> bool {
+    let mut flag = PENDING_SETTINGS.lock().unwrap();
+    let value = *flag;
+    *flag = false;
+    value
 }
 
 #[tauri::command]
@@ -196,7 +216,7 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
     .build()
     .map_err(|error| error.to_string())?;
 
-    place_under_tray(&app, &win, TOOL_W, TOOL_H);
+    place_under_tray(&app, &win, TOOL_W, TOOL_H, 6.0);
     let _ = win.show();
     let _ = win.set_focus();
 
@@ -210,7 +230,12 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![hide_radial, open_main, open_tool])
+        .invoke_handler(tauri::generate_handler![
+            hide_radial,
+            open_main,
+            open_tool,
+            take_pending_settings
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -232,11 +257,14 @@ pub fn run() {
                 MenuItem::with_id(&handle, "open_main", "TIP 열기", true, None::<&str>)?;
             let open_quickbar_item =
                 MenuItem::with_id(&handle, "open_quickbar", "메뉴 막대 퀵바", true, None::<&str>)?;
+            let open_settings_item =
+                MenuItem::with_id(&handle, "open_settings", "환경설정…", true, None::<&str>)?;
             let quit_item =
                 MenuItem::with_id(&handle, "quit", "TIP 종료", true, None::<&str>)?;
             let menu = MenuBuilder::new(&handle)
                 .item(&open_main_item)
                 .item(&open_quickbar_item)
+                .item(&open_settings_item)
                 .separator()
                 .item(&quit_item)
                 .build()?;
@@ -280,9 +308,12 @@ pub fn run() {
                 })
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open_main" => {
-                        let _ = show_main(app, None);
+                        let _ = show_main(app, None, false);
                     }
                     "open_quickbar" => show_quickbar(app),
+                    "open_settings" => {
+                        let _ = show_main(app, None, true);
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -295,7 +326,7 @@ pub fn run() {
         .run(|app, event| {
             // Dock 아이콘 클릭 등으로 다시 열릴 때 메인 창을 보여 준다.
             if let tauri::RunEvent::Reopen { .. } = event {
-                let _ = show_main(app, None);
+                let _ = show_main(app, None, false);
             }
         });
 }

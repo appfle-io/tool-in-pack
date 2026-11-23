@@ -1,6 +1,7 @@
-/* TIP · 메뉴 막대 반원 퀵바 — v1.9.0
+/* TIP · 메뉴 막대 반원 퀵바 — v1.10.0
  *
- * 켜 둔 모듈만 반원(부채꼴) 호 위에 놓고, 마우스 휠·트랙패드·좌우 화살표로 돌린다.
+ * 판은 위가 일직선(메뉴 막대에 붙는 지름)·아래가 매끈한 반원이고,
+ * 켜 둔 모듈만 그 안쪽 호 위에 놓는다. 마우스 휠·트랙패드·좌우 화살표로 돌린다.
  * 순서는 js/quickbar.js 가 정한다(기본: 고정됨 → 문서 → 미디어 → 유틸리티, 사용자 지정: tip.radialOrder.v1).
  * 창을 띄우는 일은 Tauri(mac/src-tauri) 가 하고, 이 파일은 화면만 담당한다.
  */
@@ -11,19 +12,15 @@ import { syncStore } from './store.js';
 
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
-/* 반원 기하 — css/radial.css·fanPath() 와 짝을 이룬다. */
+/* 반원 기하 — css/radial.css·fanPath() 와 짝을 이룬다.
+ * 창(580×306)의 위쪽 가운데를 원의 중심으로 두고, 지름이 위쪽 일직선이 된다. */
 const SLOTS = 7;                    // 한 화면에 보이는 칸 수
 const STEP = 21 * (Math.PI / 180);  // 칸 사이 각도
 const SPILL = 0.55;                 // 가장자리에서 살짝 걸쳐 보이는 정도(칸)
 const G = {
-  cy: 92,                          // 타원 중심 높이
-  a: 210,                           // 타원 가로 반지름
-  b: 58,                            // 타원 세로 반지름
-  fanA: 34,                         // 판이 타일보다 바깥으로 나가는 여유
-  fanB: 22,
-  fanDrop: 46,                      // 판 아래 여유
-  fanMax: 112 * (Math.PI / 180),    // 판이 옆으로 벌어지는 최대 각
-  neck: 46,                         // 위쪽 목(메뉴 막대에 붙는 부분) 반폭
+  R: 272,                           // 반원 판의 반지름(= 창 위쪽에서 아래까지 높이)
+  arc: 208,                         // 타일 중심이 놓이는 호의 반지름
+  pad: 18,                          // 창 좌우 여백(반원이 창에 꽉 차지 않게)
 };
 
 const rootEl = document.getElementById('rw');
@@ -33,6 +30,7 @@ const glassEl = document.getElementById('fan-glass');
 const edgeSvg = document.getElementById('fan-edge');
 const fanPathEl = document.getElementById('fan-path');
 const openBtn = document.getElementById('open-app');
+const settingsBtn = document.getElementById('open-settings');
 const prevBtn = document.getElementById('prev');
 const nextBtn = document.getElementById('next');
 
@@ -47,32 +45,22 @@ let lastSig = '';
 
 function geometry() {
   const w = window.innerWidth || 580;
-  const scale = Math.min(1, (w - 150) / (2 * G.a));
-  return { cx: Math.round(w / 2), a: G.a * scale, b: G.b * scale };
+  const scale = Math.min(1, (w - G.pad * 2) / (2 * G.R));
+  return { cx: Math.round(w / 2), R: G.R * scale, arc: G.arc * scale };
 }
 
-/** 반원 판의 테두리 — 타일 타원을 바깥으로 키운 호 + 위쪽 목. */
+/** 반원 판 — 위쪽 지름(일직선) + 아래쪽 반원 호. */
 function fanPath(g) {
-  const ax = g.a + G.fanA;
-  const bx = g.b + G.fanB;
-  const at = (ang) => [g.cx + ax * Math.sin(ang), G.cy + bx * Math.cos(ang) + G.fanDrop];
-  const right = at(G.fanMax);
-  const left = at(-G.fanMax);
-  const shoulder = 34;   // 호 끝에서 목으로 이어지는 곡선의 기울기
+  const { cx, R } = g;
+  const r = R.toFixed(1);
+  return `M ${(cx - R).toFixed(1)} 0 L ${(cx + R).toFixed(1)} 0 A ${r} ${r} 0 0 1 ${(cx - R).toFixed(1)} 0 Z`;
+}
 
-  const parts = [
-    `M ${g.cx - G.neck} 0`,
-    `L ${g.cx + G.neck} 0`,
-    `C ${g.cx + G.neck + 30} 14 ${(right[0] - shoulder * 1.2).toFixed(1)} ${(right[1] - shoulder).toFixed(1)} ${right[0].toFixed(1)} ${right[1].toFixed(1)}`,
-  ];
-  const steps = 60;
-  for (let i = 1; i <= steps; i += 1) {
-    const p = at(G.fanMax - (2 * G.fanMax) * (i / steps));
-    parts.push(`L ${p[0].toFixed(1)} ${p[1].toFixed(1)}`);
-  }
-  parts.push(`C ${(left[0] + shoulder * 1.2).toFixed(1)} ${(left[1] - shoulder).toFixed(1)} ${g.cx - G.neck - 30} 14 ${g.cx - G.neck} 0`);
-  parts.push('Z');
-  return parts.join(' ');
+/** 테두리는 호에만 긋는다 — 위쪽 일직선은 메뉴 막대에 붙어 있어 선이 보이지 않게. */
+function fanEdge(g) {
+  const { cx, R } = g;
+  const r = R.toFixed(1);
+  return `M ${(cx + R).toFixed(1)} 0 A ${r} ${r} 0 0 1 ${(cx - R).toFixed(1)} 0`;
 }
 
 function applyGeometry(g) {
@@ -80,9 +68,9 @@ function applyGeometry(g) {
   glassEl.style.clipPath = `path("${d}")`;
   glassEl.style.setProperty('-webkit-clip-path', `path("${d}")`);
   const w = window.innerWidth || 580;
-  const h = window.innerHeight || 272;
+  const h = window.innerHeight || 306;
   edgeSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  fanPathEl.setAttribute('d', d);
+  fanPathEl.setAttribute('d', fanEdge(g));
 }
 
 /* ------------------------------ 그리기 ------------------------------ */
@@ -172,8 +160,8 @@ function layout() {
       return;
     }
 
-    const x = g.cx + g.a * Math.sin(angle);
-    const y = G.cy + g.b * Math.cos(angle);
+    const x = g.cx + g.arc * Math.sin(angle);
+    const y = g.arc * Math.cos(angle);
     const t = inner > 0 ? Math.min(1, ad / inner) : 0;
     const fade = ad <= inner ? 1 : 1 - (ad - inner) / (SPILL * STEP);
 
@@ -259,10 +247,19 @@ function openModule(id) {
 
 function openApp() {
   if (TAURI) {
-    invoke('open_main', { module: null });
+    invoke('open_main', { module: null, settings: false });
     return;
   }
   location.href = './index.html';
+}
+
+/** 환경설정 — 메인 창을 띄우고 설정 시트를 바로 연다(이미 열려 있어도 시트만 앞으로). */
+function openSettings() {
+  if (TAURI) {
+    invoke('open_main', { module: null, settings: true });
+    return;
+  }
+  location.href = './index.html?settings=1';
 }
 
 function closeSelf() {
@@ -274,6 +271,7 @@ function closeSelf() {
 }
 
 openBtn.addEventListener('click', openApp);
+settingsBtn.addEventListener('click', openSettings);
 prevBtn.addEventListener('click', () => nudge(-1));
 nextBtn.addEventListener('click', () => nudge(1));
 

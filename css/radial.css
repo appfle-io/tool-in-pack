@@ -1,5 +1,5 @@
-/* TIP · 메뉴 막대 반원 퀵바 — v1.9.0
-   창은 투명(580×272)이고, 반원(부채꼴) 판과 그 위의 모듈만 보인다.
+/* TIP · 메뉴 막대 반원 퀵바 — v1.10.0
+   창은 투명(580×306)이고, 위가 일직선·아래가 반원인 유리 판과 그 위의 모듈만 보인다.
    반원의 좌표는 js/radial.js 의 G(기하) 값과 짝을 이룬다 — 한쪽만 고치면 어긋난다. */
 
 .rw-body {
@@ -16,6 +16,9 @@
 /* 미리보기(스크린샷)용 — 실제 앱 창에서는 쓰지 않는다. */
 .rw-body.has-preview-bg {
   background: radial-gradient(120% 100% at 50% 0%, #e9edf1 0%, #d7dce2 55%, #c6ccd4 100%);
+}
+:root[data-theme='dark'] .rw-body.has-preview-bg {
+  background: radial-gradient(120% 100% at 50% 0%, #2b2b32 0%, #1c1c21 55%, #121215 100%);
 }
 
 .rw {
@@ -60,7 +63,7 @@
   vector-effect: non-scaling-stroke;
 }
 
-/* ---------- 위쪽: 앱 열기 + 좌우 화살표 ---------- */
+/* ---------- 위쪽 허브: 앱 열기(작게) + 환경설정 + 좌우 화살표 ---------- */
 
 .rw-top {
   position: absolute;
@@ -68,51 +71,62 @@
   pointer-events: none;
 }
 
-.rw-open {
+/* 가운데 허브 — 작은 알약(앱 열기)과 톱니(환경설정)를 나란히 둔다. */
+.rw-hub {
   position: absolute;
   left: var(--cx);
-  top: 66px;
+  top: 42px;
   transform: translate(-50%, -50%);
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  padding: 0;
-  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  pointer-events: auto;
+}
+
+.rw-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 14px;
   border: 1px solid var(--line-strong);
   background: var(--card);
   color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
-  pointer-events: auto;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-.rw-open svg { width: 17px; height: 17px; }
+.rw-open svg { width: 13px; height: 13px; flex: none; }
 .rw-open:hover {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
 }
-.rw-open:active { transform: translate(-50%, -50%) scale(0.96); }
+.rw-open:active { transform: scale(0.96); }
 .rw-open:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.rw-open-label {
-  position: absolute;
-  left: var(--cx);
-  top: 94px;
-  transform: translateX(-50%);
-  font-size: 10.5px;
-  font-weight: 600;
+/* 환경설정은 아이콘만 — 폭을 앱 열기와 같은 높이의 원으로 맞춘다. */
+.rw-gear {
+  width: 28px;
+  padding: 0;
+  border-radius: 50%;
   color: var(--muted);
-  pointer-events: none;
-  white-space: nowrap;
 }
+.rw-gear svg { width: 14px; height: 14px; }
+.rw-gear:hover { color: var(--accent-text); }
 
 .rw-arrow {
   position: absolute;
-  top: 66px;
+  top: 42px;
   display: grid;
   place-items: center;
   width: 26px;
@@ -128,8 +142,8 @@
   pointer-events: auto;
   transition: color 0.15s ease, background 0.15s ease;
 }
-#prev { left: calc(var(--cx) - 62px); transform: translate(-50%, -50%); }
-#next { left: calc(var(--cx) + 62px); transform: translate(-50%, -50%); }
+#prev { left: calc(var(--cx) - 90px); transform: translate(-50%, -50%); }
+#next { left: calc(var(--cx) + 90px); transform: translate(-50%, -50%); }
 .rw-arrow:hover { color: var(--text); background: var(--card-2); }
 .rw-arrow:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rw-arrow[disabled] { opacity: 0.25; cursor: default; background: transparent; color: var(--muted-2); }
@@ -172,6 +186,7 @@
   color: var(--text);
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+:root[data-theme='dark'] .rw-tile { background: var(--card-2); border-color: var(--line-strong); }
 .rw-tile svg { width: 22px; height: 22px; }
 
 .rw-label {
@@ -203,7 +218,7 @@
 .rw-empty {
   position: absolute;
   left: var(--cx);
-  top: 168px;
+  top: 178px;
   transform: translate(-50%, -50%);
   margin: 0;
   text-align: center;

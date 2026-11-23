@@ -792,15 +792,40 @@ if (TAURI && window.__TAURI__.event) {
     else toast(`${mod.name}이(가) 사용 중지되어 있습니다. 스위치로 켠 뒤 실행하세요.`);
   });
   window.__TAURI__.event.listen('tip://open-home', () => { location.hash = '#/'; });
+
+  // 반원 퀵바의 ⚙ 버튼 — 창이 이미 떠 있어도 설정 시트를 앞으로 꺼낸다.
+  window.__TAURI__.event.listen('tip://open-settings', () => openSheet());
+
+  // 창이 뜨기 전에 누른 요청은 Rust 쪽에 남아 있다가 여기서 한 번 꺼낸다.
+  // (컴팩트 도구 창은 주인공이 아니므로 꺼내지 않는다 — 메인 창이 가져간다.)
+  const isToolWindow = new URLSearchParams(location.search).has('module');
+  if (!isToolWindow && window.__TAURI__.core) {
+    window.__TAURI__.core.invoke('take_pending_settings')
+      .then((pending) => { if (pending) openSheet(); })
+      .catch((error) => console.warn('[TIP] pending settings:', error));
+  }
 }
 
 /* -------------------------------- boot --------------------------------- */
 
+// 퀵바의 ⚙ 버튼이 브라우저에서 연 창은 index.html?settings=1 — 설정 시트부터 연다.
+// (Mac 앱은 Tauri 이벤트로 열어 화면 상태를 그대로 둔다. 주소에 남은 파라미터는 지운다.)
+const bootParams = new URLSearchParams(location.search);
+const wantsSettings = bootParams.get('settings') === '1';
+if (wantsSettings) {
+  bootParams.delete('settings');
+  const rest = bootParams.toString();
+  try {
+    history.replaceState(null, '', `${location.pathname}${rest ? `?${rest}` : ''}${location.hash}`);
+  } catch { /* 주소만 못 바꿔도 시트는 연다 */ }
+}
+
 // 컴팩트 창은 index.html?module=<id> 로 열린다 — 그 모듈 화면에서 시작한다.
-const deepId = new URLSearchParams(location.search).get('module');
+const deepId = bootParams.get('module');
 const deepMod = deepId ? getModule(deepId) : null;
 if (deepMod && moduleState(deepMod).enabled) {
   try { history.replaceState(null, '', `#/${deepMod.id}`); } catch { /* 해시만 못 바꿔도 동작에는 지장이 없다 */ }
 }
 
 route();
+if (wantsSettings) openSheet();
