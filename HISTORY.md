@@ -45,10 +45,10 @@
 | 라이브 | <https://appfle-io.github.io/tool-in-pack/> (GitHub Pages, `/tool-in-pack/` 서브 경로) |
 | 저장소 | <https://github.com/appfle-io/tool-in-pack> (public, `main` 브랜치가 곧 배포본) |
 | 소유·기획 | 유동규 (@papaleo / GitHub @appfle-io) |
-| 현재 버전 | **v1.9.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.9.0'`) · 모듈 17종 · macOS 앱 포함 |
+| 현재 버전 | **v1.10.0** (`sw.js` → `CACHE_VERSION = 'tip-v1.10.0'`) · 모듈 17종 · macOS 앱 포함 |
 | 라이선스 | MIT (본 저장소 코드) + 서드파티 라이브러리는 각 라이선스 (LICENSE 참고) |
 
-### 모듈 목록 (v1.9.0 기준) · 기본 순서 = 홈 섹션 순서 = 반원 퀵바 기본 순서
+### 모듈 목록 (v1.10.0 기준) · 기본 순서 = 홈 섹션 순서 = 반원 퀵바 기본 순서
 
 | # | id | 이름 | `category` (홈 섹션) | 한 줄 기능 |
 | --- | --- | --- | --- | --- |
@@ -91,8 +91,8 @@ v1.8.0부터 사용자가 **카드 왼쪽 핸들(⋮⋮)을 끌어 같은 섹션
 index.html                앱 셸 (PWA 메타 태그, 테마 프리페인트 스크립트, 벤더 스크립트 로드)
 manifest.json             PWA 매니페스트 (이름·아이콘·start_url·shortcuts)
 sw.js                     서비스 워커 — 앱 셸 프리캐시 (배포 시 CACHE_VERSION 갱신)
-radial.html               Mac 메뉴 막대 반원 퀵바 창 (투명 창 · 580×260)
-css/radial.css            반원 판(clip-path)·타일·위쪽 컨트롤 스타일
+radial.html               Mac 메뉴 막대 반원 퀵바 창 (투명 창 · 580×306)
+css/radial.css            반원 판(clip-path)·타일·위쪽 허브(앱 열기·환경설정) 스타일
 js/radial.js              반원 퀵바 렌더·회전(휠/화살표)·모듈 열기·테마 실시간 동기화
 js/quickbar.js            퀵바 순서 계산 (기본값 = 홈 순서, 사용자 지정 = tip.radialOrder.v1)
 mac/                      macOS 앱 (Tauri 2) — 아래 'macOS 앱' 절 참고
@@ -212,6 +212,46 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
 ---
 
 ## 3. 버전 기록 (최신이 위)
+
+### v1.10.0 — 2026-11-23 (KST) · 커밋 `078f9dd`, `737e2b8`, `1da92ed` · `tip-v1.10.0` · 반원 퀵바 재디자인 + 업데이트·메뉴 막대 설정
+
+- **작성자**: 유동규(기획·디자인·기능 요청·검수) + Pickle(AI) 구현
+- **개발 내용** (모듈 17종 그대로 — 퀵바 외형·설정·창 동작만 바뀜)
+  - `radial.html` — 판을 부채꼴에서 **진짜 반원**으로. 위쪽 허브에 `앱 열기`(작은 알약 75×28)와 `환경설정`(28×28 톱니)을 7px 간격으로 나란히 두고, 좌우 `‹ ›` 화살표는 허브 옆(`cx±90`, y=42). 빈 상태 문구는 `위 환경설정에서 모듈을 켜세요.`
+  - `js/radial.js` — 기하를 반지름 기준(`R` 272 · `arc` 208 · `pad` 18)으로 바꿔 `fanPath()` 가 `M (cx−R) 0 L (cx+R) 0 A R R 0 0 1 (cx−R) 0 Z` — **지름이 창 위쪽 일직선**이고 아래가 매끈한 호. 테두리(`fanEdge()`)는 호에만 긋는다. 타일은 `x = cx + arc·sin θ`, `y = arc·cos θ` 로 호 위 21° 간격(7칸). `openSettings()` 추가. 실시간 동기화 signature 에 `tip.radialOrderMode.v1` 추가.
+  - `css/radial.css` — 허브·알약·톱니 스타일, 창 580×306 기준, 다크 타일 대비와 테마별 `?bg=1` 미리보기 배경.
+  - `js/app.js` — ① `index.html?settings=1` 부트 딥링크(주소 정리) · `tip://open-settings` 이벤트 · `take_pending_settings` 로 **창이 뜨기 전 요청** 회수(도구 창은 제외). ② **앱 업데이트**: `updateSection()`(현재 `v1.10.0` + `업데이트 확인`), `checkAppUpdate()`(Tauri `check_app_update` / 웹 `ServiceWorkerRegistration.update()`), `askUpdate()` 확인 카드(`새 버전 vX / 지금 업데이트 후 재시작할까요?`), `showProgressUi()` 진행률 카드(0~100% 바·상태 문구·실패 시 사유와 닫기), `runUpdate()`(웹: `SKIP_WAITING` → `controllerchange` → 새로고침, Tauri: `install_app_update_and_restart` + `tip://update-progress`). ③ **메뉴 막대에 표시**(Mac 전용 스위치, `set_tray_visible`). ④ **반원 퀵바 순서 하위 메뉴**: 메인 시트에는 한 줄(`.sheet-menu`, 지금 방식 + `›`)만, 누르면 `sheetView='quickbar'` 로 전환해 `오름차순/내림차순/사용자 지정`(`.mode-row`)과 (사용자 지정일 때) 드래그 목록을 그린다. `‹ 설정`(`.sheet-back`)으로 돌아온다.
+  - `js/quickbar.js` — `quickOrderIds()` 가 모드에 따라 정렬(`asc`/`desc` 는 `shortName` 을 `localeCompare('ko')`), `custom` 은 저장 순서. `customQuickOrderIds()` 는 편집 화면용으로 모드와 무관하게 저장 순서를 돌려준다(모드를 바꿔도 `tip.radialOrder.v1` 은 보존).
+  - `js/store.js` — `tip.radialOrderMode.v1`(`'custom'|'asc'|'desc'`, 기본 custom) 읽기/쓰기, `tip.menuBarVisible.v1`(`'1'|'0'`, 기본 `'1'`) 읽기/쓰기, `storage` 이벤트 키 목록 확장.
+  - `css/app.css` — v1.10.0 섹션: `.upd-*(업데이트 카드·모달·진행률)`, `.mb-*(메뉴 막대 토글)`, `.sheet-menu*`, `.sheet-back`, `.mode-*(방식 선택)`. 업데이트 모달은 z-index 100/101(설정 시트 80/81 위).
+  - `mac/src-tauri/src/lib.rs` — `QUICKBAR_H` 260→306, `place_under_tray(…, gap)`(퀵바 2px·도구 창 6px), `open_main(module, settings)`, `take_pending_settings`, 트레이 메뉴 `환경설정…`, `PENDING_SETTINGS`. **새 명령**: `set_tray_visible`(`tray_by_id("tip").set_visible`, 끄면 퀵바도 hide), `check_app_update`(GitHub Releases latest + `CARGO_PKG_VERSION` 비교, `.app.tar.gz` URL·노트 반환), `install_app_update_and_restart`(reqwest 스트림 다운로드 + `tip://update-progress` 진행률 → `tar -xzf` → `ditto` 번들 교체(백업·롤백) → `open -n` → `app.exit(0)`). 트레이 아이콘은 `icons/tray-icon.png` + `icon_as_template(false)`.
+  - `mac/src-tauri/Cargo.toml` — `reqwest 0.12`(default-features=false, native-tls·json·stream), `futures-util 0.3`.
+  - `tools/make-mac-icons.py` — `build_tray_color()` 추가: `icons/icon-1024.png` 를 라운드 사각형(투명 여백 2px)으로 다듬어 `mac/src-tauri/icons/tray-icon.png`(44×44 RGBA) 생성.
+  - `sw.js` — `tip-v1.10.0`, `SKIP_WAITING` 메시지 처리 추가. `mac/package.json` · `mac/src-tauri/tauri.conf.json` · `mac/src-tauri/Cargo.toml` — `1.10.0`.
+  - `.github/workflows/build-mac.yml` — **유동규 님이 GitHub 웹에서 수정**(커밋 `4f74244`): 인증서 해독 줄을 `printf '%s' "$CERT_B64" | tr -d '\r\n\t ' | openssl base64 -d -A -out …` 로 바꿈(macOS 의 `base64 --decode` 미지원 때문에 첫 서명 빌드가 이 단계에서 즉시 실패했다).
+- **사용한 언어·라이브러리·세팅**: Vanilla HTML/CSS/ES Modules(빌드 없음) + Tauri 2. 새 러스트 크레이트 `reqwest`·`futures-util`(앱 업데이트 다운로드용). 반원은 `clip-path: path()` 의 호(`A`) 하나로, 아이콘은 Python Pillow.
+- **로컬 검증** (2026-11-23 13:0x~14:0x KST, `work/tip-v110/` — 샌드박스 headless Chromium dsf 2): **84/84 통과**.
+  - `test_radial.py` **31/31** — 반원 픽셀 검증(꼭대기 폭 1086≈2R, 높이 542≈R, 중간 폭 938≈`2√(R²−y²)`), 타일 7칸 21° 간격, `앱 열기` 75×28 + 톱니 28×28(7px 간격), `⚙` → 시트 열림, `?module=` 유지, Tauri 목 호출.
+  - `test_update.py` **22/22** — 시트 `앱 업데이트`·현재 버전, 웹(SW 목) 새 버전 질문 → `SKIP_WAITING` → 진행률, 최신이면 안내만, Tauri 확인 → 질문(릴리스 노트) → `install_app_update_and_restart{url}` → 진행률 42%/압축/다시 시작 문구, 설치 실패 시 사유+닫기.
+  - `test_order.py` **17/17** — 한 줄 메뉴(지금 방식 표시), 하위 메뉴 3방식·뒤로가기, 오름차순/내림차순이 퀵바 타일에 반영(ICU 한국어 정렬 기준으로 대조), 사용자 지정 순서 보존·↑ 버튼 저장, **열려 있는 퀵바가 모드 변경을 따라감**.
+  - `test_menubar.py` **14/14** — `tray-icon.png` 44×44 RGBA·투명 모서리·초록(#2E5E4E 계열), lib.rs 가 `icon_as_template(false)`, 기본 ON, 끄기/켜기 → `set_tray_visible`, 저장값 `'0'`/'1', 다시 열 때 동기화.
+  - 콘솔 오류 0 · 페이지 오류 0 · 404 0. 스크린샷: `work/tip-mockups/tip-v110-radial-{light,dark,empty,3}.png`, `tip-v110-settings-sheet.png`, `tip-v110-settings-1280.png`, `tip-v110-update-{section-light,section-dark,ask,ask-app,progress,progress-app,restart,fail,latest}.png`, `tip-v110-menubar-{on,off}.png`, `tip-v110-order-{menu,menu-desc,custom,custom-edit,asc}.png`, `tip-v110-tray-{light,dark}.png`.
+- **라이브 검증** (2026-11-23 13:4x~14:0x KST, `work/tip-v110/live_check.py` — 실제 GitHub Pages): **9/9 통과**. `sw.js` = `tip-v1.10.0`, 라이브 홈 17카드, 시트 `반원 퀵바 순서 | 사용자 지정 ›`·`현재 버전 v1.10.0`·`업데이트 확인`, 웹에는 메뉴 막대 섹션 없음, 하위 메뉴 3방식·뒤로가기, `radial.html` 반원 clip-path(`M 248 0 L 792 0 A 272 272 0 0 1 …`)·타일 7칸·앱 열기 75×28 + 톱니, 콘솔 오류·404 0. 스크린샷 `work/tip-mockups/tip-v110-live-{order-menu,order-asc,radial-asc,radial-light,radial-dark}.png`.
+- **CI 빌드** (2026-11-23 22:25:35~22:34:05 KST, GitHub Actions run `45183784871`, 커밋 `c55c870`, `macos-latest`, 8분 30초): **전 단계 초록불 — Developer ID 서명 + Apple 공증 + Universal**.
+  - `서명 인증서 가져오기 (Developer ID)` success · `서명 방식 — Developer ID (+ 공증)` success(= `APPLE_ID`·`APPLE_PASSWORD`·`APPLE_TEAM_ID` 가 있어 **공증 켜짐**) · `Ad-hoc` skipped · `빌드 (.app + .dmg, universal)` success · `결과 검증`(lipo·Info.plist 1.10.0·codesign·hdiutil·DMG 내부 앱) success · `아티팩트 업로드` success(`tip-mac-universal-c55c870…`, 61,957,962 bytes) · 태그가 아니라 Release 첨부는 skipped.
+  - **첫 서명 시도가 실패한 원인 두 가지** (해결 과정도 기록해 둔다):
+    1. `.github/workflows/build-mac.yml` 의 인증서 해독 줄이 `base64 --decode` 였는데 macOS 의 `base64` 는 이 옵션을 지원하지 않아 단계가 0초에 실패했다(커밋 `4f74244`, 유동규 님이 GitHub 웹에서 `printf '%s' "$CERT_B64" | tr -d '\r\n\t ' | openssl base64 -d -A -out …` 로 수정). 이 저장소의 GitHub App 에는 `workflows` 스코프가 없어 **CLI 로는 워크플로우를 push 할 수 없다**(`refusing to allow a GitHub App to create or update workflow …`) — 워크플로우를 고칠 때는 GitHub 웹 편집이 필요하다.
+    2. 인증서 `.p12` 가 최신 암호화 형식이라 `security import` 가 실패했다. 유동규 님이 **`-legacy` 옵션으로 다시 내보낸 .p12** 로 `APPLE_CERTIFICATE` 를 교체해 통과(암호는 기존과 동일). 같은 값으로 다시 내보낼 때는 `openssl pkcs12 -export -legacy …` 또는 키체인 접근의 내보내기(호환 형식)를 쓴다.
+  - 실패했던 run: `45179188125`·`45181058916`·`45181513202`(모두 인증서 단계), 대기 중 취소된 `45183279201`.
+  - **아티팩트는 GitHub App 토큰에 `actions` 권한이 없어 API 로 내려받지 못했다**(`403 You must have the actions scope to download artifacts.`). zip 은 run 페이지 Artifacts 에서 받거나, `v1.10.0` 태그로 Release 에 첨부해 공개 URL 로 받는다.
+- **주의·제약**:
+  - CI 는 빌드·서명·번들 구조까지만 보고 **앱을 실행하지 않는다**. 반원 판(306)·메뉴 막대 2px 여백·`clip-path` 렌더링, **트레이 아이콘 크기**(44px 이미지가 상태 막대에서 메뉴 막대 높이로 줄어드는지), **자동 업데이트 설치·재시작**은 macOS 실기(WKWebView)에서 확인해야 한다.
+  - 자동 업데이트는 **GitHub Release 에 `.app.tar.gz` 가 올라가 있어야** 동작한다(현재 워크플로우는 `v*` 태그 push 때만 Release 에 첨부한다). Release 가 없으면 `check_app_update` 가 "공개된 새 버전이 없습니다"로 응답한다.
+  - `/Applications` 쓰기 권한이 없으면 교체가 실패하고 **이전 버전으로 되돌린 뒤** 사유를 보여 준다. 앱을 `/Applications` 밖(예: 다운로드 폴더)에서 실행 중이면 그 번들을 교체한다.
+  - 업데이트 확인은 **앱이 밖으로 접속하는 유일한 곳**(GitHub Releases 공개 API)이다. 파일·사용자 데이터는 보내지 않는다.
+  - 이름순(오름차순/내림차순) 정렬은 한국어 ICU 정렬이라 라틴 문자(`PDF`, `QR` …)가 한글 뒤에 온다.
+  - 트레이를 끄면 메뉴 막대 아이콘이 사라지고 Dock 아이콘으로만 열 수 있다(회수 경로).
+  - `index.html?settings=1` 은 웹 미리보기용. Mac 앱은 이벤트로 열어 보고 있던 모듈 화면을 유지한다.
 
 ### v1.9.0 — 2026-11-23 (KST) · 커밋 `de05252`, `ff7afe3` · `tip-v1.9.0` · macOS 앱 + 반원 퀵바
 
