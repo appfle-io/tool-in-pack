@@ -47,26 +47,26 @@ fn panel_class() -> Option<&'static objc2::runtime::AnyClass> {
     let mut builder = ClassBuilder::new(c"TipNotchPanel", superclass)?;
 
     // 키보드 입력을 받을 수 있게 한다(기본 NSPanel 은 borderless 일 때 NO).
-    // Objective-C BOOL 은 objc2 의 runtime::Bool 로 돌려준다(러스트 bool 은 Encode 가 없다).
-    extern "C-unwind" fn can_become_key_window(_this: &AnyObject, _cmd: Sel) -> Bool {
+    // 반환은 Objective-C BOOL — objc2 의 runtime::Bool 로 돌려준다(러스트 bool 은 Encode 미구현).
+    // 수신자는 `&AnyObject` 가 아니라 `*mut AnyObject` 다. 참조 수신자는 캐스팅할 때 수명이
+    // 하나로 굳어 `MethodImplementation`(higher-ranked) 검사를 통과하지 못한다.
+    extern "C-unwind" fn can_become_key_window(_this: *mut AnyObject, _cmd: Sel) -> Bool {
         Bool::YES
     }
     // 메인 창은 되지 않는다 — 다른 앱을 가리지 않고 키 입력만 받는다.
-    extern "C-unwind" fn can_become_main_window(_this: &AnyObject, _cmd: Sel) -> Bool {
+    extern "C-unwind" fn can_become_main_window(_this: *mut AnyObject, _cmd: Sel) -> Bool {
         Bool::NO
     }
 
     // SAFETY: 두 함수 모두 -(BOOL) 시그니처(수신자 + 셀렉터)와 정확히 일치한다.
-    // 타입 표기는 objc2 문서의 예제처럼 `_` 자리표시자를 씬다 — 명시적으로 `&AnyObject` 를 적으면
-    // 캐스팅이 특정 수명으로 굳어 `MethodImplementation`(higher-ranked) 검사를 통과하지 못한다.
     unsafe {
-        builder.add_method(
+        builder.add_method::<AnyObject, _>(
             sel!(canBecomeKeyWindow),
-            can_become_key_window as extern "C-unwind" fn(_, _, _) -> _,
+            can_become_key_window as extern "C-unwind" fn(*mut AnyObject, Sel) -> Bool,
         );
-        builder.add_method(
+        builder.add_method::<AnyObject, _>(
             sel!(canBecomeMainWindow),
-            can_become_main_window as extern "C-unwind" fn(_, _, _) -> _,
+            can_become_main_window as extern "C-unwind" fn(*mut AnyObject, Sel) -> Bool,
         );
     }
 
