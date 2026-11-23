@@ -149,10 +149,29 @@ export function syncStore() {
   orderCache = null;
 }
 
+/* 메뉴 막대에 표시 — Mac 앱의 트레이 아이콘을 보일지. 기본값 ON. (v1.10.0) */
+
+const MENUBAR_KEY = 'tip.menuBarVisible.v1';
+
+export function getMenuBarVisible() {
+  try {
+    const saved = localStorage.getItem(MENUBAR_KEY);
+    return saved === null ? true : saved === '1';
+  } catch {
+    return true;
+  }
+}
+
+export function setMenuBarVisible(visible) {
+  try {
+    localStorage.setItem(MENUBAR_KEY, visible ? '1' : '0');
+  } catch { /* 저장하지 못하면 이번 실행에만 적용된다 */ }
+}
+
 /* 다른 탭·창에서 설정을 바꾸면 이 창도 새 값을 읽는다. */
 try {
   window.addEventListener('storage', (event) => {
-    if (!event.key || event.key === KEY || event.key === ORDER_KEY || event.key === RADIAL_ORDER_KEY) {
+    if (!event.key || event.key === KEY || event.key === ORDER_KEY || event.key === RADIAL_ORDER_KEY || event.key === MENUBAR_KEY) {
       cache = null;
       orderCache = null;
     }

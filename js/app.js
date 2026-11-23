@@ -4,6 +4,7 @@ import { listModules, getModule, CATEGORIES, categoryOf } from '../modules/regis
 import {
   moduleState, setModuleState, getTheme, setTheme, applyTheme, getAccent, setAccent, ACCENTS,
   getSectionOrder, setSectionOrder, hasSectionOrder, resetSectionOrder, resetRadialOrder,
+  getMenuBarVisible, setMenuBarVisible,
 } from './store.js';
 import { quickOrderIds, saveQuickOrder } from './quickbar.js';
 import { el, toast, icons } from './ui.js';
@@ -623,6 +624,284 @@ function startQuickbarDrag(event, row, handle, save) {
   window.addEventListener('pointercancel', onEnd);
 }
 
+/* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
+
+/** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
+const APP_VERSION = '1.10.0';
+
+let updateBusy = false;
+
+function invokeTauri(command, args) {
+  return window.__TAURI__.core.invoke(command, args || {});
+}
+
+/** Mac 앱 — 상단 메뉴 막대 아이콘(트레이)과 반원 퀵바를 보일지 정한다(v1.10.0). */
+function menuBarSection() {
+  const visible = getMenuBarVisible();
+  const toggle = el('button', {
+    class: 'switch',
+    type: 'button',
+    'aria-pressed': String(visible),
+    'aria-label': '메뉴 막대에 표시',
+  }, el('span', { class: 'switch-track' }, el('span', { class: 'switch-thumb' })));
+
+  toggle.addEventListener('click', async () => {
+    const next = !getMenuBarVisible();
+    setMenuBarVisible(next);
+    toggle.setAttribute('aria-pressed', String(next));
+    try {
+      await invokeTauri('set_tray_visible', { visible: next });
+      toast(next ? '메뉴 막대에 TIP 아이콘을 표시합니다' : '메뉴 막대에서 TIP 아이콘을 숨겼습니다');
+    } catch (error) {
+      console.error('[TIP menubar]', error);
+      setMenuBarVisible(!next);
+      toggle.setAttribute('aria-pressed', String(!next));
+      toast('메뉴 막대 설정을 바꾸지 못했습니다');
+    }
+  });
+
+  return el('div', { class: 'sheet-section mb-section' }, [
+    el('h3', { text: '메뉴 막대에 표시' }),
+    el('p', {
+      class: 'mb-note',
+      text: '상단 메뉴 막대 아이콘과 반원 퀵바를 쓸지 정합니다. 끄면 Dock 아이콘으로만 열 수 있습니다.',
+    }),
+    el('div', { class: 'mb-row' }, [
+      el('span', { class: 'mb-label', text: '상단 메뉴 막대 아이콘 · 반원 퀵바' }),
+      toggle,
+    ]),
+  ]);
+}
+
+/** 환경설정 시트의 '앱 업데이트' 섹션 — 현재 버전과 확인 버튼. */
+function updateSection() {
+  const btn = el('button', { class: 'primary-btn ghost upd-check', type: 'button', text: '업데이트 확인' });
+  btn.addEventListener('click', () => checkAppUpdate(btn));
+
+  return el('div', { class: 'sheet-section upd-section' }, [
+    el('h3', { text: '앱 업데이트' }),
+    el('p', {
+      class: 'upd-note',
+      text: TAURI
+        ? '새 버전이 있으면 내려받아 설치하고 앱을 다시 시작합니다.'
+        : '새 버전이 준비되었으면 지금 적용할지 물어봅니다.',
+    }),
+    el('div', { class: 'upd-row' }, [
+      el('span', { class: 'upd-version', text: `현재 버전 v${APP_VERSION}` }),
+      btn,
+    ]),
+  ]);
+}
+
+async function checkAppUpdate(btn) {
+  if (updateBusy) return;
+  updateBusy = true;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '확인 중…';
+  try {
+    if (TAURI) {
+      const info = await invokeTauri('check_app_update');
+      if (!info || !info.available) {
+        toast((info && info.message) || `최신 버전입니다 (v${info && info.current ? info.current : APP_VERSION})`);
+        return;
+      }
+      askUpdate({ version: info.version, notes: info.notes, url: info.url, web: false });
+    } else {
+      const info = await checkWebUpdate();
+      if (info) askUpdate(info);
+    }
+  } catch (error) {
+    console.error('[TIP update]', error);
+    toast('업데이트를 확인하지 못했습니다');
+  } finally {
+    updateBusy = false;
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+/** 웹(PWA) — 서비스 워커 update() 로 대기 중인 새 버전이 있는지 본다. */
+async function checkWebUpdate() {
+  if (!('serviceWorker' in navigator)) {
+    toast('이 브라우저에서는 자동 업데이트를 지원하지 않습니다');
+    return null;
+  }
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) {
+    toast(`최신 버전입니다 (v${APP_VERSION})`);
+    return null;
+  }
+
+  try { await reg.update(); } catch { /* 오프라인이면 그냥 최신으로 본다 */ }
+
+  // 방금 설치가 시작됐으면 끝날 때까지(최대 4초) 기다린다.
+  if (!reg.waiting && reg.installing) {
+    await new Promise((resolve) => {
+      const worker = reg.installing;
+      const done = () => resolve();
+      if (!worker) { done(); return; }
+      worker.addEventListener('statechange', () => {
+        if (worker.state === 'installed' || worker.state === 'redundant') done();
+      });
+      setTimeout(done, 4000);
+    });
+  }
+
+  const waiting = reg.waiting;
+  if (!waiting) {
+    toast(`최신 버전입니다 (v${APP_VERSION})`);
+    return null;
+  }
+  return { web: true, version: await readRemoteVersion(), notes: '' };
+}
+
+/** 새 워커의 sw.js 에서 CACHE_VERSION 만 읽어 표시용 버전을 얻는다. */
+async function readRemoteVersion() {
+  try {
+    const response = await fetch(`./sw.js?ts=${Date.now()}`, { cache: 'no-store' });
+    const text = await response.text();
+    const found = text.match(/CACHE_VERSION\s*=\s*'tip-v([\d.]+)'/);
+    return found ? found[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+/** "새 버전이 있습니다. 지금 업데이트 후 재시작할까요?" */
+function askUpdate(info) {
+  const backdrop = el('div', { class: 'upd-backdrop' });
+  const card = el('div', { class: 'upd-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': '앱 업데이트' });
+  const later = el('button', { class: 'primary-btn ghost', type: 'button', text: '나중에' });
+  const go = el('button', { class: 'primary-btn', type: 'button', text: '지금 업데이트' });
+
+  const close = () => {
+    backdrop.classList.remove('show');
+    card.classList.remove('show');
+    setTimeout(() => { backdrop.remove(); card.remove(); }, 200);
+  };
+  later.addEventListener('click', close);
+  backdrop.addEventListener('click', close);
+
+  card.append(
+    el('h2', { text: info.version ? `새 버전 v${info.version}` : '새 버전이 있습니다' }),
+    el('p', { class: 'upd-msg', text: TAURI ? '지금 업데이트한 뒤 앱을 다시 시작할까요?' : '지금 업데이트한 뒤 새로고침할까요?' }),
+  );
+  if (info.notes) card.append(el('p', { class: 'upd-notes', text: info.notes }));
+  card.append(el('div', { class: 'upd-actions' }, [later, go]));
+
+  go.addEventListener('click', () => {
+    close();
+    runUpdate(info);
+  });
+
+  document.body.append(backdrop, card);
+  requestAnimationFrame(() => {
+    backdrop.classList.add('show');
+    card.classList.add('show');
+  });
+}
+
+/** 진행률 카드 — 퍼센트 바 + 상태 문구. 실패하면 닫기 버튼이 나온다. */
+function showProgressUi() {
+  const backdrop = el('div', { class: 'upd-backdrop' });
+  const fill = el('div', { class: 'upd-bar-fill' });
+  const pct = el('span', { class: 'upd-pct', text: '0%' });
+  const status = el('p', { class: 'upd-status', text: '준비 중…' });
+  const close = el('button', { class: 'primary-btn ghost', type: 'button', text: '닫기' });
+  close.hidden = true;
+
+  const card = el('div', {
+    class: 'upd-modal upd-progress',
+    role: 'dialog',
+    'aria-modal': 'true',
+    'aria-label': '앱 업데이트 진행',
+  }, [
+    el('h2', { text: '업데이트 중' }),
+    el('div', { class: 'upd-track', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100' }, fill),
+    el('div', { class: 'upd-meta' }, [status, pct]),
+    close,
+  ]);
+
+  document.body.append(backdrop, card);
+  requestAnimationFrame(() => {
+    backdrop.classList.add('show');
+    card.classList.add('show');
+  });
+
+  const track = card.querySelector('.upd-track');
+  return {
+    set(percent, text) {
+      const value = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+      fill.style.width = `${value}%`;
+      pct.textContent = `${value}%`;
+      track.setAttribute('aria-valuenow', String(value));
+      if (text) status.textContent = text;
+    },
+    fail(message) {
+      fill.classList.add('is-error');
+      status.textContent = message;
+      close.hidden = false;
+      close.addEventListener('click', () => {
+        backdrop.classList.remove('show');
+        card.classList.remove('show');
+        setTimeout(() => { backdrop.remove(); card.remove(); }, 200);
+      });
+    },
+  };
+}
+
+const UPDATE_STAGES = {
+  download: '내려받는 중',
+  extract: '압축을 푸는 중',
+  install: '설치하는 중',
+  restart: '앱을 다시 시작하는 중',
+};
+
+async function runUpdate(info) {
+  const ui = showProgressUi();
+
+  if (info.web) {
+    ui.set(30, '새 버전을 적용하는 중…');
+    const reg = await navigator.serviceWorker.getRegistration();
+    const waiting = reg && reg.waiting;
+    let reloading = false;
+    const reload = () => {
+      if (reloading) return;
+      reloading = true;
+      ui.set(100, '새 버전으로 다시 여는 중…');
+      setTimeout(() => location.reload(), 300);
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', reload);
+    if (waiting) waiting.postMessage({ type: 'SKIP_WAITING' });
+    else reload();
+    setTimeout(() => { if (!reloading) ui.set(70, '새 버전으로 바꾸는 중…'); }, 400);
+    setTimeout(reload, 5000);   // controllerchange 가 오지 않아도 멈추지 않게
+    return;
+  }
+
+  if (!window.__TAURI__.event) {
+    ui.fail('이 환경에서는 자동 업데이트를 쓸 수 없습니다');
+    return;
+  }
+
+  window.__TAURI__.event.listen('tip://update-progress', (event) => {
+    const payload = event.payload || {};
+    const stage = UPDATE_STAGES[payload.stage] || '업데이트 중';
+    const percent = payload.percent;
+    ui.set(percent == null ? 0 : percent, percent == null ? stage : `${stage} ${Math.round(percent)}%`);
+  });
+
+  try {
+    ui.set(0, '내려받는 중 0%');
+    await invokeTauri('install_app_update_and_restart', { url: info.url });
+    ui.set(100, '앱을 다시 시작하는 중…');
+  } catch (error) {
+    console.error('[TIP update]', error);
+    ui.fail(typeof error === 'string' ? error : '업데이트를 마치지 못했습니다');
+  }
+}
+
 function closeSheet() {
   if (!sheet) return;
   const { backdrop, panel } = sheet;
@@ -701,6 +980,12 @@ function openSheet() {
       swatches.append(btn);
     });
     panel.append(el('div', { class: 'sheet-section' }, el('h3', { text: '기본 색상' }), swatches));
+
+    // Mac 앱 — 메뉴 막대 아이콘 표시 여부.
+    if (TAURI) panel.append(menuBarSection());
+
+    // 앱 업데이트 — 현재 버전과 확인 버튼(v1.10.0).
+    panel.append(updateSection());
 
     // 반원 퀵바 순서 — Mac 메뉴 막대에서 열리는 순서(웹에서도 미리 정할 수 있다).
     panel.append(quickbarSection(render));
@@ -803,6 +1088,10 @@ if (TAURI && window.__TAURI__.event) {
     window.__TAURI__.core.invoke('take_pending_settings')
       .then((pending) => { if (pending) openSheet(); })
       .catch((error) => console.warn('[TIP] pending settings:', error));
+
+    // 저장해 둔 '메뉴 막대에 표시' 값을 앱이 켜질 때 트레이에 반영한다.
+    window.__TAURI__.core.invoke('set_tray_visible', { visible: getMenuBarVisible() })
+      .catch((error) => console.warn('[TIP] tray visible:', error));
   }
 }
 

@@ -6,8 +6,12 @@
 // - 퀵바에서 모듈을 고르면 420×680 컴팩트 창(tool)이 그 모듈 화면으로 열린다.
 // - 모든 창은 같은 origin 이라 localStorage(모듈 켜기/끄기, 순서, 테마)를 그대로 공유한다.
 
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use futures_util::StreamExt;
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItem},
@@ -24,6 +28,8 @@ const QUICKBAR_W: f64 = 580.0;
 const QUICKBAR_H: f64 = 306.0;
 const TOOL_W: f64 = 420.0;
 const TOOL_H: f64 = 680.0;
+
+const RELEASES_LATEST: &str = "https://api.github.com/repos/appfle-io/tool-in-pack/releases/latest";
 
 /// 마지막으로 누른 메뉴 막대 아이콘의 사각형(물리 픽셀: x, y, w, h).
 static TRAY_RECT: Mutex<Option<(f64, f64, f64, f64)>> = Mutex::new(None);
@@ -187,6 +193,20 @@ fn take_pending_settings() -> bool {
     value
 }
 
+/// 상단 메뉴 막대 아이콘(트레이)을 보일지 정한다 — 끄면 열려 있던 반원 퀵바도 닫는다.
+#[tauri::command]
+fn set_tray_visible(app: AppHandle, visible: bool) -> Result<(), String> {
+    if let Some(tray) = app.tray_by_id("tip") {
+        tray.set_visible(visible).map_err(|error| error.to_string())?;
+    }
+    if !visible {
+        if let Some(win) = app.get_webview_window(QUICKBAR) {
+            let _ = win.hide();
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), String> {
     let label = title.unwrap_or_else(|| "TIP".to_string());
@@ -228,13 +248,264 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
 
 /* --------------------------------- 실행 --------------------------------- */
 
+/* ------------------------------ 앱 업데이트 ------------------------------ */
+
+/// GitHub Releases 최신 정보 — 프런트가 그대로 쓴다(check_app_update).
+#[derive(serde::Serialize)]
+struct UpdateInfo {
+    available: bool,
+    current: String,
+    version: Option<String>,
+    url: Option<String>,
+    notes: Option<String>,
+    message: String,
+}
+
+/// 진행률 이벤트 payload — `tip://update-progress`.
+#[derive(Clone, serde::Serialize)]
+struct UpdateProgress {
+    stage: String,
+    percent: Option<f64>,
+}
+
+fn emit_progress(app: &AppHandle, stage: &str, percent: Option<f64>) {
+    let _ = app.emit(
+        "tip://update-progress",
+        UpdateProgress { stage: stage.to_string(), percent },
+    );
+}
+
+/// "v1.10.0" / "1.10.0-beta.1" → (1, 10, 0)
+fn parse_version(text: &str) -> (u64, u64, u64) {
+    let trimmed = text.trim();
+    let core = trimmed.strip_prefix('v').unwrap_or(trimmed);
+    let core = core.split(['-', '+']).next().unwrap_or(core);
+    let mut parts = core.split('.').map(|part| part.parse::<u64>().unwrap_or(0));
+    (
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+    )
+}
+
+/// 현재 앱 버전(Cargo)과 GitHub 최신 릴리스 태그를 비교한다.
+#[tauri::command]
+async fn check_app_update() -> Result<UpdateInfo, String> {
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let client = reqwest::Client::builder()
+        .user_agent(concat!("TIP/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let response = client
+        .get(RELEASES_LATEST)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|error| format!("업데이트 서버에 연결하지 못했습니다: {error}"))?;
+
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(UpdateInfo {
+            available: false,
+            current: current.clone(),
+            version: None,
+            url: None,
+            notes: None,
+            message: format!("공개된 새 버전이 없습니다. 현재 v{current} 입니다."),
+        });
+    }
+    if !response.status().is_success() {
+        return Err(format!("업데이트를 확인하지 못했습니다 (HTTP {})", response.status()));
+    }
+
+    let body: serde_json::Value = response.json().await.map_err(|error| error.to_string())?;
+    let tag = body.get("tag_name").and_then(|value| value.as_str()).unwrap_or("");
+    let notes = body.get("body").and_then(|value| value.as_str()).unwrap_or("");
+    let url = body
+        .get("assets")
+        .and_then(|value| value.as_array())
+        .and_then(|assets| {
+            assets.iter().find_map(|asset| {
+                let name = asset.get("name").and_then(|value| value.as_str()).unwrap_or("");
+                if name.ends_with(".app.tar.gz") {
+                    asset
+                        .get("browser_download_url")
+                        .and_then(|value| value.as_str())
+                        .map(|value| value.to_string())
+                } else {
+                    None
+                }
+            })
+        });
+
+    let latest = tag.trim().trim_start_matches('v').to_string();
+    let newer = !latest.is_empty() && parse_version(&latest) > parse_version(&current);
+
+    let message = if !newer {
+        format!("최신 버전입니다 (v{current})")
+    } else if url.is_none() {
+        format!("새 버전 v{latest} 이 있지만 설치 파일(.app.tar.gz)이 없습니다. 릴리스 페이지에서 내려받아 주세요.")
+    } else {
+        format!("새 버전 v{latest} 이 있습니다.")
+    };
+
+    Ok(UpdateInfo {
+        available: newer && url.is_some(),
+        current,
+        version: if latest.is_empty() { None } else { Some(latest) },
+        url,
+        notes: if notes.trim().is_empty() { None } else { Some(notes.to_string()) },
+        message,
+    })
+}
+
+/// 압축 안에서 첫 `.app` 번들을 찾는다.
+fn find_app_bundle(dir: &Path) -> Option<PathBuf> {
+    let mut children = Vec::new();
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.extension().map(|ext| ext == "app").unwrap_or(false) {
+            return Some(path);
+        }
+        if path.is_dir() {
+            children.push(path);
+        }
+    }
+    children.iter().find_map(|child| find_app_bundle(child))
+}
+
+/// 실행 중인 번들 경로 — `.../TIP.app/Contents/MacOS/tip` 에서 세 단계 위.
+fn current_bundle_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let bundle = exe.parent()?.parent()?.parent()?;
+    if bundle.extension().map(|ext| ext == "app").unwrap_or(false) {
+        Some(bundle.to_path_buf())
+    } else {
+        None
+    }
+}
+
+/// 기존 번들을 백업하고 새 번들로 교체한다. 실패하면 이전 버전으로 되돌린다.
+fn replace_bundle(target: &Path, new_app: &Path, work: &Path) -> Result<(), String> {
+    let backup = work.join("backup.app");
+    let _ = fs::remove_dir_all(&backup);
+
+    // 같은 볼륨이면 rename(빠름), 아니면 ditto 로 복사해 백업한다.
+    if fs::rename(target, &backup).is_err() {
+        let copied = std::process::Command::new("ditto")
+            .arg(target)
+            .arg(&backup)
+            .status();
+        if !matches!(copied, Ok(status) if status.success()) {
+            return Err("기존 앱을 백업하지 못했습니다. /Applications 쓰기 권한을 확인하세요.".into());
+        }
+        let _ = fs::remove_dir_all(target);
+    }
+
+    let copied = std::process::Command::new("ditto")
+        .arg(new_app)
+        .arg(target)
+        .status();
+    let ok = matches!(copied, Ok(status) if status.success())
+        && target.join("Contents/Info.plist").exists();
+
+    if !ok {
+        let _ = fs::remove_dir_all(target);
+        let _ = fs::rename(&backup, target);
+        return Err("새 앱을 설치하지 못했습니다. 이전 버전으로 되돌렸습니다.".into());
+    }
+    Ok(())
+}
+
+/// `.app.tar.gz` 를 내려받아 설치하고 앱을 다시 시작한다(진행률은 이벤트로 보낸다).
+#[tauri::command]
+async fn install_app_update_and_restart(app: AppHandle, url: String) -> Result<(), String> {
+    emit_progress(&app, "download", Some(0.0));
+
+    let work = std::env::temp_dir().join("tip-update");
+    let _ = fs::remove_dir_all(&work);
+    fs::create_dir_all(&work).map_err(|error| format!("임시 폴더를 만들지 못했습니다: {error}"))?;
+    let archive = work.join("TIP.app.tar.gz");
+
+    let client = reqwest::Client::builder()
+        .user_agent(concat!("TIP/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(600))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|error| format!("내려받지 못했습니다: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("내려받기 실패 (HTTP {})", response.status()));
+    }
+
+    let total = response.content_length().unwrap_or(0);
+    let mut file =
+        fs::File::create(&archive).map_err(|error| format!("파일을 만들지 못했습니다: {error}"))?;
+    let mut stream = response.bytes_stream();
+    let mut received: u64 = 0;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| format!("내려받는 중 끊겼습니다: {error}"))?;
+        file.write_all(&chunk)
+            .map_err(|error| format!("저장하지 못했습니다: {error}"))?;
+        received += chunk.len() as u64;
+        if total > 0 {
+            emit_progress(&app, "download", Some(received as f64 / total as f64 * 100.0));
+        }
+    }
+    drop(file);
+
+    emit_progress(&app, "extract", Some(100.0));
+    let unpacked = work.join("unpacked");
+    fs::create_dir_all(&unpacked).map_err(|error| error.to_string())?;
+    let extracted = std::process::Command::new("tar")
+        .arg("-xzf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(&unpacked)
+        .status()
+        .map_err(|error| format!("압축을 풀지 못했습니다: {error}"))?;
+    if !extracted.success() {
+        return Err("압축을 풀지 못했습니다".into());
+    }
+
+    let new_app = find_app_bundle(&unpacked)
+        .ok_or_else(|| "내려받은 파일 안에 앱(.app)이 없습니다".to_string())?;
+
+    emit_progress(&app, "install", Some(100.0));
+    let target = current_bundle_path()
+        .ok_or_else(|| "앱 번들 위치를 찾지 못했습니다(개발 빌드에서는 자동 설치를 쓸 수 없습니다)".to_string())?;
+    replace_bundle(&target, &new_app, &work)?;
+
+    emit_progress(&app, "restart", Some(100.0));
+    std::process::Command::new("open")
+        .arg("-n")
+        .arg(&target)
+        .spawn()
+        .map_err(|error| format!("앱을 다시 시작하지 못했습니다: {error}"))?;
+
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    app.exit(0);
+    Ok(())
+}
+
+/* --------------------------------- 실행 --------------------------------- */
+
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             hide_radial,
             open_main,
             open_tool,
-            take_pending_settings
+            take_pending_settings,
+            set_tray_visible,
+            check_app_update,
+            install_app_update_and_restart
         ])
         .setup(|app| {
             let handle = app.handle().clone();

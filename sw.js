@@ -81,6 +81,11 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// 환경설정 → 앱 업데이트 확인: 대기 중인 새 워커를 바로 활성화한다(v1.10.0).
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
