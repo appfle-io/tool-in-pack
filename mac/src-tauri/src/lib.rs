@@ -435,7 +435,7 @@ async fn install_app_update_and_restart(app: AppHandle, url: String) -> Result<(
         .map_err(|error| error.to_string())?;
 
     let response = client
-        .get(&url)
+        .get(url.as_str())
         .send()
         .await
         .map_err(|error| format!("내려받지 못했습니다: {error}"))?;
