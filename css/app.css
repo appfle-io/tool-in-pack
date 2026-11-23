@@ -3595,3 +3595,111 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
 }
 .addr-chip:hover { color: var(--accent); border-color: var(--accent); }
 .addr-world-empty { padding: 18px 0; }
+
+/* ------------------------------ 배송 조회 (v1.12.0) ------------------------------ */
+
+.par { display: flex; flex-direction: column; gap: 14px; max-width: 760px; margin: 0 auto; }
+.par-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.par-note b { color: var(--text); font-weight: 650; }
+
+.par-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+.par-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.par-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.par-field span { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.par-field em { font-style: normal; font-weight: 500; color: var(--muted-2); }
+.par-field select,
+.par-field input {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.par-field select { appearance: none; background-image: none; cursor: pointer; }
+.par-field select:focus,
+.par-field input:focus { border-color: var(--accent); background: var(--card); }
+.par-field input::placeholder { color: var(--muted-2); }
+
+.par-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.par-actions .primary-btn { height: 36px; padding: 0 14px; font-size: 13px; }
+.par-hint { min-width: 0; font-size: 11.5px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+.par-error { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--bad); }
+
+.par-list-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.par-list-head b { font-size: 13px; }
+.par-list-head span { font-size: 11.5px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+
+.par-list { display: flex; flex-direction: column; gap: 8px; }
+.par-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+.par-item-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.par-name { font-size: 13.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.par-carrier { flex: none; font-size: 11.5px; color: var(--muted); }
+.par-invoice { margin: 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.par-item-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; }
+
+.par-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 27px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.par-btn svg { width: 13px; height: 13px; }
+.par-btn:hover { color: var(--accent); border-color: var(--accent); }
+.par-btn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.par-btn.is-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-text); }
+.par-btn.is-quiet:hover { color: var(--bad); border-color: var(--bad); }
+.par-btn.is-confirm { background: var(--bad); border-color: var(--bad); color: #fff; }
+
+.par-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 14px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--line-strong);
+  background: var(--card);
+  text-align: center;
+}
+.par-empty-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+.par-empty-icon svg { width: 20px; height: 20px; }
+.par-empty p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--muted-2); }
+.par-empty p b { color: var(--text); font-weight: 650; }
+
+@media (max-width: 520px) {
+  .par-fields { grid-template-columns: 1fr; }
+}

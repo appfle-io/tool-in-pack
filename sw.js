@@ -23,6 +23,7 @@ const APP_SHELL = [
   './modules/registry.js',
   './modules/clipboard-history/module.js',
   './modules/address-search/module.js',
+  './modules/parcel-tracker/module.js',
   './modules/doc-reader/module.js',
   './modules/doc-reader/renderers.js',
   './modules/doc-reader/pdf-viewer.js',

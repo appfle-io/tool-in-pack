@@ -35,6 +35,7 @@ import unitConverter from './unit-converter/module.js';
 import currencyCalc from './currency-calc/module.js';
 import clipboardHistory from './clipboard-history/module.js';
 import addressSearch from './address-search/module.js';
+import parcelTracker from './parcel-tracker/module.js';
 
 /**
  * 홈 화면 섹션 순서. 여기에 적은 순서대로 홈이 그려진다.
@@ -58,6 +59,7 @@ export const registry = [
   docReader,
   clipboardHistory,
   addressSearch,
+  parcelTracker,
   imgConverter,
   pdfTools,
   mdEditor,

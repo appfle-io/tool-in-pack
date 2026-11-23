@@ -28,6 +28,7 @@ const QUICKBAR: &str = "quickbar";
 const TOOL: &str = "tool";
 const NOTCH: &str = "notch";
 const SEARCH: &str = "search";
+const PARCEL: &str = "parcel";
 
 // 퀵바 창 — 납작한 반타원 판(가로 284·세로 176)이 위쪽 일직선으로 메뉴 막대에 붙고,
 // 아래로 176px 내려간다. 창 높이 206 = 판 176 + 아래 그림자 여백 30.
@@ -45,6 +46,10 @@ const NOTCH_OPEN_H: f64 = 600.0;
 // 전역 빠른 실행 검색 — 화면 가운데 위쪽의 작은 팔레트.
 const SEARCH_W: f64 = 640.0;
 const SEARCH_H: f64 = 440.0;
+
+// 배송 조회 — 네이버 배송조회를 앱 안에서 여는 컴팩트 창(일반 창이라 사용자가 닫·크기 조절).
+const PARCEL_W: f64 = 480.0;
+const PARCEL_H: f64 = 720.0;
 const DEFAULT_SEARCH_SHORTCUT: &str = "Alt+Space";
 
 const RELEASES_LATEST: &str = "https://api.github.com/repos/appfle-io/tool-in-pack/releases/latest";
@@ -495,6 +500,41 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
     Ok(())
 }
 
+/// 배송 조회 — 네이버 배송조회 화면을 앱 안의 컴팩트 창(parcel)에서 바로 연다.
+/// 이미 열려 있으면 그 창의 주소만 바꾼다. 네이버 주소(https://search.naver.com/…)만 허용한다.
+#[tauri::command]
+fn open_parcel_webview(app: AppHandle, url: String, title: String) -> Result<(), String> {
+    let target: tauri::Url = url.parse().map_err(|_| "주소를 읽지 못했습니다".to_string())?;
+    if target.scheme() != "https" {
+        return Err("https 주소만 열 수 있습니다".into());
+    }
+    let host = target.host_str().unwrap_or_default();
+    if !(host == "search.naver.com" || host == "m.search.naver.com") {
+        return Err("배송 조회는 네이버 검색 주소만 열 수 있습니다".into());
+    }
+
+    if let Some(win) = app.get_webview_window(PARCEL) {
+        let _ = win.set_title(&title);
+        win.navigate(target).map_err(|error| error.to_string())?;
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let win = WebviewWindowBuilder::new(&app, PARCEL, WebviewUrl::External(target))
+        .title(title)
+        .inner_size(PARCEL_W, PARCEL_H)
+        .min_inner_size(360.0, 480.0)
+        .resizable(true)
+        .visible(false)
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
 /* --------------------------------- 실행 --------------------------------- */
 
 /* ------------------------------ 앱 업데이트 ------------------------------ */
@@ -824,6 +864,7 @@ pub fn run() {
             hide_radial,
             open_main,
             open_tool,
+            open_parcel_webview,
             take_pending_settings,
             set_tray_visible,
             check_app_update,

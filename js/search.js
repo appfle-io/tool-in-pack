@@ -19,6 +19,8 @@ const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map(({ id, label }) => [id,
 const KEYWORDS = {
   'doc-reader': 'pdf hwp hwpx 문서 뷰어 열기 읽기',
   'clipboard-history': '클립보드 복사 히스토리 클립 이미지 텍스트',
+  'address-search': '주소 우편번호 도로명 영문 해외 검색',
+  'parcel-tracker': '배송 택배 송장 운송장 조회 추적 배달',
   'img-converter': '이미지 사진 변환 포맷 png jpg webp heic 리사이즈',
   'pdf-tools': 'pdf 합치기 병합 추출 페이지 자르기',
   'md-editor': '마크다운 메모 작성 md 에디터',
