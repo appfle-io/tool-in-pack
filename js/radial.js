@@ -26,7 +26,6 @@ const G = {
   x3: 204,                          // 3칸 옆(가장 바깥) 타일의 x 오프셋
   pad: 6,                           // 창 좌우 여백
 };
-const STEP = Math.asin(G.x3 / G.arc) / 3;   // 칸 사이 각도(≈10.2°)
 
 const rootEl = document.getElementById('rw');
 const slotsEl = document.getElementById('slots');
@@ -50,13 +49,16 @@ let lastSig = '';
 
 function geometry() {
   const w = window.innerWidth || 580;
-  const k = Math.min(1, w / 580);            // 창이 좁으면 통째로 줄인다(미리보기용)
+  // 반타원은 설계 폭(580)을 넘지 않는다 — 넓게 연 미리보기에서도 같은 모양이 되게.
+  const a = Math.min(G.a, w / 2 - G.pad);
+  const x3 = Math.min(G.x3, a * 0.72);      // 좁은 창에서는 칸 간격도 같이 줄인다
   return {
     cx: Math.round(w / 2),
-    a: (w / 2) - G.pad * k,
-    b: G.b * k,
-    R: G.arc * k,
-    yc: (G.arcY - G.arc) * k,                // 타일 호의 원 중심(화면 위쪽 바깥)
+    a,
+    b: G.b,
+    R: G.arc,
+    yc: G.arcY - G.arc,                     // 타일 호의 원 중심(화면 위쪽 바깥)
+    step: Math.asin(x3 / G.arc) / 3,        // 칸 사이 각도(설계값 ≈10.2°)
   };
 }
 
@@ -154,13 +156,13 @@ function layout() {
   const g = geometry();
   const slots = Math.min(SLOTS, n);
   const maxIndex = (slots - 1) / 2;
-  const inner = maxIndex * STEP;
-  const limit = inner + SPILL * STEP;
+  const inner = maxIndex * g.step;
+  const limit = inner + SPILL * g.step;
 
   items.forEach((item, index) => {
     // 모듈이 화면 칸 수보다 적으면 가운데로 모아 놓는다.
     const d = n <= slots ? index - maxIndex : dialDelta(index, pos, n);
-    const angle = d * STEP;
+    const angle = d * g.step;
     const ad = Math.abs(angle);
 
     if (ad > limit + 0.001) {
@@ -173,7 +175,7 @@ function layout() {
     const x = g.cx + g.R * Math.sin(angle);
     const y = g.yc + g.R * Math.cos(angle);
     const t = inner > 0 ? Math.min(1, ad / inner) : 0;
-    const fade = ad <= inner ? 1 : 1 - (ad - inner) / (SPILL * STEP);
+    const fade = ad <= inner ? 1 : 1 - (ad - inner) / (SPILL * g.step);
 
     item.el.style.visibility = 'visible';
     item.el.style.pointerEvents = 'auto';
