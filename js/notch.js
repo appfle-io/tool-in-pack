@@ -1,4 +1,4 @@
-/* TIP · 노치 아일랜드 — macOS 화면 최상단 중앙(노치 자리)에 붙는 작은 창. v1.12.0
+/* TIP · 노치 아일랜드 — macOS 화면 최상단 중앙(노치 자리)에 붙는 작은 창. v1.12.1
  *
  * 평소에는 노치 아래에 작은 필로 숨어 있다가, 마우스를 올리거나 파일을 끌어다 놓으면 펼쳐진다.
  * 창 크기와 위치는 Rust(mac/src-tauri) 가 바꾸고, 이 파일은 안쪽 화면만 담당한다.
@@ -23,6 +23,10 @@ let collapseTimer = null;
 let heldOpen = false;         // 입력 중이거나 파일을 끌고 있는 동안에는 접지 않는다
 let mediaTimer = null;
 let calendarTimer = null;
+let widgetsDelay = null;      // 펼친 뒤 위젯 조회를 조금 미루는 타이머
+let mediaBusy = false;        // 조회가 끝나기 전에 또 부르지 않는다
+let calendarBusy = false;
+let expandedAt = 0;
 let mediaPlaying = false;
 
 /* ------------------------------ 공통 ------------------------------ */
@@ -54,15 +58,18 @@ function escapeHtml(text) {
 function setExpanded(next, { animate = true } = {}) {
   if (expanded === next) return;
   expanded = next;
+  if (next) expandedAt = Date.now();
   if (!animate) notchEl.classList.add('no-anim');
   notchEl.classList.toggle('is-collapsed', !next);
   notchEl.classList.toggle('is-expanded', next);
 
   if (next) {
-    invoke('notch_expand');
+    // 화면 전환(패널 그리기)을 먼저 끝내고 다음 프레임에 창 크기를 바꾼다.
+    // 창 리사이즈와 위젯 조회가 같은 순간에 몰려 멈추지 않도록 조회는 startWidgets 가 미룬다.
+    requestAnimationFrame(() => { invoke('notch_expand').catch(() => {}); });
     startWidgets();
   } else {
-    invoke('notch_collapse');
+    invoke('notch_collapse').catch(() => {});
     stopWidgets();
     heldOpen = false;
   }
@@ -145,9 +152,11 @@ function mediaCard() {
 }
 
 async function refreshMedia() {
-  if (!TAURI || !expanded) return;
+  if (!TAURI || !expanded || mediaBusy) return;
+  if (!getNotchSettings().widgets.media) return;
   const titleEl = panelEl.querySelector('#media-title');
   if (!titleEl) return;
+  mediaBusy = true;
   try {
     const state = await invoke('media_state');
     const playing = !!(state && state.playing);
@@ -165,6 +174,8 @@ async function refreshMedia() {
   } catch (error) {
     titleEl.textContent = '미디어 정보를 읽지 못했습니다';
     panelEl.querySelector('#media-artist').textContent = '음악 앱 접근 권한을 확인하세요';
+  } finally {
+    mediaBusy = false;
   }
 }
 
@@ -198,9 +209,11 @@ function relativeUntil(iso) {
 }
 
 async function refreshCalendar() {
-  if (!TAURI || !expanded) return;
+  if (!TAURI || !expanded || calendarBusy) return;
+  if (!getNotchSettings().widgets.calendar) return;
   const list = panelEl.querySelector('#cal-list');
   if (!list) return;
+  calendarBusy = true;
   try {
     const events = await invoke('calendar_today');
     const rows = (Array.isArray(events) ? events : [])
@@ -222,6 +235,8 @@ async function refreshCalendar() {
     `).join('');
   } catch (error) {
     list.innerHTML = '<li class="cal-empty">캘린더를 읽지 못했습니다 — macOS 캘린더 접근을 허용해 주세요</li>';
+  } finally {
+    calendarBusy = false;
   }
 }
 
@@ -522,15 +537,22 @@ function launcherCard() {
 /* ------------------------------ 위젯 생명주기 ------------------------------ */
 
 function startWidgets() {
-  refreshMedia();
-  refreshCalendar();
+  // 창 크기 변경(notch_expand)과 무거운 조회가 겹치지 않도록 첫 조회는 다음 프레임 뒤로 미룬다.
+  clearTimeout(widgetsDelay);
+  widgetsDelay = setTimeout(() => {
+    if (!expanded) return;
+    refreshMedia();
+    refreshCalendar();
+  }, 220);
   clearInterval(mediaTimer);
   clearInterval(calendarTimer);
-  mediaTimer = setInterval(refreshMedia, 4000);
+  mediaTimer = setInterval(refreshMedia, 5000);
   calendarTimer = setInterval(refreshCalendar, 5 * 60 * 1000);
 }
 
 function stopWidgets() {
+  clearTimeout(widgetsDelay);
+  widgetsDelay = null;
   clearInterval(mediaTimer);
   clearInterval(calendarTimer);
   mediaTimer = null;
@@ -554,7 +576,11 @@ function openHeld() {
 /* ------------------------------ 이벤트 ------------------------------ */
 
 pillEl.addEventListener('mouseenter', () => setExpanded(true));
-pillEl.addEventListener('click', () => setExpanded(true));
+pillEl.addEventListener('click', () => {
+  // 마우스를 올리면 이미 펼쳐지므로, 방금 펼친 직후의 클릭은 접기로 해석하지 않는다.
+  if (expanded && Date.now() - expandedAt > 400) setExpanded(false);
+  else setExpanded(true);
+});
 notchEl.addEventListener('mouseenter', cancelCollapse);
 notchEl.addEventListener('mouseleave', scheduleCollapse);
 panelEl.addEventListener('mouseenter', cancelCollapse);

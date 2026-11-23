@@ -219,9 +219,11 @@ export function setQuickbarOpacity(percent) {
   } catch { /* 저장하지 못하면 이번에만 적용된다 */ }
 }
 
-/* 노치 아일랜드 — macOS 앱 전용. 노치 자체와 위젯별 표시를 따로 켜고 끈다. 기본 OFF. (v1.12.0)
+/* 노치 아일랜드 — macOS 앱 전용. 노치 자체와 위젯별 표시를 따로 켜고 끈다. (v1.12.1)
    값: { enabled: boolean, widgets: { media, calendar, shelf, timer, memo, mirror, launcher } }
-   위젯 기본값은 모두 ON — 노치를 켜면 바로 다 보이고, 필요 없는 것만 끈다. */
+   기본값: 노치 자체와 '미디어·캘린더·웹캠 거울' 위젯은 OFF. 미디어·캘린더는 osascript 와
+   macOS 권한(TCC)을 부르고 거울은 카메라를 열기 때문에, 사용자가 환경설정에서 켰을 때만
+   동작한다. 나머지(임시 보관함·타이머·빠른 메모·모듈 실행)는 권한 없이 가볍게 돌아 기본 ON. */
 
 const NOTCH_KEY = 'tip.notch.v1';
 
@@ -237,6 +239,17 @@ export const NOTCH_WIDGETS = [
 
 let notchCache = null;
 
+/* 위젯 기본값 — 권한이 필요한 미디어·캘린더·거울만 OFF. (v1.12.1) */
+const NOTCH_WIDGET_DEFAULTS = {
+  media: false,
+  calendar: false,
+  shelf: true,
+  timer: true,
+  memo: true,
+  mirror: false,
+  launcher: true,
+};
+
 export function getNotchSettings() {
   if (notchCache) return notchCache;
   let parsed = null;
@@ -248,7 +261,8 @@ export function getNotchSettings() {
   const saved = parsed && typeof parsed === 'object' ? parsed : {};
   const widgets = {};
   NOTCH_WIDGETS.forEach(({ id }) => {
-    widgets[id] = saved.widgets && saved.widgets[id] === false ? false : true;
+    const value = saved.widgets ? saved.widgets[id] : undefined;
+    widgets[id] = typeof value === 'boolean' ? value : NOTCH_WIDGET_DEFAULTS[id] !== false;
   });
   notchCache = { enabled: saved.enabled === true, widgets };
   return notchCache;

@@ -762,7 +762,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.12.0';
+const APP_VERSION = '1.12.1';
 
 let updateBusy = false;
 
@@ -911,7 +911,7 @@ function notchSection(rerenderSheet) {
     el('h3', { text: '노치 아일랜드' }),
     el('p', {
       class: 'mb-note',
-      text: '화면 최상단 노치에 마우스를 올리거나 파일을 끌어다 놓으면 펼쳐집니다. 반원 퀵바는 그대로 따로 쓸 수 있습니다.',
+      text: '기본은 꺼짐입니다. 켜면 화면 최상단 노치 자리에 붙고, 마우스를 올리거나 파일을 끌어다 놓으면 펼쳐집니다. 미디어·캘린더·웹캠 거울은 켤 때만 접근 권한을 묻습니다.',
     }),
     el('div', { class: 'mb-row' }, [
       el('span', { class: 'mb-label', text: '노치 아일랜드 사용' }),

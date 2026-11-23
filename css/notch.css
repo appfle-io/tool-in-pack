@@ -1,6 +1,7 @@
-/* TIP · 노치 아일랜드 창 — 접힌 필과 펼친 패널. v1.12.0
- * 창은 투명하고, Rust 가 접힘 240×46 / 펼침 452×430 으로 크기를 바꾼다.
- * 색은 app.css 의 테마 변수를 따르되, 노치는 항상 유리처럼 반투명하다. */
+/* TIP · 노치 아일랜드 창 — 접힌 필과 펼친 패널. v1.12.1
+ * 창은 투명하고, Rust 가 접힘 240×46 / 펼침 452×600 으로 크기를 바꾼다.
+ * 창은 화면 최상단(y=0) 가운데에 NSPanel 로 붙는다(mac/src-tauri/src/notch.rs).
+ * 색은 app.css 의 테마 변수를 따르되, 노치는 항상 어두운 반투명 판이다. */
 
 html, body {
   margin: 0;
@@ -93,29 +94,22 @@ html, body {
   padding: 10px;
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.10);
-  background: rgba(20, 22, 21, 0.92);
+  /* v1.12.1 — 투명 WKWebView 리사이즈 + backdrop-filter 조합은 WindowServer 에서
+     프레임을 크게 떨어뜨렸다. 흐림 대신 고대비 반투명 단색으로 60fps 즉답을 지킨다. */
+  background: rgba(17, 22, 19, 0.96);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(28px) saturate(1.35);
-  -webkit-backdrop-filter: blur(28px) saturate(1.35);
   color: #F2F2F5;
-  transform-origin: top center;
-  animation: notch-drop 0.18s ease-out;
   overflow: hidden;
 }
 :root[data-theme='light'] .panel {
-  background: rgba(248, 249, 248, 0.94);
+  background: rgba(248, 249, 248, 0.97);
   border-color: rgba(0, 0, 0, 0.08);
   color: #1C1C1E;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
 }
 .notch.is-expanded .panel { display: flex; }
 
-.notch.no-anim .panel, .notch.no-anim .pill { animation: none; transition: none; }
-
-@keyframes notch-drop {
-  from { opacity: 0; transform: translateY(-8px) scale(0.985); }
-  to { opacity: 1; transform: none; }
-}
+.notch.no-anim .pill { transition: none; }
 
 .panel-head {
   flex: none;

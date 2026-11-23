@@ -23,6 +23,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod clip;
 mod media;
+mod notch;
 
 const QUICKBAR: &str = "quickbar";
 const TOOL: &str = "tool";
@@ -222,19 +223,26 @@ fn notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     }
 
     let win = builder.build()?;
-    place_top_center(app, &win, NOTCH_PILL_W, NOTCH_PILL_H, 0.0);
 
-    // 다른 앱을 누르면 펼친 패널을 접는다(입력 중인 메모는 프런트가 다시 연다).
-    let handle = win.clone();
-    win.on_window_event(move |event| {
-        if matches!(event, WindowEvent::Focused(false)) {
-            if *NOTCH_OPEN.lock().unwrap() {
-                set_notch_open(handle.app_handle(), false);
-            }
-        }
-    });
+    // v1.12.1 — 일반 창은 메뉴 막대 아래로 밀려서 노치 자리에 붙지 못한다.
+    // 이 창만 NSPanel 로 바꿔 레벨을 올리고 화면 최상단(y=0) 가운데에 붙인다.
+    if !notch::pin(&win) {
+        eprintln!("[TIP] 노치 창을 패널로 바꾸지 못했습니다 — 일반 창 배치로 물러섭니다");
+    }
+    place_notch(app, &win, NOTCH_PILL_W, NOTCH_PILL_H);
 
+    // 접힘은 프런트(notch.js)가 맡는다 — 마우스가 창을 나가면·Esc·접기(⌃) 버튼.
+    // NonActivatingPanel 은 다른 앱을 눌러도 포커스가 오지 않아 Focused(false) 가 오지 않고,
+    // 그 이벤트로 접으면 알약을 클릭하는 순간 리사이즈와 겹쳐 멈추던 원인이었다.
     Ok(win)
+}
+
+/// 노치 창을 화면 최상단 가운데(width×height)에 붙인다 — AppKit 패널 배치가 우선.
+fn place_notch(app: &AppHandle, win: &WebviewWindow, width: f64, height: f64) {
+    if notch::place(win, width, height) {
+        return;
+    }
+    place_top_center(app, win, width, height, 0.0);
 }
 
 /// 접힘/펼침 — 창 크기를 바꾸고 다시 화면 최상단 가운데에 붙인다.
@@ -246,7 +254,7 @@ fn set_notch_open(app: &AppHandle, open: bool) {
         (NOTCH_PILL_W, NOTCH_PILL_H)
     };
     *NOTCH_OPEN.lock().unwrap() = open;
-    place_top_center(app, &win, width, height, 0.0);
+    place_notch(app, &win, width, height);
 }
 
 fn show_notch(app: &AppHandle) {
@@ -263,7 +271,7 @@ fn show_notch(app: &AppHandle) {
     } else {
         (NOTCH_PILL_W, NOTCH_PILL_H)
     };
-    place_top_center(app, &win, width, height, 0.0);
+    place_notch(app, &win, width, height);
     let _ = win.show();
     let _ = win.emit("tip://notch-refresh", ());
 }
