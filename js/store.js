@@ -306,7 +306,7 @@ export function getNotchSettings() {
     const value = saved.widgets ? saved.widgets[id] : undefined;
     widgets[id] = typeof value === 'boolean' ? value : NOTCH_WIDGET_DEFAULTS[id] !== false;
   });
-  notchCache = { enabled: saved.enabled === true, widgets };
+  notchCache = { enabled: saved.enabled === true, hoverOpen: saved.hoverOpen === true, widgets };
   return notchCache;
 }
 
@@ -327,6 +327,13 @@ export function setNotchWidget(id, on) {
   if (!NOTCH_WIDGETS.some((widget) => widget.id === id)) return;
   const current = getNotchSettings();
   writeNotch({ ...current, widgets: { ...current.widgets, [id]: !!on } });
+}
+
+/* 마우스를 올려서 열기 — 기본 OFF(v1.12.3). 다른 앱을 쓰다 지나가듯 올려도 화면을 가리지 않게
+   펼침은 클릭으로만 두고, 원하는 사람만 켜서 쓴다. */
+export function setNotchHoverOpen(on) {
+  const current = getNotchSettings();
+  writeNotch({ ...current, hoverOpen: !!on });
 }
 
 /* 전역 빠른 실행 검색 단축키 — macOS 앱이 이 값을 그대로 등록한다. (v1.12.0)

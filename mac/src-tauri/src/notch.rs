@@ -1,4 +1,4 @@
-// TIP 노치 아일랜드 창의 macOS 패널 설정·배치 — v1.12.2
+// TIP 노치 아일랜드 창의 macOS 패널 설정·배치 — v1.12.3
 //
 // 왜 필요한가:
 //   일반 NSWindow(always_on_top = NSFloatingWindowLevel 3)는 WindowServer 가 메뉴 막대 아래
@@ -8,6 +8,13 @@
 //     · styleMask |= NonactivatingPanel(1<<7)      → 클릭해도 다른 앱의 포커스를 뺏지 않는다
 //     · collectionBehavior = CanJoinAllSpaces | Stationary | FullScreenAuxiliary | IgnoresCycle
 //   로 둔 뒤, NSScreen 의 frame.maxY 기준으로 y = frame.maxY - height 에 정확히 붙인다.
+//
+// v1.12.3 수정 — 메뉴 막대 위로 완전히 밀착
+//   v1.12.2 까지도 알약이 메뉴 막대 아래(y≈24~37pt)에 떴다. 원인은 창 레벨이 아니라 AppKit 의
+//   기본 동작이었다. NSWindow 는 setFrame:display: 때마다 -constrainFrameRect:toScreen: 을 불러
+//   화면의 visibleFrame(메뉴 막대를 뺀 영역) 안으로 프레임을 잘라 낸다. 그래서 y=0 으로 지정해도
+//   메뉴 막대 높이만큼 아래로 클램핑됐다. TipNotchPanel 에 이 메서드를 추가해 받은 프레임을
+//   그대로 돌려주면 클램핑이 사라지고, orderFrontRegardless 로 메뉴 막대 위에 올린다.
 //
 // v1.12.2 수정 두 가지
 //   1) 화면 최상단 밀착 — 알약 창 높이를 26~30pt 로 줄이고(노치가 있으면 노치 높이),
@@ -38,6 +45,7 @@ const NOTCH_SIDE_ROOM: f64 = 56.0;
 fn panel_class() -> Option<&'static objc2::runtime::AnyClass> {
     use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
     use objc2::sel;
+    use objc2_foundation::NSRect;
 
     if let Some(existing) = AnyClass::get(c"TipNotchPanel") {
         return Some(existing);
@@ -57,6 +65,18 @@ fn panel_class() -> Option<&'static objc2::runtime::AnyClass> {
     extern "C-unwind" fn can_become_main_window(_this: *mut AnyObject, _cmd: Sel) -> Bool {
         Bool::NO
     }
+    // 화면 밖/메뉴 막대 아래로 잘라 내지 않는다(v1.12.3). AppKit 은 창을 배치할 때마다 이 메서드로
+    // 프레임을 화면의 visibleFrame 안으로 클램핑한다 — 받은 프레임을 그대로 돌려주면 그대로 선다.
+    // NSRect 는 macOS 64비트에서 CGRect 와 같은 구조체라 인코딩("{CGRect={CGPoint=dd}{CGSize=dd}}")도
+    // 부모 클래스의 메서드와 일치한다.
+    extern "C-unwind" fn constrain_frame_rect(
+        _this: *mut AnyObject,
+        _cmd: Sel,
+        frame_rect: NSRect,
+        _screen: *mut AnyObject,
+    ) -> NSRect {
+        frame_rect
+    }
 
     // SAFETY: 두 함수 모두 -(BOOL) 시그니처(수신자 + 셀렉터)와 정확히 일치한다.
     unsafe {
@@ -67,6 +87,16 @@ fn panel_class() -> Option<&'static objc2::runtime::AnyClass> {
         builder.add_method::<AnyObject, _>(
             sel!(canBecomeMainWindow),
             can_become_main_window as extern "C-unwind" fn(*mut AnyObject, Sel) -> Bool,
+        );
+        // SAFETY: -(NSRect)constrainFrameRect:(NSRect)toScreen:(NSScreen *) 와 시그니처가 같다.
+        builder.add_method::<AnyObject, _>(
+            sel!(constrainFrameRect:toScreen:),
+            constrain_frame_rect as extern "C-unwind" fn(
+                *mut AnyObject,
+                Sel,
+                NSRect,
+                *mut AnyObject,
+            ) -> NSRect,
         );
     }
 
@@ -118,7 +148,7 @@ fn notch_screen(mtm: objc2::MainThreadMarker) -> Option<(objc2_foundation::NSRec
 #[cfg(target_os = "macos")]
 pub fn pin(win: &tauri::WebviewWindow) -> bool {
     use objc2::runtime::AnyObject;
-    use objc2_app_kit::{NSPanel, NSWindowCollectionBehavior, NSWindowStyleMask};
+    use objc2_app_kit::{NSPanel, NSWindowStyleMask};
 
     let Some(_mtm) = objc2::MainThreadMarker::new() else {
         eprintln!("[TIP] 노치 패널 설정은 메인 스레드에서만 할 수 있습니다");
@@ -140,18 +170,54 @@ pub fn pin(win: &tauri::WebviewWindow) -> bool {
         AnyObject::set_class(object, panel_class);
         let panel = &*(ptr as *const NSPanel);
 
+        // v1.12.3 — 순서가 중요하다. styleMask 를 나중에 바꾸면 AppKit 이 collectionBehavior 를
+        // 되돌리므로, 창 성격(패널·비활성·가려지지 않음)을 먼저 정하고 레벨·동작을 **마지막에** 건다.
         panel.setStyleMask(NSWindowStyleMask::NonactivatingPanel);
-        panel.setLevel(NOTCH_WINDOW_LEVEL);
-        panel.setCollectionBehavior(
-            NSWindowCollectionBehavior::CanJoinAllSpaces
-                | NSWindowCollectionBehavior::Stationary
-                | NSWindowCollectionBehavior::FullScreenAuxiliary
-                | NSWindowCollectionBehavior::IgnoresCycle,
-        );
         panel.setFloatingPanel(true);
         panel.setBecomesKeyOnlyIfNeeded(false);
         panel.setHidesOnDeactivate(false);
         panel.setReleasedWhenClosed(false);
+
+        // 마지막에 레벨·동작 — 다른 앱을 전체화면으로 쓸 때 그 Space 에서도 노치가 보여야 한다.
+        // CanJoinAllSpaces(모든 Space) + FullScreenAuxiliary(전체화면 위) + Stationary(스크롤해도 제자리).
+        panel.setLevel(NOTCH_WINDOW_LEVEL);
+        panel.setCollectionBehavior(nonactivating_behavior());
+    }
+    true
+}
+
+/// 전체화면 Space 에서도 남는 창 동작 — pin 과 order_front 가 함께 쓴다.
+#[cfg(target_os = "macos")]
+fn nonactivating_behavior() -> objc2_app_kit::NSWindowCollectionBehavior {
+    use objc2_app_kit::NSWindowCollectionBehavior;
+
+    NSWindowCollectionBehavior::CanJoinAllSpaces
+        | NSWindowCollectionBehavior::Stationary
+        | NSWindowCollectionBehavior::FullScreenAuxiliary
+        | NSWindowCollectionBehavior::IgnoresCycle
+}
+
+/// 창 순서를 메뉴 막대·상태바 위로 올린다 — 다른 앱을 활성화하지 않는다(orderFrontRegardless).
+/// 레벨과 collectionBehavior 도 매번 다시 건다 — 다른 앱 전체화면으로 넘어간 뒤나 Space 를 바꿔도
+/// 노치가 그 Space 에서 사라지지 않게. 크기·위치는 place 가 따로 잡는다.
+#[cfg(target_os = "macos")]
+pub fn order_front(win: &tauri::WebviewWindow) -> bool {
+    use objc2_app_kit::NSWindow;
+
+    let Some(_mtm) = objc2::MainThreadMarker::new() else {
+        return false;
+    };
+    let Ok(ptr) = win.ns_window() else {
+        return false;
+    };
+
+    // SAFETY: 메인 스레드에서 이 창의 NSWindow 포인터로 순서·레벨·동작만 바꾼다.
+    unsafe {
+        let window = &*(ptr as *const NSWindow);
+        window.setLevel(NOTCH_WINDOW_LEVEL);
+        window.setCollectionBehavior(nonactivating_behavior());
+        // orderFrontRegardless — 앱을 활성화하지 않고 창만 앞으로. 전체화면 앱 위에서 유일하게 먹는 순서 변경.
+        window.orderFrontRegardless();
     }
     true
 }
@@ -239,6 +305,11 @@ pub fn make_key(win: &tauri::WebviewWindow) -> bool {
 
 #[cfg(not(target_os = "macos"))]
 pub fn pin(_win: &tauri::WebviewWindow) -> bool {
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn order_front(_win: &tauri::WebviewWindow) -> bool {
     false
 }
 

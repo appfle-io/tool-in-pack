@@ -1,4 +1,4 @@
-// TIP 미디어·캘린더 위젯 — v1.12.1
+// TIP 미디어·캘린더 위젯 — v1.12.3
 //
 // 노치 아일랜드가 쓰는 작은 조회/조작. macOS 의 AppleScript(osascript)를 거쳐
 // Apple Music · Spotify 재생 정보와 오늘 일정을 읽는다. 권한이 없으면 오류 문자열을 돌려주고
@@ -12,6 +12,12 @@
 //    kill 한다. 권한 팝업이 응답하지 않아도 UI 는 즉시 깔끔한 오류/대기 상태로 돌아온다.
 //  · 캘린더는 수년 치 이벤트를 훑는 무거운 조회라 5분 캐시(실패는 60초)를 둬서 노치를
 //    열 때마다 반복 실행되지 않게 한다.
+
+// v1.12.3 — 권한 거부를 다른 오류와 구분한다. TCC 가 자동화(Apple Events)를 막으면 osascript 가
+//  -1743(errAEEventNotPermitted) / "Not authorized to send Apple events" 로 실패한다. 예전에는
+//  이것도 "음악 앱을 조작하지 못했어요" 같은 일반 오류로 보여 무엇을 고쳐야 하는지 알 수 없었다.
+//  이제 권한 거부는 앞에 [permission] 표시를 붙여 돌려주고, 노치 화면이 그 표시를 보고
+//  '권한 설정' 버튼(시스템 설정 열기)을 바로 띄운다.
 
 use std::io::Read;
 use std::process::{Child, Command, Stdio};
@@ -44,6 +50,30 @@ pub struct CalEvent {
 /// 마지막 캘린더 조회 결과 — (조회 시각, 결과). 실패도 담아 권한 없는 상태에서 매번
 /// osascript 를 새로 띄우지 않는다.
 static CALENDAR_CACHE: Mutex<Option<(Instant, Result<Vec<CalEvent>, String>)>> = Mutex::new(None);
+
+/* ------------------------------ 권한 오류 구분 ------------------------------ */
+
+/// 권한이 막힌 오류에 붙이는 표시 — 프런트(notch.js)가 이 문자열을 찾아 버튼을 띄운다.
+pub const PERMISSION_TAG: &str = "[permission]";
+
+/// AppleScript 오류 문장이 '권한 거부'인지 — errAEEventNotPermitted(-1743) 등.
+fn is_permission_denied(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("-1743")
+        || lower.contains("not authorized")
+        || lower.contains("not permitted")
+        || lower.contains("erraeeventnotpermitted")
+        || lower.contains("apple events")
+}
+
+/// 권한 거부면 화면이 알아볼 수 있는 문장으로 바꾼다. 다른 오류는 그대로 돌려준다.
+fn with_permission_hint(label: &str, error: String) -> String {
+    if is_permission_denied(&error) {
+        format!("{PERMISSION_TAG} {label} 권한이 필요합니다")
+    } else {
+        error
+    }
+}
 
 /* ------------------------------ osascript 실행 ------------------------------ */
 
@@ -153,6 +183,7 @@ pub async fn media_state() -> Result<MediaState, String> {
     tauri::async_runtime::spawn_blocking(read_media_state)
         .await
         .map_err(|error| format!("미디어 조회를 마치지 못했습니다: {error}"))?
+        .map_err(|error| with_permission_hint("음악 앱 자동화", error))
 }
 
 fn control_media(action: &str) -> Result<(), String> {
@@ -181,6 +212,7 @@ pub async fn media_control(action: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || control_media(&action))
         .await
         .map_err(|error| format!("미디어 조작을 마치지 못했습니다: {error}"))?
+        .map_err(|error| with_permission_hint("음악 앱 자동화", error))
 }
 
 /* ------------------------------ 캘린더 ------------------------------ */
@@ -237,7 +269,8 @@ pub async fn calendar_today() -> Result<Vec<CalEvent>, String> {
 
     let fresh = tauri::async_runtime::spawn_blocking(read_calendar_events)
         .await
-        .map_err(|error| format!("캘린더 조회를 마치지 못했습니다: {error}"))?;
+        .map_err(|error| format!("캘린더 조회를 마치지 못했습니다: {error}"))?
+        .map_err(|error| with_permission_hint("캘린더 자동화", error));
 
     if let Ok(mut guard) = CALENDAR_CACHE.lock() {
         *guard = Some((Instant::now(), fresh.clone()));

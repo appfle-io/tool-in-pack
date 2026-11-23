@@ -299,7 +299,16 @@ fn show_notch(app: &AppHandle) {
         notch::pill_size(NOTCH_PILL_W, NOTCH_PILL_H)
     };
     place_notch(app, &win, width, height, open);
-    let _ = win.show();
+    // v1.12.3 — win.show()(makeKeyAndOrderFront)는 다른 앱이 전체화면일 때 노치를 그 Space 뒤로 내리고
+    // 키 창을 가져가려 한다. 패널을 활성화하지 않고 순서만 올리는 orderFrontRegardless 를 쓴다.
+    // (실패하면 — 패널로 바꾸지 못한 환경 — 예전처럼 show 로 물러선다.)
+    if !notch::order_front(&win) {
+        let _ = win.show();
+        if !notch::order_front(&win) {
+            eprintln!("[TIP] 노치 창을 메뉴 막대 위로 올리지 못했습니다");
+        }
+    }
+    place_notch(app, &win, width, height, open);
     let _ = win.emit("tip://notch-refresh", ());
 }
 
@@ -322,6 +331,23 @@ fn notch_focus(app: AppHandle) {
     if !notch::make_key(&win) {
         eprintln!("[TIP] 노치 창을 키 창으로 만들지 못했습니다");
     }
+}
+
+/// macOS 시스템 설정의 '개인정보 보호 및 보안' 해당 항목을 연다(v1.12.3).
+/// 허용한 세 가지만 연다 — 문자열을 그대로 주소로 쓰지 않는다.
+#[tauri::command]
+fn open_privacy_settings(kind: String) -> Result<(), String> {
+    let pane = match kind.as_str() {
+        "automation" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
+        "calendars" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
+        "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+        _ => return Err("알 수 없는 권한 항목입니다".into()),
+    };
+    std::process::Command::new("open")
+        .arg(pane)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("시스템 설정을 열지 못했습니다: {error}"))
 }
 
 /// 임시 보관함 — 드롭한 파일 하나를 읽어 바이트로 돌려준다.
@@ -965,6 +991,7 @@ pub fn run() {
             notch_expand,
             notch_collapse,
             notch_focus,
+            open_privacy_settings,
             read_shelf_file,
             set_notch_enabled,
             open_search,

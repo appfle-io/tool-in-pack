@@ -1,6 +1,8 @@
-/* TIP · 노치 아일랜드 — macOS 화면 최상단 중앙(노치 자리)에 붙는 작은 창. v1.12.2
+/* TIP · 노치 아일랜드 — macOS 화면 최상단 중앙(노치 자리)에 붙는 작은 창. v1.12.3
  *
- * 평소에는 노치 자리에 작은 알약으로 붙어 있다가, 마우스를 올리거나 파일을 끌어다 놓으면 펼쳐진다.
+ * 평소에는 노치 자리에 작은 알약으로 붙어 있다가, 알약을 클릭하거나 파일을 끌어다 놓으면 펼쳐진다.
+ * (v1.12.3 — 마우스를 올리는 것만으로는 펼쳐지지 않는다. 다른 앱을 쓰다가 지나가듯 올려도
+ *  작업을 가리지 않게, 펼침은 클릭으로만 한다.)
  * 창 크기와 위치는 Rust(mac/src-tauri) 가 바꾸고, 이 파일은 안쪽 화면만 담당한다.
  * 접힘/펼침은 창 너비로 판단한다 — Rust 가 접힘 240×28(노치 화면은 노치 높이), 펼침 452×600 으로 맞춘다.
  *
@@ -34,11 +36,17 @@ let calendarTimer = null;
 let widgetsDelay = null;      // 펼친 뒤 위젯 조회를 조금 미루는 타이머
 let mediaBusy = false;        // 조회가 끝나기 전에 또 부르지 않는다
 let calendarBusy = false;
-let expandedAt = 0;
 let mediaPlaying = false;
 let settingsRev = 0;          // 설정이 바뀔 때마다 +1 — 화면에 그린 마지막 상태와 비교한다
 let renderedSignature = '';   // 마지막으로 그린 설정(저장값) — 펼칠 때마다 달라졌는지 싼 값으로 본다
 let dragHeld = false;         // Finder 파일을 끌고 노치 위에 있는 동안에는 접지 않는다
+
+/** Tauri 커맨드가 권한 거부를 알리는 표시(mac/src-tauri/src/media.rs 의 PERMISSION_TAG). */
+const PERMISSION_TAG = '[permission]';
+
+function isPermissionError(error) {
+  return String((error && error.message) || error || '').includes(PERMISSION_TAG);
+}
 
 /** 지금 저장된 설정을 한 줄로 요약한다 — 이벤트를 놓쳤어도 펼칠 때 달라졌는지 알 수 있다. */
 function settingsSignature() {
@@ -92,7 +100,6 @@ function escapeHtml(text) {
 function setExpanded(next, { animate = true } = {}) {
   if (expanded === next) return;
   expanded = next;
-  if (next) expandedAt = Date.now();
   if (!animate) notchEl.classList.add('no-anim');
   notchEl.classList.toggle('is-collapsed', !next);
   notchEl.classList.toggle('is-expanded', next);
@@ -186,6 +193,7 @@ function mediaCard() {
         </button>
       </div>
     </div>
+    <button class="wg-perm" id="media-perm" type="button" hidden>권한 설정</button>
   `);
 }
 
@@ -207,11 +215,19 @@ async function refreshMedia() {
     panelEl.querySelector('#media-icon').innerHTML = playing
       ? '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/>'
       : '<path d="M8 5v14l11-7z"/>';
+    const permBtn = panelEl.querySelector('#media-perm');
+    if (permBtn) permBtn.hidden = true;
     const dot = document.getElementById('pill-dot');
     if (dot) dot.classList.toggle('is-playing', playing);
   } catch (error) {
-    titleEl.textContent = '미디어 정보를 읽지 못했습니다';
-    panelEl.querySelector('#media-artist').textContent = '음악 앱 접근 권한을 확인하세요';
+    // v1.12.3 — 권한 거부(-1743)는 다른 오류와 다르게 안내하고 '권한 설정' 버튼을 띄운다.
+    const permission = isPermissionError(error);
+    titleEl.textContent = permission ? '음악 앱 권한이 필요합니다' : '미디어 정보를 읽지 못했습니다';
+    panelEl.querySelector('#media-artist').textContent = permission
+      ? '시스템 설정 › 자동화에서 TIP을 허용하세요'
+      : '음악 앱 접근 권한을 확인하세요';
+    const permBtn = panelEl.querySelector('#media-perm');
+    if (permBtn) permBtn.hidden = !permission;
   } finally {
     mediaBusy = false;
   }
@@ -226,6 +242,7 @@ function calendarCard() {
       <span class="wg-side">오늘</span>
     </div>
     <ul class="cal-list" id="cal-list"><li class="cal-empty">일정을 불러오는 중…</li></ul>
+    <button class="wg-perm" id="cal-perm" type="button" hidden>권한 설정</button>
   `);
 }
 
@@ -260,8 +277,12 @@ async function refreshCalendar() {
       .slice(0, 4);
     if (!rows.length) {
       list.innerHTML = '<li class="cal-empty">오늘 남은 일정이 없습니다</li>';
+      const permBtn = panelEl.querySelector('#cal-perm');
+      if (permBtn) permBtn.hidden = true;
       return;
     }
+    const permBtn = panelEl.querySelector('#cal-perm');
+    if (permBtn) permBtn.hidden = true;
     list.innerHTML = rows.map((event) => `
       <li class="cal-row">
         <span class="cal-bar" aria-hidden="true"></span>
@@ -272,7 +293,13 @@ async function refreshCalendar() {
       </li>
     `).join('');
   } catch (error) {
-    list.innerHTML = '<li class="cal-empty">캘린더를 읽지 못했습니다 — macOS 캘린더 접근을 허용해 주세요</li>';
+    // v1.12.3 — 자동화 권한이 막혀 있으면 캘린더와 다른 안내 + '권한 설정' 버튼을 둔다.
+    const permission = isPermissionError(error);
+    list.innerHTML = permission
+      ? '<li class="cal-empty">캘린더 권한이 필요합니다 — 시스템 설정 › 자동화에서 TIP을 허용하세요</li>'
+      : '<li class="cal-empty">캘린더를 읽지 못했습니다 — macOS 캘린더 접근을 허용해 주세요</li>';
+    const permBtn = panelEl.querySelector('#cal-perm');
+    if (permBtn) permBtn.hidden = !permission;
   } finally {
     calendarBusy = false;
   }
@@ -682,11 +709,13 @@ function openHeld() {
 
 /* ------------------------------ 이벤트 ------------------------------ */
 
-pillEl.addEventListener('mouseenter', () => setExpanded(true));
 pillEl.addEventListener('click', () => {
-  // 마우스를 올리면 이미 펼쳐지므로, 방금 펼친 직후의 클릭은 접기로 해석하지 않는다.
-  if (expanded && Date.now() - expandedAt > 400) setExpanded(false);
-  else setExpanded(true);
+  // v1.12.3 — 펼침은 클릭으로만. (마우스오버 자동 펼침은 다른 앱을 쓰다 지나가도 화면을 가려 뻈다.)
+  setExpanded(!expanded);
+});
+// 설정에서 '마우스를 올려서 열기'를 켰을 때만 hover 로 펼친다(기본 OFF, v1.12.3).
+pillEl.addEventListener('mouseenter', () => {
+  if (getNotchSettings().hoverOpen) setExpanded(true);
 });
 notchEl.addEventListener('mouseenter', cancelCollapse);
 notchEl.addEventListener('mouseleave', scheduleCollapse);
@@ -694,12 +723,29 @@ panelEl.addEventListener('mouseenter', cancelCollapse);
 
 // 패널 안의 위젯 버튼 — 위임 처리
 panelEl.addEventListener('click', (event) => {
+  // v1.12.3 — 카드의 '권한 설정' 버튼 — 시스템 설정의 해당 개인정보 보호 항목을 연다.
+  if (event.target.closest('#media-perm')) {
+    invoke('open_privacy_settings', { kind: 'automation' }).catch(() => toast('시스템 설정을 열지 못했습니다'));
+    return;
+  }
+  if (event.target.closest('#cal-perm')) {
+    invoke('open_privacy_settings', { kind: 'calendars' }).catch(() => toast('시스템 설정을 열지 못했습니다'));
+    return;
+  }
+
   const mediaBtn = event.target.closest('[data-media]');
   if (mediaBtn) {
     const action = mediaBtn.dataset.media;
     invoke('media_control', { action })
       .then(() => setTimeout(refreshMedia, 350))
-      .catch(() => toast('음악 앱을 조작하지 못했습니다'));
+      .catch((error) => {
+        if (isPermissionError(error)) {
+          toast('음악 앱 자동화 권한이 필요합니다 — 권한 설정을 눌러 주세요');
+          refreshMedia();   // 카드에 '권한 설정' 버튼을 띄운다
+        } else {
+          toast('음악 앱을 조작하지 못했습니다');
+        }
+      });
     return;
   }
 

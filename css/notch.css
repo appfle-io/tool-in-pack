@@ -257,6 +257,30 @@ html, body {
 .cal-text span { font-size: 10px; opacity: 0.55; }
 .cal-empty { font-size: 10.5px; opacity: 0.5; line-height: 1.5; }
 
+/* v1.12.3 — 권한이 막혔을 때 카드에 붙는 '권한 설정' 버튼 */
+.wg-perm {
+  margin-top: 2px;
+  width: 100%;
+  height: 23px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  opacity: 0.92;
+}
+.wg-perm:hover { background: rgba(255, 255, 255, 0.16); opacity: 1; }
+:root[data-theme='light'] .wg-perm {
+  border-color: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.05);
+}
+:root[data-theme='light'] .wg-perm:hover { background: rgba(0, 0, 0, 0.1); }
+.wg-perm[hidden] { display: none; }
+
 /* 보관함 */
 .shelf-drop {
   display: flex;

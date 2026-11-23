@@ -3371,6 +3371,12 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
 .notch-row.is-off { opacity: 0.5; }
 .notch-row .mb-label b { font-weight: 600; font-size: 13px; }
 
+/* v1.12.3 — macOS 권한 설정 그룹 */
+.perm-row { align-items: flex-start; }
+.perm-row .mb-label { display: flex; flex-direction: column; min-width: 0; }
+.perm-row .mb-label b { font-weight: 600; font-size: 13px; }
+.perm-row .perm-open { flex: none; height: 30px; padding: 0 12px; font-size: 12px; }
+
 .shortcut-row {
   display: flex;
   align-items: center;

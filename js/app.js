@@ -7,6 +7,7 @@ import {
   getMenuBarVisible, setMenuBarVisible, getRadialOrderMode, setRadialOrderMode,
   getQuickbarOpacity, setQuickbarOpacity, QUICKBAR_OPACITY_MIN, QUICKBAR_OPACITY_MAX,
   QUICKBAR_OPACITY_DEFAULT, getNotchSettings, setNotchEnabled, setNotchWidget, NOTCH_WIDGETS,
+  setNotchHoverOpen,
   getSearchShortcut, setSearchShortcut, SEARCH_SHORTCUT_DEFAULT,
 } from './store.js';
 import { quickOrderIds, customQuickOrderIds, saveQuickOrder } from './quickbar.js';
@@ -762,7 +763,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.12.2';
+const APP_VERSION = '1.12.3';
 
 let updateBusy = false;
 
@@ -881,6 +882,22 @@ function notchSection(rerenderSheet) {
     if (rerenderSheet) rerenderSheet();
   });
 
+  const hover = notch.hoverOpen === true;
+  const hoverToggle = el('button', {
+    class: 'switch',
+    type: 'button',
+    'aria-pressed': String(hover),
+    'aria-label': '마우스를 올려서 열기',
+    disabled: !notch.enabled,
+  }, el('span', { class: 'switch-track' }, el('span', { class: 'switch-thumb' })));
+
+  hoverToggle.addEventListener('click', () => {
+    const next = !getNotchSettings().hoverOpen;
+    setNotchHoverOpen(next);
+    hoverToggle.setAttribute('aria-pressed', String(next));
+    toast(next ? '마우스를 올리면 노치가 펼쳐집니다' : '노치를 클릭할 때만 펼쳐집니다');
+  });
+
   const rows = NOTCH_WIDGETS.map(({ id, label, hint }) => {
     const on = notch.widgets[id];
     const toggle = el('button', {
@@ -911,12 +928,77 @@ function notchSection(rerenderSheet) {
     el('h3', { text: '노치 아일랜드' }),
     el('p', {
       class: 'mb-note',
-      text: '기본은 꺼짐입니다. 켜면 화면 최상단 노치 자리에 붙고, 마우스를 올리거나 파일을 끌어다 놓으면 펼쳐집니다. 미디어·캘린더·웹캠 거울은 켤 때만 접근 권한을 묻습니다.',
+      text: '기본은 꺼짐입니다. 켜면 화면 최상단 노치 자리에 붙고, 알약을 클릭하거나 파일을 끌어다 놓으면 펼쳐집니다. 미디어·캘린더·웹캠 거울은 켤 때만 접근 권한을 묻습니다.',
     }),
     el('div', { class: 'mb-row' }, [
       el('span', { class: 'mb-label', text: '노치 아일랜드 사용' }),
       master,
     ]),
+    el('div', { class: `mb-row notch-row${notch.enabled ? '' : ' is-off'}` }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: '마우스를 올려서 열기' }),
+        el('i', { class: 'notch-hint', text: '끄면(기본) 알약을 클릭할 때만 펼쳐집니다. 다른 앱을 쓰다 지나가도 화면을 가리지 않습니다.' }),
+      ]),
+      hoverToggle,
+    ]),
+    ...rows,
+  ]);
+}
+
+/* ------------------- macOS 권한 설정 (v1.12.3) ------------------- */
+
+/** 개인정보 보호 항목 — Rust 커맨드 open_privacy_settings 가 이 세 가지만 연다. */
+const PRIVACY_ITEMS = [
+  {
+    kind: 'automation',
+    label: '자동화 (음악 · 캘린더)',
+    hint: 'Apple Music·Spotify 재생 정보를 읽고 재생을 바꿀 때, 캘린더를 AppleScript 로 읽을 때 필요합니다.',
+  },
+  {
+    kind: 'calendars',
+    label: '캘린더',
+    hint: '노치의 오늘 일정을 읽을 때 필요합니다. 처음 물을 때 거부했다면 여기서 직접 켜야 합니다.',
+  },
+  {
+    kind: 'camera',
+    label: '카메라',
+    hint: '노치의 웹캠 거울이 카메라를 쓸 때 필요합니다.',
+  },
+];
+
+/** Mac 앱 — macOS 시스템 설정의 개인정보 보호 항목을 바로 여는 그룹. */
+function permissionSection() {
+  const rows = PRIVACY_ITEMS.map(({ kind, label, hint }) => {
+    const btn = el('button', {
+      class: 'primary-btn ghost perm-open',
+      type: 'button',
+      text: '시스템 설정 열기',
+    });
+    btn.addEventListener('click', async () => {
+      try {
+        await invokeTauri('open_privacy_settings', { kind });
+        toast(`시스템 설정의 '${label}' 항목을 열었습니다`);
+      } catch (error) {
+        console.error('[TIP permission]', error);
+        toast('시스템 설정을 열지 못했습니다');
+      }
+    });
+
+    return el('div', { class: 'mb-row perm-row' }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: label }),
+        el('i', { class: 'notch-hint', text: hint }),
+      ]),
+      btn,
+    ]);
+  });
+
+  return el('div', { class: 'sheet-section mb-section perm-section' }, [
+    el('h3', { text: 'macOS 권한 설정' }),
+    el('p', {
+      class: 'mb-note',
+      text: 'macOS 가 개인정보 보호로 막는 기능이 있습니다. 버튼을 누르면 시스템 설정의 해당 항목이 바로 열립니다. 음악·캘린더가 동작하지 않으면 먼저 자동화를 확인하세요.',
+    }),
     ...rows,
   ]);
 }
@@ -1354,6 +1436,8 @@ function openSheet() {
     if (TAURI) {
       panel.append(notchSection(render));
       panel.append(searchSection(render));
+      // macOS 권한 설정 — 시스템 설정의 개인정보 보호 항목을 바로 여는 버튼(v1.12.3).
+      panel.append(permissionSection());
     }
 
     // 앱 업데이트 — 현재 버전과 확인 버튼(v1.10.0).
