@@ -244,9 +244,15 @@ curl -s https://appfle-io.github.io/tool-in-pack/sw.js | head -3   # CACHE_VERSI
     2. 인증서 `.p12` 가 최신 암호화 형식이라 `security import` 가 실패했다. 유동규 님이 **`-legacy` 옵션으로 다시 내보낸 .p12** 로 `APPLE_CERTIFICATE` 를 교체해 통과(암호는 기존과 동일). 같은 값으로 다시 내보낼 때는 `openssl pkcs12 -export -legacy …` 또는 키체인 접근의 내보내기(호환 형식)를 쓴다.
   - 실패했던 run: `45179188125`·`45181058916`·`45181513202`(모두 인증서 단계), 대기 중 취소된 `45183279201`.
   - **아티팩트는 GitHub App 토큰에 `actions` 권한이 없어 API 로 내려받지 못했다**(`403 You must have the actions scope to download artifacts.`). zip 은 run 페이지 Artifacts 에서 받거나, `v1.10.0` 태그로 Release 에 첨부해 공개 URL 로 받는다.
+- **태그 빌드 · GitHub Release** (2026-11-23 22:36~22:39 KST, run `45185590401`, 커밋 `ef95f1f`, 태그 `v1.10.0`): **전 단계 초록불**, Release 첨부까지 success.
+  - Release: <https://github.com/appfle-io/tool-in-pack/releases/tag/v1.10.0> (draft/prerelease 아님 = 최신 릴리스)
+  - `TIP_1.10.0_universal.dmg` **31,712,201 bytes** · sha256 `a5670d129478c3e865a67af47b46c653bc01435b8ce221b3952f3f775ded9d26` → `downloads/TIP_1.10.0_universal.dmg` 로 저장, Release 의 `SHA256SUMS.txt` 값과 **일치 확인**.
+  - `TIP_1.10.0_universal.app.tar.gz` 30,373,162 bytes · sha256 `752f84af93a92d6b7a6fc63ba837c0c8dddba1b5dca2bf2f22897672b58e4592` (앱 내 자동 업데이트가 받는 파일).
+  - 산출물을 직접 열어 확인: `Contents/Info.plist` → `CFBundleShortVersionString 1.10.0` · `CFBundleIdentifier io.appfle.tip` · `LSMinimumSystemVersion 11.0`; 실행 파일 `tip` 은 fat 바이너리(**x86_64 + arm64** 두 슬라이스); 코드 서명 CMS 안에 `Developer ID Application: DONGGYU YOO (2ZHYLWBV2H)` + `Developer ID Certification Authority` 체인(`adhoc` 문자열 없음 = Ad-hoc 아님); `Contents/CodeResources`(스테이플된 공증 티켓) 존재.
+  - `releases/latest` 가 `v1.10.0` 을 돌려주므로 **앱 업데이트 확인이 실제로 동작**한다(현재 1.10.0 앱은 "최신 버전입니다" 로 응답).
 - **주의·제약**:
   - CI 는 빌드·서명·번들 구조까지만 보고 **앱을 실행하지 않는다**. 반원 판(306)·메뉴 막대 2px 여백·`clip-path` 렌더링, **트레이 아이콘 크기**(44px 이미지가 상태 막대에서 메뉴 막대 높이로 줄어드는지), **자동 업데이트 설치·재시작**은 macOS 실기(WKWebView)에서 확인해야 한다.
-  - 자동 업데이트는 **GitHub Release 에 `.app.tar.gz` 가 올라가 있어야** 동작한다(현재 워크플로우는 `v*` 태그 push 때만 Release 에 첨부한다). Release 가 없으면 `check_app_update` 가 "공개된 새 버전이 없습니다"로 응답한다.
+  - 자동 업데이트는 **GitHub Release 에 `.app.tar.gz` 가 올라가 있어야** 동작한다. 워크플로우는 `v*` 태그 push 일 때만 Release 에 첨부하므로, 다음 버전도 **태그를 push 해 Release 를 만들어야** 앱 내 업데이트가 새 버전을 찾는다(`main` push 만으로는 아티팩트만 생기고 Release 는 없다).
   - `/Applications` 쓰기 권한이 없으면 교체가 실패하고 **이전 버전으로 되돌린 뒤** 사유를 보여 준다. 앱을 `/Applications` 밖(예: 다운로드 폴더)에서 실행 중이면 그 번들을 교체한다.
   - 업데이트 확인은 **앱이 밖으로 접속하는 유일한 곳**(GitHub Releases 공개 API)이다. 파일·사용자 데이터는 보내지 않는다.
   - 이름순(오름차순/내림차순) 정렬은 한국어 ICU 정렬이라 라틴 문자(`PDF`, `QR` …)가 한글 뒤에 온다.
