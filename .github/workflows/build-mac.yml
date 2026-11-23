@@ -14,11 +14,6 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - main
-    paths:
-      - 'mac/**'
-      - '.github/workflows/build-mac.yml'
 
 permissions:
   contents: write
