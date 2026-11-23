@@ -310,7 +310,7 @@ export default {
   description: '한국 주소는 다음 우편번호 서비스로 도로명·지번·영문·우편번호를, 해외 주소는 OpenStreetMap 으로 찾습니다.',
   icon: ICON,
   version: '1.12.0',
-  category: 'utility',
+  category: 'online',
   defaultEnabled: true,
   defaultPinned: false,
   mount,

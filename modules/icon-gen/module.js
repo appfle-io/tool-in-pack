@@ -81,7 +81,7 @@ const module = {
   id: 'icon-gen',
   name: '앱 아이콘 생성기',
   kind: 'tool',
-  category: 'utility',
+  category: 'dev',
   version: '1.0.0',
   subtitle: 'PNG 7종 · manifest 스니펫',
   description: '이미지 한 장으로 앱 아이콘 크기 7종(16~1024px) PNG와 manifest 스니펫을 ZIP으로 만듭니다.',

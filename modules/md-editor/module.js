@@ -89,7 +89,7 @@ const module = {
   name: '마크다운 편집기',
   shortName: '마크다운',
   kind: 'tool',
-  category: 'docs',
+  category: 'document',
   version: '1.0.0',
   subtitle: '쓰면 바로 그려지는 GFM 편집기',
   description: '마크다운을 쓰면서 표·체크박스·코드까지 즉시 미리 보고, .md · .html로 저장하거나 인쇄합니다.',

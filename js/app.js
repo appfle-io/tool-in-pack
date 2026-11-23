@@ -36,7 +36,7 @@ function renderHome() {
   // 고정된 모듈이 있을 때만 맨 위에 '고정됨' 섹션을 만든다.
   if (pinned.length) sections.append(homeSection('pinned', '고정됨', pinned, true));
 
-  // 나머지는 registry 의 CATEGORIES 순서(문서 → 미디어 → 유틸리티)대로 묶는다.
+  // 나머지는 registry 의 CATEGORIES 순서(문서 → 미디어 → 개발 → 유틸리티 → 조회 · 연동)대로 묶는다.
   CATEGORIES.forEach(({ id, label }) => {
     const entries = ordered(rest.filter(({ mod }) => categoryOf(mod) === id), id);
     if (entries.length) sections.append(homeSection(id, label, entries, true));
@@ -762,7 +762,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.12.1';
+const APP_VERSION = '1.12.2';
 
 let updateBusy = false;
 

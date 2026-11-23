@@ -36,7 +36,7 @@ const module = {
   id: 'regex-tester',
   name: '정규식 테스터',
   kind: 'tool',
-  category: 'utility',
+  category: 'dev',
   version: '1.0.0',
   subtitle: '매치 하이라이트 · 캡처 그룹',
   description: '정규식을 입력하면 일치하는 부분을 실시간으로 표시하고, 매치 수와 캡처 그룹을 보여 줍니다.',

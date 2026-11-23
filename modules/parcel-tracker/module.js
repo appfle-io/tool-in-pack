@@ -362,7 +362,7 @@ const module = {
   description: '택배사·송장번호·별명을 저장해 두고 네이버 배송조회를 한 번에 엽니다(Mac 앱은 앱 안 창).',
   icon: PARCEL_ICON,
   version: '1.12.0',
-  category: 'utility',
+  category: 'online',
   defaultEnabled: true,
   defaultPinned: false,
   mount,

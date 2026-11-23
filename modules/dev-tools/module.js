@@ -128,7 +128,7 @@ const module = {
   id: 'dev-tools',
   name: '개발자 툴팩',
   kind: 'tool',
-  category: 'utility',
+  category: 'dev',
   version: '1.0.0',
   subtitle: 'JSON · Base64 · JWT · 시각 · UUID',
   description: 'JSON 정렬·압축·검증, Base64/URL 인코딩, JWT 디코드, 타임스탬프 변환, UUID 생성을 한 화면에서.',

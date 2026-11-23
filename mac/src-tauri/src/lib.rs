@@ -38,9 +38,10 @@ const QUICKBAR_H: f64 = 206.0;
 const TOOL_W: f64 = 420.0;
 const TOOL_H: f64 = 680.0;
 
-// 노치 아일랜드 — 화면 최상단 중앙(y=0, 노치 자리). 접힌 필과 펼친 패널의 크기만 다르다.
+// 노치 아일랜드 — 화면 최상단 중앙(y=0, 노치 자리). 접힌 알약과 펼친 패널의 크기만 다르다.
+// v1.12.2 — 알약 높이를 46 → 28 로 줄여 화면 최상단에 밀착한다(노치 화면에서는 노치 높이).
 const NOTCH_PILL_W: f64 = 240.0;
-const NOTCH_PILL_H: f64 = 46.0;
+const NOTCH_PILL_H: f64 = 28.0;
 const NOTCH_OPEN_W: f64 = 452.0;
 const NOTCH_OPEN_H: f64 = 600.0;
 
@@ -200,9 +201,12 @@ fn notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         return Ok(win);
     }
 
+    // v1.12.2 — 접힌 알약은 화면 물리적 최상단에 밀착한다. 노치 화면이면 노치를 감싸는 크기.
+    let (pill_w, pill_h) = notch::pill_size(NOTCH_PILL_W, NOTCH_PILL_H);
+
     let mut builder = WebviewWindowBuilder::new(app, NOTCH, WebviewUrl::App("notch.html".into()))
         .title("TIP 노치 아일랜드")
-        .inner_size(NOTCH_PILL_W, NOTCH_PILL_H)
+        .inner_size(pill_w, pill_h)
         .resizable(false)
         .maximizable(false)
         .minimizable(false)
@@ -213,9 +217,10 @@ fn notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .visible_on_all_workspaces(true)
         .skip_taskbar(true)
         .visible(false)
-        .focused(false)
-        // Finder 에서 끌어온 파일을 HTML5 drop 으로 받는다(보관함 위젯).
-        .disable_drag_drop_handler();
+        .focused(false);
+    // v1.12.2 — Finder 파일 드롭은 HTML5 dataTransfer 가 아니라 Tauri 네이티브
+    // DragDrop 이벤트(WindowEvent::DragDrop)로 받는다. 그래서 disable_drag_drop_handler 를
+    // 켜지 않고 기본값 그대로 둔다(아래 on_window_event 가 tip://shelf-drop 으로 넘긴다).
 
     #[cfg(target_os = "macos")]
     {
@@ -226,10 +231,32 @@ fn notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 
     // v1.12.1 — 일반 창은 메뉴 막대 아래로 밀려서 노치 자리에 붙지 못한다.
     // 이 창만 NSPanel 로 바꿔 레벨을 올리고 화면 최상단(y=0) 가운데에 붙인다.
+    // v1.12.2 — 같은 패널을 키 입력을 받는 서브클래스(TipNotchPanel)로 바꾼다.
     if !notch::pin(&win) {
         eprintln!("[TIP] 노치 창을 패널로 바꾸지 못했습니다 — 일반 창 배치로 물러섭니다");
     }
-    place_notch(app, &win, NOTCH_PILL_W, NOTCH_PILL_H);
+    place_notch(app, &win, pill_w, pill_h, false);
+    // Finder 에서 끌어온 파일 — 네이티브 드롭 이벤트를 프런트(보관함 위젯)로 넘긴다.
+    let drop_win = win.clone();
+    win.on_window_event(move |event| {
+        let WindowEvent::DragDrop(drag) = event else { return };
+        match drag {
+            tauri::DragDropEvent::Enter { .. } => {
+                let _ = drop_win.emit("tip://shelf-drag", true);
+            }
+            tauri::DragDropEvent::Drop { paths, .. } => {
+                let files: Vec<String> = paths
+                    .iter()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect();
+                let _ = drop_win.emit("tip://shelf-drop", files);
+            }
+            tauri::DragDropEvent::Leave => {
+                let _ = drop_win.emit("tip://shelf-drag", false);
+            }
+            _ => {}
+        }
+    });
 
     // 접힘은 프런트(notch.js)가 맡는다 — 마우스가 창을 나가면·Esc·접기(⌃) 버튼.
     // NonActivatingPanel 은 다른 앱을 눌러도 포커스가 오지 않아 Focused(false) 가 오지 않고,
@@ -238,8 +265,8 @@ fn notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 }
 
 /// 노치 창을 화면 최상단 가운데(width×height)에 붙인다 — AppKit 패널 배치가 우선.
-fn place_notch(app: &AppHandle, win: &WebviewWindow, width: f64, height: f64) {
-    if notch::place(win, width, height) {
+fn place_notch(app: &AppHandle, win: &WebviewWindow, width: f64, height: f64, open: bool) {
+    if notch::place(win, width, height, open) {
         return;
     }
     place_top_center(app, win, width, height, 0.0);
@@ -251,10 +278,10 @@ fn set_notch_open(app: &AppHandle, open: bool) {
     let (width, height) = if open {
         (NOTCH_OPEN_W, NOTCH_OPEN_H)
     } else {
-        (NOTCH_PILL_W, NOTCH_PILL_H)
+        notch::pill_size(NOTCH_PILL_W, NOTCH_PILL_H)
     };
     *NOTCH_OPEN.lock().unwrap() = open;
-    place_notch(app, &win, width, height);
+    place_notch(app, &win, width, height, open);
 }
 
 fn show_notch(app: &AppHandle) {
@@ -269,9 +296,9 @@ fn show_notch(app: &AppHandle) {
     let (width, height) = if open {
         (NOTCH_OPEN_W, NOTCH_OPEN_H)
     } else {
-        (NOTCH_PILL_W, NOTCH_PILL_H)
+        notch::pill_size(NOTCH_PILL_W, NOTCH_PILL_H)
     };
-    place_notch(app, &win, width, height);
+    place_notch(app, &win, width, height, open);
     let _ = win.show();
     let _ = win.emit("tip://notch-refresh", ());
 }
@@ -284,6 +311,54 @@ fn notch_expand(app: AppHandle) {
 #[tauri::command]
 fn notch_collapse(app: AppHandle) {
     set_notch_open(&app, false);
+}
+
+/// 노치 창을 key window 로 만든다 — 빠른 메모(textarea)를 클릭했을 때 바로 타이핑되게.
+/// borderless NSPanel 은 스스로 key window 가 되지 못해 입력이 들어가지 않았다(v1.12.2).
+#[tauri::command]
+fn notch_focus(app: AppHandle) {
+    let Some(win) = app.get_webview_window(NOTCH) else { return };
+    let _ = win.set_focus();
+    if !notch::make_key(&win) {
+        eprintln!("[TIP] 노치 창을 키 창으로 만들지 못했습니다");
+    }
+}
+
+/// 임시 보관함 — 드롭한 파일 하나를 읽어 바이트로 돌려준다.
+/// 프런트(notch.js)가 이 바이트로 File 을 만들어 보관함에 넣는다.
+/// 안전 장치: 일반 파일만 · 50MB 이하만 · 읽을 수 있는 절대 경로만.
+const SHELF_MAX_BYTES: u64 = 50 * 1024 * 1024;
+
+#[tauri::command]
+async fn read_shelf_file(path: String) -> Result<tauri::ipc::Response, String> {
+    // 50MB 까지 읽을 수 있어 메인(UI) 스레드를 막지 않게 워커 스레드에서 읽는다.
+    tauri::async_runtime::spawn_blocking(move || read_shelf_bytes(&path))
+        .await
+        .map_err(|error| format!("파일 읽기를 마치지 못했습니다: {error}"))?
+}
+
+fn read_shelf_bytes(path: &str) -> Result<tauri::ipc::Response, String> {
+    let path = PathBuf::from(path.trim());
+    if !path.is_absolute() {
+        return Err("절대 경로가 아닙니다".into());
+    }
+    if path.components().count() < 2 {
+        return Err("파일 경로가 아닙니다".into());
+    }
+
+    let meta = fs::metadata(&path).map_err(|error| format!("파일을 찾지 못했습니다: {error}"))?;
+    if !meta.is_file() {
+        return Err("일반 파일이 아닙니다".into());
+    }
+    if meta.len() > SHELF_MAX_BYTES {
+        return Err(format!(
+            "50MB가 넘는 파일은 담을 수 없습니다({:.1}MB)",
+            meta.len() as f64 / 1_048_576.0
+        ));
+    }
+
+    let bytes = fs::read(&path).map_err(|error| format!("파일을 읽지 못했습니다: {error}"))?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// 환경설정의 '노치 아일랜드 사용' 스위치 — 끄면 창을 숨긴다.
@@ -889,6 +964,8 @@ pub fn run() {
             media::calendar_today,
             notch_expand,
             notch_collapse,
+            notch_focus,
+            read_shelf_file,
             set_notch_enabled,
             open_search,
             hide_search,

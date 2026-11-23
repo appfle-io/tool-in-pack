@@ -1,6 +1,6 @@
 [package]
 name = "tip"
-version = "1.12.1"
+version = "1.12.2"
 description = "TIP (TOOL-IN-PACK) macOS 앱"
 authors = ["유동규 <appfle.io@gmail.com>"]
 edition = "2021"
@@ -27,6 +27,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 tauri-plugin-global-shortcut = "2"
 
 # v1.12.1 — 노치 아일랜드 창을 NSPanel 로 바꿔 메뉴 막대 위(y=0)에 붙인다.
+# v1.12.2 — 같은 패널을 objc2 런타임 서브클래스(TipNotchPanel)로 바꿔 키 입력을 받게 한다.
 # Tauri 2 가 이미 쓰는 objc2 계열과 같은 버전대라 크레이트가 겹치지 않는다.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

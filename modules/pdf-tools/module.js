@@ -145,7 +145,7 @@ const module = {
   name: 'PDF 합치기 · 페이지 추출',
   shortName: 'PDF 합치기',
   kind: 'tool',
-  category: 'docs',
+  category: 'document',
   version: '1.0.0',
   subtitle: 'PDF 병합 · 원하는 페이지만 뽑기',
   description: '여러 PDF를 순서대로 합치거나, 한 PDF에서 원하는 페이지만 새 파일로 추출합니다. 업로드 없이 기기 안에서 처리합니다.',

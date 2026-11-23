@@ -6,6 +6,23 @@ const defaults = { modules: {} };
 
 let cache = null;
 
+/* 다른 창(노치 아일랜드)에 설정이 바뀌었음을 알린다. (v1.12.2)
+   Tauri 의 창은 localStorage 가 같아도 storage 이벤트가 늘 닿지 않는다. 그래서 값을 바꾼 쪽이
+   직접 tip://notch-refresh 를 보내고, 노치 창은 그때 테마·색·위젯 목록을 다시 읽어 그린다.
+   웹(PWA) 브라우저에서는 알릴 다른 창이 없으니 조용히 넘어간다. */
+function notifyWindows() {
+  try {
+    const tauri = window.__TAURI__;
+    if (!tauri || !tauri.event) return;
+    const send = () => {
+      if (typeof tauri.event.emitTo === 'function') return tauri.event.emitTo('notch', 'tip://notch-refresh', null);
+      if (typeof tauri.event.emit === 'function') return tauri.event.emit('tip://notch-refresh');
+      return null;
+    };
+    Promise.resolve().then(send).catch(() => { /* 못 알려도 값은 저장됐다 */ });
+  } catch { /* Tauri 가 아니면 알릴 창도 없다 */ }
+}
+
 function read() {
   if (cache) return cache;
   try {
@@ -25,6 +42,7 @@ function write() {
   } catch {
     /* private mode / quota — settings simply do not persist */
   }
+  notifyWindows();
 }
 
 export function moduleState(module) {
@@ -48,12 +66,18 @@ export function resetSettings() {
   write();
 }
 
-/* 홈 카드 순서 — 섹션별 module id 배열. (v1.8.0)
-   { pinned: [...], docs: [...], media: [...], utility: [...] }
+/* 홈 카드 순서 — 섹션별 module id 배열. (v1.8.0, v1.12.2 섹션 개편)
+   { pinned: [...], document: [...], media: [...], dev: [...], utility: [...], online: [...] }
    배열에 없는 모듈(새로 추가된 모듈)은 원래(레지스트리) 순서대로 뒤에 붙는다. */
 
 const ORDER_KEY = 'tip.order.v1';
-export const ORDER_SECTIONS = ['pinned', 'docs', 'media', 'utility'];
+/* 홈 섹션 id — modules/registry.js 의 CATEGORIES 순서와 같아야 한다.
+   v1.12.2 — 'docs' 를 'document' 로 바꾸고 개발(dev)·조회(online) 두 묶음을 더했다.
+   예전 저장값(tip.order.v1 = { docs: [...] })은 읽을 때 document 로 옮겨 준다. */
+export const ORDER_SECTIONS = ['pinned', 'document', 'media', 'dev', 'utility', 'online'];
+
+/* v1.12.2 이전 섹션 id → 지금 id. 저장된 순서를 잃지 않게 읽을 때 옮긴다. */
+const ORDER_SECTION_ALIASES = { docs: 'document', utilities: 'utility' };
 
 let orderCache = null;
 
@@ -69,6 +93,16 @@ function readOrder() {
   ORDER_SECTIONS.forEach((section) => {
     const list = parsed && Array.isArray(parsed[section]) ? parsed[section] : [];
     next[section] = [...new Set(list.filter((id) => typeof id === 'string'))];
+  });
+  // 옛 이름으로 저장된 순서는 비어 있지 않을 때만 새 이름으로 가져온다.
+  Object.entries(ORDER_SECTION_ALIASES).forEach(([oldId, newId]) => {
+    const list = parsed && Array.isArray(parsed[oldId]) ? parsed[oldId] : [];
+    if (!list.length) return;
+    const merged = [...next[newId]];
+    list.forEach((id) => {
+      if (typeof id === 'string' && !merged.includes(id)) merged.push(id);
+    });
+    next[newId] = merged;
   });
   orderCache = next;
   return orderCache;
@@ -96,6 +130,7 @@ export function resetSectionOrder() {
   try {
     localStorage.removeItem(ORDER_KEY);
   } catch { /* 저장소를 못 쓰면 순서도 저장되지 않는다 */ }
+  notifyWindows();
 }
 
 function writeOrder(order) {
@@ -104,6 +139,7 @@ function writeOrder(order) {
   } catch {
     /* private mode / quota — 순서는 저장되지 않는다 */
   }
+  notifyWindows();
 }
 
 /* 반원 퀵바(메뉴 막대) 순서 — 카테고리와 무관한 module id 배열. (v1.9.0)
@@ -131,6 +167,7 @@ export function setRadialOrder(ids) {
   } catch {
     /* 저장소를 못 쓰면 순서도 저장되지 않는다 */
   }
+  notifyWindows();
 }
 
 export function hasRadialOrder() {
@@ -141,6 +178,7 @@ export function resetRadialOrder() {
   try {
     localStorage.removeItem(RADIAL_ORDER_KEY);
   } catch { /* 저장소를 못 쓰면 지울 것도 없다 */ }
+  notifyWindows();
 }
 
 /* 반원 퀵바 순서 모드 — 'custom'(직접 정한 순서) | 'asc'(이름 오름차순) | 'desc'(내림차순).
@@ -163,12 +201,16 @@ export function setRadialOrderMode(mode) {
   try {
     localStorage.setItem(RADIAL_MODE_KEY, mode);
   } catch { /* 저장하지 못하면 이번에만 적용된다 */ }
+  notifyWindows();
 }
 
 /** 다른 창(반원 퀵바)에서 바뀐 설정을 다시 읽도록 캐시를 비운다. */
 export function syncStore() {
   cache = null;
   orderCache = null;
+  // v1.12.2 — 노치 위젯 설정 캐시도 버린다. 이걸 빼먹어서 환경설정에서 위젯을 꺼도
+  // 노치 창은 예전 목록을 그대로 그리고 있었다(모듈 실행이 사라지지 않던 원인).
+  notchCache = null;
 }
 
 /* 메뉴 막대에 표시 — Mac 앱의 트레이 아이콘을 보일지. 기본값 ON. (v1.10.0) */
@@ -273,6 +315,7 @@ function writeNotch(next) {
   try {
     localStorage.setItem(NOTCH_KEY, JSON.stringify(next));
   } catch { /* 저장하지 못하면 이번 실행에만 적용된다 */ }
+  notifyWindows();
 }
 
 export function setNotchEnabled(enabled) {
@@ -349,6 +392,7 @@ export function setAccent(id) {
     localStorage.setItem(ACCENT_KEY, value);
   } catch { /* persistence is best-effort */ }
   document.documentElement.setAttribute('data-accent', value);
+  notifyWindows();
 }
 
 export function getTheme() {
@@ -368,6 +412,7 @@ export function setTheme(value) {
     /* storage unavailable — theme just won't persist */
   }
   applyTheme(value);
+  notifyWindows();
 }
 
 export function currentDark() {

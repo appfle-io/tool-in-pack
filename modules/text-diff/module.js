@@ -84,7 +84,7 @@ const module = {
   id: 'text-diff',
   name: '텍스트 비교 · 정리',
   kind: 'tool',
-  category: 'utility',
+  category: 'dev',
   version: '1.0.0',
   subtitle: '줄 단위 비교 · 글자수 통계',
   description: '두 글을 줄 단위로 비교하고, 글자·단어·바이트 수를 세고, 빈 줄·중복 줄을 한 번에 정리합니다.',

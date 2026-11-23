@@ -108,7 +108,7 @@ const module = {
   id: 'color-tools',
   name: '색상 · 대비 체크',
   kind: 'tool',
-  category: 'utility',
+  category: 'dev',
   version: '1.0.0',
   subtitle: 'HEX · RGB · HSL · WCAG 대비',
   description: '색을 HEX·RGB·HSL로 서로 바꾸고, 글자색과 배경색의 WCAG 명도 대비율을 검사합니다.',

@@ -1,13 +1,21 @@
-/* TIP · 노치 아일랜드 — macOS 화면 최상단 중앙(노치 자리)에 붙는 작은 창. v1.12.1
+/* TIP · 노치 아일랜드 — macOS 화면 최상단 중앙(노치 자리)에 붙는 작은 창. v1.12.2
  *
- * 평소에는 노치 아래에 작은 필로 숨어 있다가, 마우스를 올리거나 파일을 끌어다 놓으면 펼쳐진다.
+ * 평소에는 노치 자리에 작은 알약으로 붙어 있다가, 마우스를 올리거나 파일을 끌어다 놓으면 펼쳐진다.
  * 창 크기와 위치는 Rust(mac/src-tauri) 가 바꾸고, 이 파일은 안쪽 화면만 담당한다.
- * 접힘/펼침은 창 너비로 판단한다 — Rust 가 접힘 240×46, 펼침 452×430 으로 맞춘다.
+ * 접힘/펼침은 창 너비로 판단한다 — Rust 가 접힘 240×28(노치 화면은 노치 높이), 펼침 452×600 으로 맞춘다.
+ *
+ * v1.12.2 수정
+ *   · 환경설정에서 테마·기본 색·위젯·퀵바 순서를 바꾸면 tip://notch-refresh 를 받아 즉시 다시 그린다.
+ *     (다른 창이라 storage 이벤트가 늘 닿지 않았다. 메인 창 js/store.js 가 값을 저장할 때 알린다.)
+ *   · 펼칠 때마다 설정을 다시 읽어, 꺼 둔 위젯이 남아 있는 일을 없앴다.
+ *   · Finder 파일 드롭은 Tauri 네이티브 이벤트(tip://shelf-drop = 경로 목록)로 받는다.
+ *     HTML5 dataTransfer 로는 파일이 오지 않았다. 보관함을 클릭하면 파일 선택창도 열린다.
+ *   · 빠른 메모를 클릭하면 notch_focus 로 창을 key window 로 만들어 바로 타이핑된다.
  */
 
 import { getModule } from '../modules/registry.js';
 import { quickOrderIds } from './quickbar.js';
-import { getNotchSettings, NOTCH_WIDGETS, syncStore } from './store.js';
+import { getNotchSettings, syncStore, applyTheme, getTheme } from './store.js';
 
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
@@ -28,6 +36,32 @@ let mediaBusy = false;        // 조회가 끝나기 전에 또 부르지 않는
 let calendarBusy = false;
 let expandedAt = 0;
 let mediaPlaying = false;
+let settingsRev = 0;          // 설정이 바뀔 때마다 +1 — 화면에 그린 마지막 상태와 비교한다
+let renderedSignature = '';   // 마지막으로 그린 설정(저장값) — 펼칠 때마다 달라졌는지 싼 값으로 본다
+let dragHeld = false;         // Finder 파일을 끌고 노치 위에 있는 동안에는 접지 않는다
+
+/** 지금 저장된 설정을 한 줄로 요약한다 — 이벤트를 놓쳤어도 펼칠 때 달라졌는지 알 수 있다. */
+function settingsSignature() {
+  try {
+    return [
+      localStorage.getItem('tip.notch.v1') || '',
+      localStorage.getItem('tip.theme') || '',
+      localStorage.getItem('tip.accent') || '',
+      localStorage.getItem('tip.settings.v1') || '',
+      localStorage.getItem('tip.radialOrder.v1') || '',
+      localStorage.getItem('tip.radialOrderMode.v1') || '',
+    ].join('|');
+  } catch {
+    return String(settingsRev);
+  }
+}
+
+/* ------------------------------ 모양(테마·색) ------------------------------ */
+
+/** 저장된 테마·기본 색을 이 창에도 적용한다. 메인 창 설정이 바뀌면 즉시 다시 부른다. */
+function applyAppearance() {
+  applyTheme(getTheme());   // data-theme + data-accent(기본 색)를 함께 맞춘다
+}
 
 /* ------------------------------ 공통 ------------------------------ */
 
@@ -66,6 +100,8 @@ function setExpanded(next, { animate = true } = {}) {
   if (next) {
     // 화면 전환(패널 그리기)을 먼저 끝내고 다음 프레임에 창 크기를 바꾼다.
     // 창 리사이즈와 위젯 조회가 같은 순간에 몰려 멈추지 않도록 조회는 startWidgets 가 미룬다.
+    if (renderedSignature !== settingsSignature()) renderWidgets();
+    applyAppearance();
     requestAnimationFrame(() => { invoke('notch_expand').catch(() => {}); });
     startWidgets();
   } else {
@@ -80,6 +116,7 @@ function scheduleCollapse() {
   clearTimeout(collapseTimer);
   collapseTimer = setTimeout(() => {
     if (heldOpen) return;
+    if (dragHeld) return;
     if (document.querySelector('.mirror-video.is-live')) return;
     if (notchEl.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return;
     setExpanded(false);
@@ -118,6 +155,7 @@ function renderWidgets() {
 
   emptyEl.hidden = count > 0;
   widgetsEl.hidden = count === 0;
+  renderedSignature = settingsSignature();
 }
 
 /* 미디어 */
@@ -250,16 +288,26 @@ function shelfCard() {
       <span class="wg-label">임시 보관함</span>
       <span class="wg-side" id="shelf-count">0개</span>
     </div>
-    <div class="shelf-drop" id="shelf-drop">
+    <div class="shelf-drop" id="shelf-drop" role="button" tabindex="0" title="클릭해서 파일 고르기">
       <span class="shelf-drop-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7.5 8.5 4.5-4.5 4.5 4.5"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
       </span>
-      <b>파일을 여기에 끌어다 놓으세요</b>
+      <b>파일을 끌어다 놓거나 클릭하세요</b>
       <span>잠깐 보관했다가 바로 변환·압축·모자이크</span>
     </div>
+    <!-- v1.12.2 — 드래그가 막히는 환경에서도 담을 수 있게 클릭 선택을 함께 둔다. -->
+    <input class="shelf-file-input" id="shelf-file" type="file" multiple tabindex="-1" aria-hidden="true">
     <div class="shelf-list" id="shelf-list"></div>
   `);
-  requestAnimationFrame(renderShelf);
+  requestAnimationFrame(() => {
+    renderShelf();
+    const picker = card.querySelector('#shelf-file');
+    if (!picker) return;
+    picker.addEventListener('change', () => {
+      if (picker.files && picker.files.length) addFiles(picker.files);
+      picker.value = '';   // 같은 파일을 다시 골라도 change 가 오게 비운다
+    });
+  });
   return card;
 }
 
@@ -324,6 +372,59 @@ function addFiles(files) {
   });
   renderShelf();
   toast(`${list.length}개를 임시 보관함에 담았습니다`);
+  openHeld();
+}
+
+/* Finder 에서 끌어다 놓은 파일 — Rust 가 보내 준 경로 목록을 읽어 File 로 만든다.
+   (v1.12.2 — HTML5 dataTransfer 대신 네이티브 드롭 경로. 읽기는 Rust read_shelf_file 이
+    일반 파일·50MB 이하만 허용한다.) */
+
+const MIME_BY_EXT = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', bmp: 'image/bmp',
+  svg: 'image/svg+xml', avif: 'image/avif', tif: 'image/tiff', tiff: 'image/tiff',
+  pdf: 'application/pdf', zip: 'application/zip', txt: 'text/plain',
+  md: 'text/markdown', json: 'application/json', csv: 'text/csv',
+  mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
+  mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4',
+};
+
+function mimeOf(name) {
+  const ext = String(name).split('.').pop().toLowerCase();
+  return MIME_BY_EXT[ext] || 'application/octet-stream';
+}
+
+async function addShelfPaths(paths) {
+  const list = Array.isArray(paths) ? paths.filter((path) => typeof path === 'string' && path.trim()) : [];
+  if (!list.length) return;
+  if (!expanded) setExpanded(true);
+  if (!panelEl.querySelector('#shelf-list')) {
+    toast('환경설정에서 임시 보관함 위젯을 켜 주세요');
+    return;
+  }
+
+  let added = 0;
+  let problem = '';
+  for (const path of list) {
+    if (shelf.length >= 8) { problem = problem || '임시 보관함은 8개까지 담을 수 있습니다'; break; }
+    try {
+      const raw = await invoke('read_shelf_file', { path });
+      const bytes = raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(raw || 0);
+      if (!bytes.length) throw new Error('빈 파일입니다');
+      const name = String(path).split('/').pop() || 'file';
+      const file = new File([bytes], name, { type: mimeOf(name) });
+      shelf.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, file, url: URL.createObjectURL(file) });
+      added += 1;
+    } catch (error) {
+      const message = typeof error === 'string' ? error : (error && error.message) || '파일을 읽지 못했습니다';
+      problem = problem || message;
+      console.error('[TIP notch] 보관함 파일을 읽지 못했습니다', path, error);
+    }
+  }
+
+  renderShelf();
+  if (added) toast(`${added}개를 임시 보관함에 담았습니다`);
+  else toast(String(problem).slice(0, 90) || '파일을 담지 못했습니다');
   openHeld();
 }
 
@@ -439,7 +540,13 @@ function memoCard() {
         try { localStorage.setItem('tip.quickMemo.v1', input.value); } catch { /* 저장 못하면 이번만 */ }
       }, 350);
     });
-    input.addEventListener('focus', openHeld);
+    input.addEventListener('focus', () => {
+      openHeld();
+      // v1.12.2 — borderless NSPanel 은 스스로 key window 가 되지 못한다. 클릭한 순간
+      // 창을 key window 로 만들어야 키보드 입력이 들어간다.
+      invoke('notch_focus').catch(() => {});
+    });
+    input.addEventListener('mousedown', () => { invoke('notch_focus').catch(() => {}); });
     input.addEventListener('blur', () => { heldOpen = false; scheduleCollapse(); });
   });
   return card;
@@ -618,6 +725,12 @@ panelEl.addEventListener('click', (event) => {
     return;
   }
 
+  if (event.target.closest('#shelf-drop')) {
+    const picker = panelEl.querySelector('#shelf-file');
+    if (picker) picker.click();
+    return;
+  }
+
   if (event.target.closest('#mirror-toggle')) toggleMirror();
   if (event.target.closest('#collapse')) setExpanded(false);
   if (event.target.closest('#open-home')) {
@@ -630,31 +743,50 @@ panelEl.addEventListener('click', (event) => {
   }
 });
 
-// 파일 끌어다 놓기 — 노치에 떨어뜨리면 보관함에 담긴다.
+/* 파일 끌어다 놓기 — 두 갈래를 모두 받는다. (v1.12.2)
+   ① Tauri 네이티브: Rust 가 tip://shelf-drag / tip://shelf-drop(경로 목록)을 보낸다.
+      NonactivatingPanel + WKWebView 에서는 HTML5 dataTransfer 로 파일이 오지 않았다.
+   ② HTML5: 브라우저·미리보기처럼 dataTransfer 로 오는 경우의 대비. */
+
+function setDragState(on) {
+  dragHeld = !!on;
+  const drop = panelEl.querySelector('#shelf-drop');
+  if (drop) drop.classList.toggle('is-over', dragHeld);
+  if (dragHeld) {
+    cancelCollapse();
+    if (!expanded) setExpanded(true);
+  } else {
+    scheduleCollapse();
+  }
+}
+
 window.addEventListener('dragover', (event) => {
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-  cancelCollapse();
+  setDragState(true);
 });
 
 window.addEventListener('dragenter', (event) => {
   event.preventDefault();
-  cancelCollapse();
-  if (!expanded) setExpanded(true);
+  setDragState(true);
+});
+
+window.addEventListener('dragleave', (event) => {
+  if (event.relatedTarget) return;   // 창 안에서 움직인 것은 무시
+  setDragState(false);
 });
 
 window.addEventListener('drop', (event) => {
   event.preventDefault();
-  cancelCollapse();
+  setDragState(false);
   const files = event.dataTransfer && event.dataTransfer.files;
-  if (files && files.length) {
-    if (!expanded) setExpanded(true);
-    if (!panelEl.querySelector('#shelf-list')) {
-      toast('환경설정에서 임시 보관함 위젯을 켜 주세요');
-      return;
-    }
-    addFiles(files);
+  if (!files || !files.length) return;
+  if (!expanded) setExpanded(true);
+  if (!panelEl.querySelector('#shelf-list')) {
+    toast('환경설정에서 임시 보관함 위젯을 켜 주세요');
+    return;
   }
+  addFiles(files);
 });
 
 window.addEventListener('keydown', (event) => {
@@ -681,15 +813,42 @@ function syncLayout() {
 }
 window.addEventListener('resize', syncLayout);
 
-window.addEventListener('storage', () => {
-  if (expanded) renderWidgets();
+window.addEventListener('storage', refreshFromSettings);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (!getTheme()) applyAppearance();   // 시스템 모드를 따르는 중이면 노치도 따라간다
 });
 
 if (TAURI && window.__TAURI__.event) {
-  window.__TAURI__.event.listen('tip://notch-refresh', () => {
-    renderWidgets();
-    if (expanded) { refreshMedia(); refreshCalendar(); }
+  const listen = (name, handler) => {
+    try {
+      const result = window.__TAURI__.event.listen(name, handler);
+      if (result && typeof result.catch === 'function') result.catch(() => {});
+    } catch { /* 이벤트를 못 듣게 되면 펼칠 때 다시 읽는 것으로 물러선다 */ }
+  };
+
+  // 환경설정(테마·기본 색·위젯·퀵바 순서)이 바뀌면 노치도 즉시 다시 그린다.
+  listen('tip://notch-refresh', refreshFromSettings);
+
+  // Finder 파일 드래그 — 들어오면 펼치고, 놓으면 경로를 읽어 보관함에 담는다.
+  listen('tip://shelf-drag', (event) => setDragState(!!(event && event.payload)));
+  listen('tip://shelf-drop', (event) => {
+    setDragState(false);
+    addShelfPaths(event && event.payload).catch(() => toast('파일을 담지 못했습니다'));
   });
+}
+
+/* ------------------------------ 설정 다시 읽기 ------------------------------ */
+
+/** 저장된 설정을 새로 읽어 모양·위젯 목록을 다시 그린다. 펼쳐져 있으면 조회도 새로 한다. */
+function refreshFromSettings() {
+  syncStore();
+  applyAppearance();
+  settingsRev += 1;
+  renderWidgets();
+  if (expanded) {
+    refreshMedia();
+    refreshCalendar();
+  }
 }
 
 /* ------------------------------ 시작 ------------------------------ */
@@ -698,5 +857,6 @@ if (new URLSearchParams(location.search).has('bg')) {
   document.body.classList.add('has-preview-bg');
 }
 
+applyAppearance();
 renderWidgets();
 syncLayout();

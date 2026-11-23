@@ -162,7 +162,7 @@ const module = {
   name: '환율 계산기',
   shortName: '환율 계산',
   kind: 'tool',
-  category: 'utility',
+  category: 'online',
   version: '1.0.0',
   subtitle: '오프라인에서도 도는 환율 계산',
   description: '최신 환율표를 한 번 받아 캐시하고, 오프라인에서는 마지막 환율이나 직접 넣은 환율로 계산합니다. 입력한 금액은 어디로도 보내지 않습니다.',

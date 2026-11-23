@@ -40,7 +40,7 @@ const module = {
   id: 'doc-reader',
   name: '문서 리더',
   kind: 'reader',
-  category: 'docs',
+  category: 'document',
   version: '1.0.0',
   subtitle: 'PDF · HWP · HWPX',
   description: 'PDF, 한글(HWP·HWPX) 문서를 기기 안에서 바로 읽습니다. 업로드 없음, 외부 전송 없음.',

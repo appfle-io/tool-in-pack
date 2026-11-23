@@ -5,6 +5,7 @@
  *   {
  *     id, name, kind, subtitle, description, icon (svg string), version,
  *     category,                    // CATEGORIES 의 id 중 하나 — 홈 화면 섹션을 정한다
+ *                                  //   'document' | 'media' | 'dev' | 'utility' | 'online'
  *     defaultEnabled, defaultPinned,
  *     mount(root, ctx) -> cleanup function | void
  *   }
@@ -40,18 +41,28 @@ import parcelTracker from './parcel-tracker/module.js';
 /**
  * 홈 화면 섹션 순서. 여기에 적은 순서대로 홈이 그려진다.
  * 새 분류가 필요하면 이 배열에 한 줄 추가한다(라벨은 한국어, 짧게).
+ *
+ * v1.12.2 — 세 묶음을 다섯으로 나눴다: 문서(3) · 미디어(4) · 개발(5) · 유틸리티(5) · 조회·연동(3).
+ * 예전 'docs' 는 'document' 로 이름만 바뀌었고(저장된 순서는 js/store.js 가 옮겨 읽는다),
+ * 개발·조회·연동은 새 분류다. 모듈이 아직 'docs' 라고 적혀 있어도 아래 ALIAS 가 받아 준다.
  */
 export const CATEGORIES = [
-  { id: 'docs', label: '문서' },
+  { id: 'document', label: '문서' },
   { id: 'media', label: '미디어' },
+  { id: 'dev', label: '개발' },
   { id: 'utility', label: '유틸리티' },
+  { id: 'online', label: '조회 · 연동' },
 ];
 
 /** category 를 빠뜨렸거나 모르는 값이면 이 분류로 모은다. */
 export const FALLBACK_CATEGORY = 'utility';
 
+/** v1.12.2 이전 분류 이름 → 지금 이름. */
+const CATEGORY_ALIASES = { docs: 'document' };
+
 export function categoryOf(mod) {
-  const id = mod && mod.category;
+  const raw = mod && mod.category;
+  const id = CATEGORY_ALIASES[raw] || raw;
   return CATEGORIES.some((category) => category.id === id) ? id : FALLBACK_CATEGORY;
 }
 

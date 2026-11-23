@@ -1,6 +1,9 @@
-/* TIP · 노치 아일랜드 창 — 접힌 필과 펼친 패널. v1.12.1
- * 창은 투명하고, Rust 가 접힘 240×46 / 펼침 452×600 으로 크기를 바꾼다.
+/* TIP · 노치 아일랜드 창 — 접힌 알약과 펼친 패널. v1.12.2
+ * 창은 투명하고, Rust 가 접힘 240×28(노치 디스플레이에서는 노치 높이) /
+ * 펼침 452×600 으로 크기를 바꾼다.
  * 창은 화면 최상단(y=0) 가운데에 NSPanel 로 붙는다(mac/src-tauri/src/notch.rs).
+ * v1.12.2 — 위쪽 24px/34px 여백을 없애 알약·패널이 화면 최상단에 밀착한다.
+ *   (창 높이가 곧 알약 높이이므로 .pill 은 100% 로 채우고, 유리에 붙는 3px 만 남긴다.)
  * 색은 app.css 의 테마 변수를 따르되, 노치는 항상 어두운 반투명 판이다. */
 
 html, body {
@@ -41,22 +44,22 @@ html, body {
 /* ------------------------------ 접힌 필 ------------------------------ */
 
 .pill {
-  margin-top: 24px;
+  margin-top: 0;
+  height: calc(100% - 3px);
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 22px;
   padding: 0 10px;
   border: 1px solid rgba(0, 0, 0, 0.22);
   border-top: 0;
-  border-radius: 0 0 11px 11px;
+  border-radius: 0 0 13px 13px;
   background: rgba(18, 20, 19, 0.88);
   color: #EDEDEF;
   cursor: pointer;
-  transition: background 0.16s ease, height 0.16s ease;
+  transition: background 0.16s ease;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
 }
-.pill:hover { background: rgba(34, 38, 36, 0.94); height: 25px; }
+.pill:hover { background: rgba(34, 38, 36, 0.94); }
 :root[data-theme='light'] .pill { background: rgba(28, 30, 29, 0.86); }
 
 .pill-logo {
@@ -85,9 +88,9 @@ html, body {
 /* ------------------------------ 펼친 패널 ------------------------------ */
 
 .panel {
-  margin-top: 34px;
+  margin-top: 0;
   width: calc(100% - 12px);
-  max-height: calc(100% - 44px);
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -264,8 +267,15 @@ html, body {
   border-radius: 11px;
   border: 1px dashed rgba(255, 255, 255, 0.20);
   text-align: center;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
 }
+.shelf-drop:hover { border-color: var(--accent); background: rgba(255, 255, 255, 0.05); }
 :root[data-theme='light'] .shelf-drop { border-color: rgba(0, 0, 0, 0.16); }
+:root[data-theme='light'] .shelf-drop:hover { background: rgba(0, 0, 0, 0.03); }
+/* 드래그가 노치 위에 들어왔을 때 — 놓을 자리를 바로 보여 준다. */
+.shelf-drop.is-over { border-color: var(--accent); border-style: solid; }
+.shelf-file-input { display: none; }
 .shelf-drop-icon { color: var(--accent); opacity: 0.9; }
 .shelf-drop-icon svg { width: 15px; height: 15px; }
 .shelf-drop b { font-size: 11px; font-weight: 600; }
