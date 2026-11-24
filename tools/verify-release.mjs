@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * TIP v1.13.0 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
+ * TIP v1.13.1 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
  *
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.13.1 — 우편번호 스크립트 도메인을 t1.kakaocdn.net 으로 옮긴 것(daumcdn 잔존 참조 없음,
+ *          CSP script/style/img/font/frame/connect 에 kakaocdn 허용)을 검사한다.
  * v1.13.0 — 캘린더 달력 보기(일·주·월)·독립 필터, 주소 검색 흰 화면 수정(CSP 카카오 우편번호
  *          프레임·샌드박스 제거), 배송 조회 모바일 판/User-Agent 를 함께 검사한다.
  * v1.12.4 — 버전을 mac/src-tauri/tauri.conf.json 에서 읽는다(한 곳만 고치면 되게).
@@ -54,7 +56,7 @@ check('Cargo.toml 버전', new RegExp(`^version = "${VERSION}"`, 'm').test(read(
 check('mac/package.json 버전', JSON.parse(read('mac/package.json')).version === VERSION);
 check('sw.js 캐시 버전', read('sw.js').includes(`tip-v${VERSION}`));
 check('js/app.js APP_VERSION', read('js/app.js').includes(`APP_VERSION = '${VERSION}'`));
-check('버전이 1.13.0 이상', (([major, minor]) => major > 1 || (major === 1 && minor >= 13))(VERSION.split('.').map(Number)), String(VERSION));
+check('버전이 1.13.1 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 13 || (minor === 13 && patch >= 1))))(VERSION.split('.').map(Number)), String(VERSION));
 
 /* ------------------------------ 2. 노치 밀착 ------------------------------ */
 
@@ -269,7 +271,14 @@ if (typeof csp === 'string') {
     ["default-src 'self'", /default-src 'self'/],
     ['script-src wasm', /script-src [^;]*'wasm-unsafe-eval'/],
     ['script-src 인라인 부트스트랩 해시', /script-src [^;]*'sha256-/],
-    ['script-src 다음 우편번호', /script-src [^;]*https:\/\/t1\.daumcdn\.net/],
+    // v1.13.1 — 카카오가 t1.daumcdn.net 을 닫아 스크립트를 t1.kakaocdn.net 에서 받는다.
+    ['script-src 카카오 우편번호 CDN', /script-src [^;]*https:\/\/t1\.kakaocdn\.net/],
+    ['script-src 카카오 CDN 와일드카드', /script-src [^;]*https:\/\/\*\.kakaocdn\.net/],
+    ['style-src 카카오 CDN', /style-src [^;]*https:\/\/t1\.kakaocdn\.net/],
+    ['img-src 카카오 CDN', /img-src [^;]*https:\/\/t1\.kakaocdn\.net/],
+    ['font-src 카카오 CDN', /font-src [^;]*https:\/\/t1\.kakaocdn\.net/],
+    ['frame-src 카카오 CDN', /frame-src [^;]*https:\/\/t1\.kakaocdn\.net/],
+    ['connect-src 카카오 CDN', /connect-src [^;]*https:\/\/t1\.kakaocdn\.net/],
     ['worker-src blob', /worker-src [^;]*blob:/],
     ['img-src blob·data', /img-src [^;]*blob:[^;]*data:/],
     ['media-src 카메라', /media-src [^;]*mediastream:/],
@@ -295,11 +304,14 @@ const address = read('modules/address-search/module.js');
 check('address-frame.html 존재', exists('address-frame.html'));
 check('address-frame.js 존재', exists('js/address-frame.js'));
 check('주소 검색이 iframe 사용', address.includes('address-frame.html') && address.includes('createElement(\'iframe\')'));
-check('메인 문서에 다음 스크립트 직접 삽입 없음', !address.includes('t1.daumcdn.net') && !/createElement\('script'\)/.test(address));
+check('메인 문서에 다음 스크립트 직접 삽입 없음', !address.includes('t1.daumcdn.net') && !address.includes('t1.kakaocdn.net') && !/createElement\('script'\)/.test(address));
 check('iframe 메시지 출처 확인', /event\.source !== daumFrame\.contentWindow/.test(address));
 check('iframe 에 불투명 출처 샌드박스 없음(v1.13.0)', !/setAttribute\('sandbox'/.test(address) && !/sandboxRetried/.test(address));
 const addressFrame = read('js/address-frame.js');
-check('프레임이 우편번호 스크립트 로드', addressFrame.includes('t1.daumcdn.net'));
+check('프레임이 우편번호 스크립트 로드', addressFrame.includes('https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js'));
+check('프레임 SRC 가 종료된 daumcdn 아님(v1.13.1)', !/=\s*'https:\/\/t1\.daumcdn\.net/.test(addressFrame));
+const readmeAddressLine = read('README.md').split('\n').find((line) => line.includes('우편번호 서비스**'));
+check('README 프라이버시의 주소 스크립트 도메인(v1.13.1)', !!readmeAddressLine && readmeAddressLine.includes('t1.kakaocdn.net'), readmeAddressLine ? readmeAddressLine.replace(/\*\*/g, '').slice(0, 48) : '문단 없음');
 check('프레임이 결과만 postMessage', addressFrame.includes("type: 'tip:address:result'"));
 check('collect-web 이 address-frame 포함', read('mac/scripts/collect-web.sh').includes('address-frame.html'));
 check('sw.js 가 address-frame 캐시', read('sw.js').includes("'./address-frame.html'"));

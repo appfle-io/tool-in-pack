@@ -13,10 +13,13 @@
  *   → { type: 'tip:address:result', data: {...} }  주소를 골랐다
  *
  * 주소 값은 다음 서비스가 준 값만 그대로 넘긴다. 이 문서는 앱 저장소(localStorage)를 쓰지 않는다.
+ *
+ * v1.13.1 — 카카오가 t1.daumcdn.net 을 닫는다고 공지(2026-11-30 종료)해 스크립트 주소를
+ *   t1.kakaocdn.net 으로 바꿨다. 두 주소는 같은 파일(35,814 bytes)을 내려 준다.
  */
 
 (function () {
-  var SRC = 'https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
+  var SRC = 'https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
   var statusEl = document.getElementById('addr-frame-status');
   var embedEl = document.getElementById('addr-frame-embed');
   var loading = null;

@@ -1,7 +1,7 @@
 {
   "name": "tip-mac",
   "private": true,
-  "version": "1.13.0",
+  "version": "1.13.1",
   "description": "TIP (TOOL-IN-PACK) macOS 앱 — 메뉴 막대 퀵바 · 노치 아일랜드 · 빠른 실행 검색",
   "scripts": {
     "tauri": "tauri",
