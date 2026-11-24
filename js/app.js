@@ -15,8 +15,11 @@ import {
   SEARCH_SCOPE_ITEMS, getSearchScope, setSearchScope, getShortcut, setShortcut, clearShortcut,
   syncShortcuts, actionsFor, valuesFor, getFeatureValue, setFeatureValue,
   getSystemCommandEnabled, setSystemCommandEnabled,
+  getShortcutPrefix, setShortcutPrefix, SHORTCUT_PREFIXES, DEFAULT_PREFIX,
+  setShortcutLetter, validShortcutLetter, letterForCode, getShortcutLetters, getShortcutExtras,
 } from './feature-settings.js';
 import { listSnippets } from './snippets.js';
+import { tickTimer, alertTimerDone, timerState } from './timer-store.js';
 import { el, toast, icons } from './ui.js';
 
 /* Mac 앱(Tauri) 안에서 실행 중인지 — 메뉴 막대 퀵바와 창을 주고받는 데 쓴다. */
@@ -790,7 +793,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.14.0';
+const APP_VERSION = '1.15.0';
 
 let updateBusy = false;
 
@@ -1055,26 +1058,46 @@ function acceleratorOf(event) {
 function searchSection(rerenderSheet) {
   const current = getSearchShortcut();
   let capturing = false;
+  let onKey = null;
 
   const chip = el('kbd', { class: 'shortcut-chip', text: prettyShortcut(current) });
   const changeBtn = el('button', { class: 'primary-btn ghost shortcut-change', type: 'button', text: '변경' });
   const openBtn = el('button', { class: 'icon-btn shortcut-open', type: 'button', text: '열기' });
 
+  // stop 은 클릭 핸들러 밖에서 만든다 — 핸들러 안에서 const 로 두면 '취소'로 다시 눌렀을 때
+  // 첫 줄에서 stop 을 먼저 만져 TDZ 오류가 나고, 그 오류로 취소가 듣지 않는다.
+  const stop = () => {
+    capturing = false;
+    if (onKey) document.removeEventListener('keydown', onKey, true);
+    onKey = null;
+    chip.textContent = prettyShortcut(getSearchShortcut());
+    chip.classList.remove('is-capturing');
+    changeBtn.textContent = '변경';
+  };
+
   changeBtn.addEventListener('click', () => {
-    if (capturing) return;
+    // v1.15.0 — 예전에는 `if (capturing) return;` 이 먼저 있어, 버튼이 '취소'로 바뀠 뒤
+    // 다시 누른 클릭을 그대로 무시했다(취소가 죽어 있었다). 캐처 중이면 취소로 동작한다.
+    if (capturing) {
+      stop();
+      return;
+    }
     capturing = true;
     chip.textContent = '새 단축키를 누르세요';
     chip.classList.add('is-capturing');
     changeBtn.textContent = '취소';
-    const onKey = async (event) => {
+    onKey = async (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
+        // window 의 "Esc 면 시트 닫기"까지 번지지 않게 여기서 멈춘다.
+        event.stopPropagation();
         stop();
         return;
       }
       const accelerator = acceleratorOf(event);
       if (!accelerator) return;
       event.preventDefault();
+      event.stopPropagation();
       try {
         await invokeTauri('set_search_shortcut', { accelerator });
         setSearchShortcut(accelerator);
@@ -1085,13 +1108,6 @@ function searchSection(rerenderSheet) {
       }
       stop();
       if (rerenderSheet) rerenderSheet();
-    };
-    const stop = () => {
-      capturing = false;
-      document.removeEventListener('keydown', onKey, true);
-      chip.textContent = prettyShortcut(getSearchShortcut());
-      chip.classList.remove('is-capturing');
-      changeBtn.textContent = '변경';
     };
     document.addEventListener('keydown', onKey, true);
   });
@@ -1121,11 +1137,13 @@ function searchSection(rerenderSheet) {
 function prettyShortcut(accelerator) {
   const mac = /Mac|iPhone|iPad/.test(navigator.platform || '') || /Mac/.test(navigator.userAgent || '');
   const map = {
-    CmdOrCtrl: mac ? '⌘' : 'Ctrl', Alt: mac ? '⌥' : 'Alt', Shift: mac ? '⇧' : 'Shift',
+    CmdOrCtrl: mac ? '⌘' : 'Ctrl', Command: mac ? '⌘' : 'Ctrl', Control: mac ? '⌃' : 'Ctrl',
+    Alt: mac ? '⌥' : 'Alt', Shift: mac ? '⇧' : 'Shift',
   };
   const keys = {
     Space: 'Space', Enter: 'Return', Backslash: '\\', Slash: '/', Comma: ',', Period: '.',
     Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backquote: '`',
+    ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓',
   };
   return String(accelerator || '').split('+').map((part) => {
     if (map[part]) return map[part];
@@ -1708,7 +1726,7 @@ function systemCommandSection(render) {
 function modulesTab(render) {
   if (sheetModule) return moduleTab(sheetModule, render);
 
-  const parts = [sheetNote('modules')];
+  const parts = [sheetNote('modules'), shortcutPrefixSection(render)];
   const list = el('div', { class: 'sheet-module-list' });
   listModules().forEach((mod) => {
     const actions = actionsFor(mod.id);
@@ -1730,6 +1748,62 @@ function modulesTab(render) {
 
   parts.push(el('div', { class: 'sheet-section' }, list));
   return parts;
+}
+
+/** 모듈 탭 맨 위 — 모든 모듈 단축키의 공통 조합 하나(v1.15.0). */
+function shortcutPrefixSection(render) {
+  const prefix = getShortcutPrefix();
+  const select = el('select', {
+    class: 'pt-input sheet-select shortcut-prefix-select',
+    'aria-label': '모듈 단축키 공통 조합',
+  });
+  SHORTCUT_PREFIXES.forEach(({ id, label, short }) => {
+    const option = el('option', { value: id, text: `${short}  ${label}` });
+    if (id === prefix) option.selected = true;
+    select.append(option);
+  });
+
+  let busy = false;
+  select.addEventListener('change', async () => {
+    if (busy) return;
+    busy = true;
+    const next = select.value;
+    setShortcutPrefix(next);
+    const failures = await syncShortcuts();
+    busy = false;
+    render();
+    if (failures.length) {
+      toast(`${prettyShortcut(next)} 로 바꿨지만 ${failures.length}개는 등록하지 못했습니다 — 다른 조합도 써 보세요`);
+    } else {
+      toast(`모듈 단축키 조합을 ${prettyShortcut(next)} 로 바꿨습니다`);
+    }
+  });
+
+  const example = getShortcutLetters();
+  const sample = Object.values(example)[0];
+  return el('div', { class: 'sheet-section mb-section shortcut-prefix-section' }, [
+    el('h3', { text: '공통 단축키 조합' }),
+    el('p', {
+      class: 'mb-note',
+      text: '아래 모듈 단축키는 모두 이 조합 + 알파벳(또는 숫자) 한 글자입니다. Option+Space 전역 검색은 [검색] 탭에서 따로 정합니다.',
+    }),
+    el('div', { class: 'mb-row' }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: '조합' }),
+        el('i', { class: 'notch-hint', text: sample ? `지금 예: ${prettyShortcut(prefix)}+${sample}` : '기본값은 Control + Shift 입니다' }),
+      ]),
+      select,
+    ]),
+  ]);
+}
+
+/** 단축키 키(action key) → 사람이 읽을 이름 — 중복 안내에 쓴다. */
+function actionLabel(actionKey) {
+  for (const mod of listModules()) {
+    const found = actionsFor(mod.id).find((action) => action.key === actionKey);
+    if (found) return `${mod.shortName || mod.name} · ${found.label}`;
+  }
+  return actionKey;
 }
 
 function moduleTab(moduleId, render) {
@@ -1760,7 +1834,10 @@ function moduleTab(moduleId, render) {
   const shortcutRows = actions.map((action) => shortcutRow(action, render));
   parts.push(el('div', { class: 'sheet-section mb-section' }, [
     el('h3', { text: '전역 단축키' }),
-    el('p', { class: 'mb-note', text: '어디서든 이 조합을 누르면 바로 실행합니다. macOS 나 다른 앱이 이미 쓰는 조합은 등록되지 않습니다.' }),
+    el('p', {
+      class: 'mb-note',
+      text: `공통 조합(${prettyShortcut(getShortcutPrefix())}) + 한 글자입니다. 글자를 바꾸면 바로 등록되고, 다른 모듈이 쓰는 글자는 등록되지 않습니다.`,
+    }),
     ...shortcutRows,
   ]));
 
@@ -1805,59 +1882,89 @@ function moduleTab(moduleId, render) {
   return parts;
 }
 
-/** 단축키 하나 — 칩 + 변경(녹음) + 해제. */
+/** 단축키 하나 — 공통 조합 칩 + 한 글자 입력 + (있으면) 직접 정한 조합 + 해제.
+ *  v1.15.0 — 변경→취소 캐처 상태를 없었다(글자를 바로 넣고 바로 등록).
+ *  v1.14.0 에서 "변경을 누른 뒤 바로 취소"가 먹지 않던 원인은 그 두 가지다.
+ *    ① 버튼 리스너 첫 줄이 `if (capturing) return;` 이라, 같은 버튼이 '취소'로 바뀠 뒤에도
+ *       다시 누른 클릭을 그대로 무시했다(취소 버튼이 죽어 있었다).
+ *    ② 키 캐처 리스너가 document capture 에서 preventDefault 만 하고 stopPropagation 을 하지
+ *       않아, Esc 를 누르면 캐처는 풀리지만 window 의 "Esc 면 시트 닫기"까지 같이 돌았다.
+ */
 function shortcutRow(action, render) {
-  const current = getShortcut(action.key);
-  const chip = el('kbd', { class: 'shortcut-chip', text: current ? prettyShortcut(current) : '없음' });
-  const change = el('button', { class: 'primary-btn ghost shortcut-change', type: 'button', text: '변경' });
-  const drop = el('button', { class: 'icon-btn shortcut-open', type: 'button', text: '해제' });
-  drop.disabled = !current;
+  const prefix = getShortcutPrefix();
+  const letters = getShortcutLetters();
+  const extra = getShortcutExtras()[action.key] || '';
+  const letter = letters[action.key] || '';
 
-  let capturing = false;
-  const stop = () => {
-    capturing = false;
-    document.removeEventListener('keydown', onKey, true);
-    chip.classList.remove('is-capturing');
-    chip.textContent = getShortcut(action.key) ? prettyShortcut(getShortcut(action.key)) : '없음';
-    change.textContent = '변경';
-  };
+  const prefixChip = el('kbd', { class: 'shortcut-chip shortcut-prefix-chip', text: prettyShortcut(prefix) });
+  const input = el('input', {
+    class: 'shortcut-letter',
+    type: 'text',
+    maxlength: '1',
+    autocomplete: 'off',
+    spellcheck: 'false',
+    placeholder: '–',
+    'aria-label': `${action.label} 단축키 글자`,
+  });
+  input.value = letter;
 
-  const onKey = async (event) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      stop();
+  const extraChip = extra
+    ? el('kbd', { class: 'shortcut-chip shortcut-extra-chip', text: prettyShortcut(extra), title: '직접 정한 조합' })
+    : null;
+  const drop = el('button', { class: 'icon-btn shortcut-open shortcut-clear', type: 'button', text: '해제' });
+  drop.disabled = !letter && !extra;
+
+  let busy = false;
+  const commit = async () => {
+    if (busy) return;
+    const value = input.value.trim().toUpperCase();
+    if (!value) {
+      input.value = letter;
       return;
     }
-    const accelerator = acceleratorOf(event);
-    if (!accelerator) return;
-    event.preventDefault();
-    if (accelerator === getSearchShortcut()) {
-      toast('검색 단축키와 같은 조합입니다 — 다른 조합을 써 주세요');
+    if (!validShortcutLetter(value)) {
+      toast('알파벳 한 글자 또는 숫자 하나만 쓸 수 있습니다');
+      input.value = letter;
       return;
     }
-    const previous = getShortcut(action.key);
-    setShortcut(action.key, accelerator);
+    if (value === letter && !extra) {
+      input.value = letter;
+      return;
+    }
+    const result = setShortcutLetter(action.key, value);
+    if (!result.ok) {
+      if (result.reason === 'duplicate') {
+        toast(`${result.accelerator.replace(/^.*\+/, '')} 는 ${actionLabel(result.owner)} 이(가) 이미 씁니다`);
+      } else {
+        toast('알파벳 한 글자 또는 숫자 하나만 쓸 수 있습니다');
+      }
+      input.value = letter;
+      return;
+    }
+    busy = true;
     const failures = await syncShortcuts();
+    busy = false;
     const failure = failures.find((item) => item.key === action.key);
     if (failure) {
-      if (previous) setShortcut(action.key, previous);
-      else clearShortcut(action.key);
+      clearShortcut(action.key);
       await syncShortcuts();
-      toast(`${prettyShortcut(accelerator)} 를 등록하지 못했습니다 — 이미 쓰는 조합입니다`);
-    } else {
-      toast(`${action.label}: ${prettyShortcut(accelerator)}`);
+      toast(`${prettyShortcut(result.accelerator)} 를 등록하지 못했습니다 — 다른 글자를 써 주세요`);
+      render();
+      return;
     }
-    stop();
+    toast(`${action.label}: ${prettyShortcut(result.accelerator)}`);
     render();
   };
 
-  change.addEventListener('click', () => {
-    if (capturing) return;
-    capturing = true;
-    chip.textContent = '새 단축키를 누르세요';
-    chip.classList.add('is-capturing');
-    change.textContent = '취소';
-    document.addEventListener('keydown', onKey, true);
+  input.addEventListener('input', () => {
+    input.value = input.value.replace(/[^0-9a-zA-Z]/g, '').toUpperCase().slice(0, 1);
+    if (input.value) commit();
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commit();
+    }
   });
 
   drop.addEventListener('click', async () => {
@@ -1872,8 +1979,13 @@ function shortcutRow(action, render) {
       el('b', { text: action.label }),
       action.hint ? el('i', { class: 'notch-hint', text: action.hint }) : null,
     ]),
-    el('div', { class: 'shortcut-keys' }, [chip]),
-    el('div', { class: 'shortcut-actions' }, [change, drop]),
+    el('div', { class: 'shortcut-keys shortcut-letter-group' }, [
+      prefixChip,
+      el('span', { class: 'shortcut-plus', text: '+', 'aria-hidden': 'true' }),
+      input,
+      extraChip,
+    ]),
+    el('div', { class: 'shortcut-actions' }, [drop]),
   ]);
 }
 
@@ -2017,6 +2129,20 @@ if (inquiryBtn) {
 window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeSheet();
 });
+
+/* ------------------------------ 타이머 감시 (v1.15.0) ------------------------------ */
+// 노치 창이 꺼져 있어도 메인 창이 켜져 있으면 타이머 끝을 알린다.
+// 같은 타이머로 두 번 울리지 않게, 끝냄(done)을 확정한 창만 알린다(tickTimer).
+let timerAlertedAt = 0;
+function watchTimer() {
+  if (!tickTimer()) return;
+  const state = timerState();
+  if (state.finishedAt && state.finishedAt === timerAlertedAt) return;
+  timerAlertedAt = state.finishedAt;
+  alertTimerDone(state.duration);
+  toast('타이머가 끝났습니다');
+}
+setInterval(watchTimer, 1000);
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
   if (!getTheme()) applyTheme(null);

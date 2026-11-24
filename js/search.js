@@ -17,6 +17,9 @@ import { calculate } from './calc.js';
 import { koreanRank } from './chosung.js';
 import { findSnippets, snippetPreview } from './snippets.js';
 import { searchScopeEnabled, getSystemCommandEnabled } from './feature-settings.js';
+import {
+  parseTimerQuery, startTimer, timerState, remainingSeconds, formatClock, describeSeconds, TIMER_PRESETS,
+} from './timer-store.js';
 
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
@@ -55,6 +58,7 @@ const KEYWORDS = {
   'drag-ocr': '드래그 화면 캡처 글자 추출 ocr',
   'window-snap': '창 분할 반쪽 배열 정렬 타일',
   'bulk-rename': '파일 이름 변경 일괄 정규식 번호',
+  'timer': '타이머 시간 알람 시계 카운트다운 분 초',
 };
 
 const COMMANDS = [
@@ -232,6 +236,67 @@ function webItems(query) {
   });
 }
 
+/* ------------------------------ 타이머 (v1.15.0) ------------------------------ */
+// `타이머 7분`, `타이머 1분 30초`, `timer 90s`, `타이머 7:30` → 바로 시작.
+// `타이머` 만 치면 프리셋과 지금 남은 시간을 보여 준다.
+
+function timerItems(query) {
+  const parsed = parseTimerQuery(query);
+  if (!parsed) return [];
+  const state = timerState();
+  const out = [];
+
+  if (parsed.seconds > 0) {
+    out.push({
+      id: 'timer:start',
+      kind: 'timer',
+      name: `타이머 ${formatClock(parsed.seconds)} 시작`,
+      subtitle: `${describeSeconds(parsed.seconds)} — 노치 알약과 메인 창이 함께 봅니다`,
+      glyph: '⏱',
+      meta: '타이머 · Enter 로 시작',
+      seconds: parsed.seconds,
+      score: 0,
+    });
+    return out;
+  }
+
+  out.push({
+    id: 'timer:open',
+    kind: 'timer',
+    name: '타이머 열기',
+    subtitle: '분·초를 직접 정하고 일시정지·재개',
+    glyph: '⏱',
+    meta: '타이머',
+    open: true,
+    score: 0,
+  });
+  if (state.status !== 'idle') {
+    out.push({
+      id: 'timer:status',
+      kind: 'timer',
+      name: `지금 ${formatClock(remainingSeconds(state))}`,
+      subtitle: state.status === 'running' ? '줄어드는 중 — Enter 로 타이머 열기' : (state.status === 'done' ? '끝났습니다' : '일시정지'),
+      glyph: '⏱',
+      meta: '타이머',
+      open: true,
+      score: 0,
+    });
+  }
+  TIMER_PRESETS.forEach((minutes) => {
+    out.push({
+      id: `timer:preset:${minutes}`,
+      kind: 'timer',
+      name: `${minutes}분 타이머 시작`,
+      subtitle: `${minutes}:00 부터 — Enter 로 바로`,
+      glyph: '⏱',
+      meta: '타이머',
+      seconds: minutes * 60,
+      score: 0,
+    });
+  });
+  return out;
+}
+
 function systemItems(query) {
   if (!searchScopeEnabled('system')) return [];
   const enabled = getSystemCommandEnabled();
@@ -275,6 +340,9 @@ function search(query) {
     }
   }
 
+  // 2) 타이머 — `타이머 7분` 처럼 치면 계산기 다음, 맨 위쪽.
+  out.push(...timerItems(query));
+
   // 2) 웹 검색 — g·n 접두어면 계산기 다음, 아니면 맨 아래.
   const explicitWeb = webItems(query).filter((item) => /^[gn]\s/.test(query));
   out.push(...explicitWeb);
@@ -301,7 +369,6 @@ function search(query) {
   const files = q.length >= 2 ? fileItems() : [];
 
   out.push(...snippets, ...modules, ...commands, ...apps, ...files, ...system);
-
   if (!explicitWeb) out.push(...webItems(query));
 
   // 검색어가 없으면 명령·모듈 위주로 짧게.
@@ -396,6 +463,24 @@ function activate(item) {
 
 async function run(item) {
   if (!item) return;
+
+  if (item.kind === 'timer') {
+    if (item.seconds) {
+      startTimer(item.seconds);
+      flash(`타이머 ${formatClock(item.seconds)} 를 시작했습니다`, 1400);
+      setTimeout(hidePalette, 550);
+      return;
+    }
+    try {
+      if (TAURI) await invoke('open_tool', { id: 'timer', title: '타이머' });
+      else location.href = './index.html?module=timer';
+      if (TAURI) invoke('hide_search').catch(() => {});
+    } catch (error) {
+      console.error('[TIP search] 타이머:', error);
+      flash('타이머를 열지 못했습니다');
+    }
+    return;
+  }
 
   if (item.kind === 'calc' || item.kind === 'snippet') {
     const text = item.kind === 'calc' ? item.copyText : item.body;

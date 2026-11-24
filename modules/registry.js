@@ -44,6 +44,8 @@ import dragOcr from './drag-ocr/module.js';
 import windowSnap from './window-snap/module.js';
 import bulkRename from './bulk-rename/module.js';
 import snippets from './snippets/module.js';
+// v1.15.0 — TIP 내장 타이머(분·초 자유 설정, 노치 알약·전역 검색과 상태 공유)
+import timer from './timer/module.js';
 
 /**
  * 홈 화면 섹션 순서. 여기에 적은 순서대로 홈이 그려진다.
@@ -101,6 +103,8 @@ export const registry = [
   dragOcr,
   windowSnap,
   bulkRename,
+  // v1.15.0
+  timer,
 ];
 
 const TAURI = typeof window !== 'undefined' && !!(window.__TAURI__ && window.__TAURI__.core);

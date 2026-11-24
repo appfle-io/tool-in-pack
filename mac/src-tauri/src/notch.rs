@@ -246,6 +246,17 @@ pub fn pill_size(base_width: f64, base_height: f64) -> (f64, f64) {
     }
 }
 
+/// 노치 화면 정보 — (화면 너비, 화면 높이, 노치 너비, 노치 높이). 노치가 없으면 너비·높이 0.
+/// v1.15.0 — 접힌 알약이 음악·타이머로 넓어질 때, 가운데의 물리 노치 자리를 화면이
+/// CSS 변수(--notch-gap)로 비워 두게 한다.
+#[cfg(target_os = "macos")]
+pub fn metrics() -> Option<(f64, f64, f64, f64)> {
+    let mtm = objc2::MainThreadMarker::new()?;
+    let (frame, notch) = notch_screen(mtm)?;
+    let (width, height) = notch.map(|box_| (box_.width, box_.height)).unwrap_or((0.0, 0.0));
+    Some((frame.size.width, frame.size.height, width, height))
+}
+
 /// 창을 화면 최상단 가운데에 width×height 로 붙인다. 성공하면 true.
 /// `open` 이면 펼친 패널 — 노치 화면에서는 노치를 가리지 않게 노치 바로 아래에서 연다.
 #[cfg(target_os = "macos")]
@@ -347,6 +358,11 @@ pub fn order_front(_win: &tauri::WebviewWindow) -> bool {
 #[cfg(not(target_os = "macos"))]
 pub fn pill_size(base_width: f64, base_height: f64) -> (f64, f64) {
     (base_width, base_height)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn metrics() -> Option<(f64, f64, f64, f64)> {
+    None
 }
 
 #[cfg(not(target_os = "macos"))]

@@ -23,6 +23,10 @@
 import { getModule } from '../modules/registry.js';
 import { quickOrderIds } from './quickbar.js';
 import { getNotchSettings, syncStore, applyTheme, getTheme } from './store.js';
+import {
+  timerState, remainingSeconds, startTimer, toggleTimer, resetTimer, extendTimer,
+  formatClock, describeSeconds, TIMER_PRESETS, tickTimer, alertTimerDone,
+} from './timer-store.js';
 
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
@@ -36,12 +40,20 @@ const toastEl = document.getElementById('notch-toast');
 let expanded = false;
 let collapseTimer = null;
 let heldOpen = false;         // 입력 중이거나 파일을 끌고 있는 동안에는 접지 않는다
-let mediaTimer = null;
 let calendarTimer = null;
 let widgetsDelay = null;      // 펼친 뒤 위젯 조회를 조금 미루는 타이머
 let mediaBusy = false;        // 조회가 끝나기 전에 또 부르지 않는다
 let calendarBusy = false;
 let mediaPlaying = false;
+
+/* v1.15.0 — 접힌 알약의 음악·타이머 상태. osascript 4.5초 조회를 화면이 0.5초마다 보간한다. */
+let mediaState = null;
+let mediaError = null;
+let mediaPolledAt = 0;        // performance.now() 기준
+let pillMediaTimer = null;
+let pillTickTimer = null;
+let pillModeSent = '';        // 마지막으로 Rust 에 알린 알약 내용(media|timer)
+let notchInfo = { hasNotch: false, notchWidth: 0 };
 let settingsRev = 0;          // 설정이 바뀔 때마다 +1 — 화면에 그린 마지막 상태와 비교한다
 let renderedSignature = '';   // 마지막으로 그린 설정(저장값) — 펼칠 때마다 달라졌는지 싼 값으로 본다
 let dragHeld = false;         // Finder 파일을 끌고 노치 위에 있는 동안에는 접지 않는다
@@ -128,6 +140,7 @@ function setExpanded(next, { animate = true } = {}) {
   } else {
     invoke('notch_collapse').catch(() => {});
     stopWidgets();
+    closeCalendarForm();
     heldOpen = false;
   }
   syncHold();
@@ -227,41 +240,78 @@ function mediaCard() {
   `);
 }
 
-async function refreshMedia() {
-  if (!TAURI || !expanded || mediaBusy) return;
-  if (!getNotchSettings().widgets.media) return;
-  const titleEl = panelEl.querySelector('#media-title');
-  if (!titleEl) return;
+/** 미디어 상태를 읽어 카드와 접힌 알약을 함께 갱신한다(v1.15.0).
+ *  예전에는 펼쳤을 때만 읽었는데, 이제는 접힌 알약에 곡 제목·진행률을 그려야 해서
+ *  창이 접혀 있어도 4.5초마다 한 번 읽는다(윈도우는 0.5초마다 그 위치를 보간). */
+async function fetchMedia() {
+  if (!TAURI || mediaBusy) return;
+  if (!getNotchSettings().widgets.media) {
+    mediaState = null;
+    paintPill();
+    return;
+  }
   mediaBusy = true;
   try {
     const state = await invoke('media_state');
-    const playing = !!(state && state.playing);
-    mediaPlaying = playing;
-    panelEl.querySelector('#media-app').textContent = state && state.app ? state.app : '—';
-    titleEl.textContent = state && state.title ? state.title : '재생 중인 곡이 없습니다';
-    panelEl.querySelector('#media-artist').textContent = state && state.artist
-      ? state.artist
-      : 'Apple Music 또는 Spotify';
-    panelEl.querySelector('#media-icon').innerHTML = playing
-      ? '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/>'
-      : '<path d="M8 5v14l11-7z"/>';
-    const permBtn = panelEl.querySelector('#media-perm');
-    if (permBtn) permBtn.hidden = true;
-    const dot = document.getElementById('pill-dot');
-    if (dot) dot.classList.toggle('is-playing', playing);
+    mediaState = {
+      app: (state && state.app) || '',
+      playing: !!(state && state.playing),
+      title: (state && state.title) || '',
+      artist: (state && state.artist) || '',
+      position: Number(state && state.position) || 0,
+      duration: Number(state && state.duration) || 0,
+    };
+    mediaPolledAt = performance.now();
+    mediaError = null;
+    paintMediaCard();
+    paintPill();
+    updatePillMode();
   } catch (error) {
-    // v1.12.3 — 권한 거부(-1743)는 다른 오류와 다르게 안내하고 '권한 설정' 버튼을 띄운다.
-    // v1.12.4 — 권한 문제가 아닌 오류도 콘솔에만 남기지 않고 짧은 원인을 함께 보여 준다.
-    const permission = isPermissionError(error);
-    titleEl.textContent = permission ? '음악 앱 권한이 필요합니다' : '미디어 정보를 읽지 못했습니다';
-    panelEl.querySelector('#media-artist').textContent = permission
-      ? '시스템 설정 › 자동화에서 TIP을 허용하세요'
-      : errorText(error);
-    const permBtn = panelEl.querySelector('#media-perm');
-    if (permBtn) permBtn.hidden = !permission;
+    mediaError = error;
+    mediaState = null;
+    paintMediaCard();
+    paintPill();
+    updatePillMode();
   } finally {
     mediaBusy = false;
   }
+}
+
+function refreshMedia() {
+  return fetchMedia();
+}
+
+/** 펼친 패널의 미디어 카드 — 요소가 없으면(다른 위젯만 켜져 있으면) 조용히 넘어간다. */
+function paintMediaCard() {
+  const titleEl = panelEl.querySelector('#media-title');
+  if (!titleEl) return;
+  const state = mediaState;
+  const playing = !!(state && state.playing);
+  mediaPlaying = playing;
+  panelEl.querySelector('#media-app').textContent = state && state.app ? state.app : '—';
+  const permBtn = panelEl.querySelector('#media-perm');
+
+  if (mediaError) {
+    // v1.12.3 — 권한 거부(-1743)는 다른 오류와 다르게 안내하고 '권한 설정' 버튼을 띄운다.
+    const permission = isPermissionError(mediaError);
+    titleEl.textContent = permission ? '음악 앱 권한이 필요합니다' : '미디어 정보를 읽지 못했습니다';
+    panelEl.querySelector('#media-artist').textContent = permission
+      ? '시스템 설정 › 자동화에서 TIP을 허용하세요'
+      : errorText(mediaError);
+    if (permBtn) permBtn.hidden = !permission;
+    return;
+  }
+
+  titleEl.textContent = state && state.title ? state.title : '재생 중인 곡이 없습니다';
+  panelEl.querySelector('#media-artist').textContent = state && state.artist
+    ? state.artist
+    : 'Apple Music 또는 Spotify';
+  panelEl.querySelector('#media-icon').innerHTML = playing
+    ? '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/>'
+    : '<path d="M8 5v14l11-7z"/>';
+  if (permBtn) permBtn.hidden = true;
+  const dot = document.getElementById('pill-dot');
+  if (dot) dot.classList.toggle('is-playing', playing);
 }
 
 /* 캘린더 */
@@ -272,7 +322,10 @@ function calendarCard() {
   const card = widgetCard('calendar', `
     <div class="wg-head">
       <span class="wg-label">다가오는 일정</span>
-      <button class="wg-link" id="cal-open" type="button" aria-label="달력 열기" title="달력 열기">${CAL_ICON}</button>
+      <span class="wg-tools">
+        <button class="wg-link wg-add" type="button" data-cal-add="1" aria-label="일정 추가" title="일정 추가">+</button>
+        <button class="wg-link" id="cal-open" type="button" aria-label="달력 열기" title="달력 열기">${CAL_ICON}</button>
+      </span>
     </div>
     <ul class="cal-list" id="cal-list"><li class="cal-empty">일정을 불러오는 중…</li></ul>
     <button class="wg-perm" id="cal-perm" type="button" hidden>권한 설정</button>
@@ -477,6 +530,7 @@ async function loadCalendarList(force = false) {
       title: String(calendar.title || '캘린더'),
       color: safeColor(calendar.color),
       source: String(calendar.source || ''),
+      writable: calendar.writable === true,
     }))
     .filter((calendar) => calendar.id);
   return calView.calendars;
@@ -681,6 +735,159 @@ function renderCalendarView() {
   else dom.grid.innerHTML = '';
   renderDayPanel(dom);
   renderCalendarFilter();
+}
+
+/* --------------------------- 캘린더 — 일정 추가 (v1.15.0) --------------------------- */
+
+const calForm = { open: false, saving: false };
+
+function calFormDom() {
+  return {
+    form: document.getElementById('cal-form'),
+    title: document.getElementById('cal-form-title'),
+    allDay: document.getElementById('cal-form-allday'),
+    startDate: document.getElementById('cal-form-start-date'),
+    startTime: document.getElementById('cal-form-start-time'),
+    endDate: document.getElementById('cal-form-end-date'),
+    endTime: document.getElementById('cal-form-end-time'),
+    calendar: document.getElementById('cal-form-calendar'),
+    note: document.getElementById('cal-form-note'),
+    save: document.getElementById('cal-form-save'),
+  };
+}
+
+/** 입력값(date·time)을 로컬 시각의 에포크 ms 로. 종일이면 그날 00:00. */
+function formDateMs(dateValue, timeValue, allDay) {
+  const [year, month, day] = String(dateValue || '').split('-').map(Number);
+  if (!year || !month || !day) return NaN;
+  if (allDay) return new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+  const [hour, minute] = String(timeValue || '00:00').split(':').map(Number);
+  return new Date(year, month - 1, day, hour || 0, minute || 0, 0, 0).getTime();
+}
+
+function setFormDates(start, end) {
+  const dom = calFormDom();
+  if (!dom.startDate) return;
+  dom.startDate.value = dayKey(start);
+  dom.startTime.value = clock(start.getTime());
+  dom.endDate.value = dayKey(end);
+  dom.endTime.value = clock(end.getTime());
+}
+
+/** 종일 토글 — 시간 입력을 감추고 시작을 그날 00:00, 끝을 같은 날(또는 다음 날) 00:00 으로. */
+function syncCalFormAllDay() {
+  const dom = calFormDom();
+  if (!dom.allDay) return;
+  const allDay = dom.allDay.checked;
+  dom.startTime.hidden = allDay;
+  dom.endTime.hidden = allDay;
+  if (allDay) {
+    const start = formDateMs(dom.startDate.value, '00:00', true);
+    const end = formDateMs(dom.endDate.value, '00:00', true);
+    if (!(end > start)) dom.endDate.value = dayKey(addDays(new Date(start || Date.now()), 1));
+  }
+}
+
+/** 일정 추가 폼을 연다 — 날짜를 골랐으면 그날이 기본. */
+async function openCalendarForm(date = null) {
+  if (!TAURI) {
+    toast('일정 추가는 Mac 앱에서만 됩니다');
+    return;
+  }
+  const dom = calFormDom();
+  if (!dom.form) return;
+
+  const base = date ? midnight(date) : new Date();
+  if (!date) {
+    base.setSeconds(0, 0);
+    base.setMinutes(base.getMinutes() + (30 - (base.getMinutes() % 30 || 30)));
+  } else {
+    base.setHours(9, 0, 0, 0);
+  }
+  const end = new Date(base.getTime() + 60 * 60 * 1000);
+  setFormDates(base, end);
+
+  dom.title.value = '';
+  dom.allDay.checked = false;
+  syncCalFormAllDay();
+
+  // 저장할 수 있는 캘린더만 — 읽기 전용(공휴일·구독)은 고를 수 없다.
+  let calendars = calView.calendars;
+  try {
+    calendars = await loadCalendarList();
+  } catch (error) {
+    calendars = null;
+  }
+  const writable = (calendars || []).filter((calendar) => calendar.writable);
+  dom.calendar.innerHTML = '';
+  if (!writable.length) {
+    dom.calendar.append(new Option('저장할 수 있는 캘린더가 없습니다', ''));
+    dom.calendar.disabled = true;
+    dom.save.disabled = true;
+    dom.note.textContent = '캘린더 앱에서 계정을 확인하거나, 이 앱의 캘린더 권한(읽기·쓰기)을 허용해 주세요.';
+  } else {
+    dom.calendar.disabled = false;
+    dom.save.disabled = false;
+    dom.note.textContent = '저장하면 맥 캘린더 앱에도 바로 보입니다.';
+    const allowed = selectedCalendarIds();
+    const preferred = writable.find((calendar) => !allowed || allowed.includes(calendar.id));
+    writable.forEach((calendar) => {
+      const label = calendar.source ? `${calendar.title} — ${calendar.source}` : calendar.title;
+      const option = new Option(label, calendar.id);
+      option.selected = preferred ? calendar.id === preferred.id : false;
+      dom.calendar.append(option);
+    });
+    if (!preferred && writable.length) dom.calendar.selectedIndex = 0;
+  }
+
+  calForm.open = true;
+  dom.form.hidden = false;
+  dom.form.scrollTop = 0;
+  cancelCollapse();
+  openHeld();
+  setTimeout(() => { dom.title.focus(); invoke('notch_focus').catch(() => {}); }, 30);
+}
+
+function closeCalendarForm() {
+  const dom = calFormDom();
+  calForm.open = false;
+  if (dom.form) dom.form.hidden = true;
+}
+
+async function saveCalendarEvent() {
+  if (!TAURI || calForm.saving) return;
+  const dom = calFormDom();
+  const title = dom.title.value.trim();
+  if (!title) {
+    toast('일정 제목을 넣어 주세요');
+    dom.title.focus();
+    return;
+  }
+  const allDay = dom.allDay.checked;
+  const startMs = formDateMs(dom.startDate.value, dom.startTime.value, allDay);
+  const endMs = formDateMs(dom.endDate.value, dom.endTime.value, allDay);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    toast('끝 시각이 시작보다 빨라요');
+    return;
+  }
+  const calendarId = dom.calendar.value || null;
+  calForm.saving = true;
+  dom.save.disabled = true;
+  try {
+    await invoke('calendar_create', { title, startMs, endMs, allDay, calendarId });
+    closeCalendarForm();
+    toast('일정을 저장했습니다');
+    // Rust 가 조회 캐시를 비웠다 — 보이는 기간과 다가오는 일정을 다시 읽는다.
+    calView.events = [];
+    if (calView.open) loadCalendarView();
+    refreshCalendar();
+  } catch (error) {
+    console.error('[TIP notch] 일정 저장', error);
+    toast(errorText(error));
+  } finally {
+    calForm.saving = false;
+    dom.save.disabled = false;
+  }
 }
 
 /* --------------------------- 캘린더 — 조작 --------------------------- */
@@ -1035,10 +1242,110 @@ async function sendToModule(moduleId, item) {
   }
 }
 
-/* 타이머 */
+/* ------------------------------ 접힌 알약 (v1.15.0) ------------------------------ */
 
-let timerLeft = 0;
-let timerTick = null;
+/** 지금 저장된 설정·상태에서 알약에 무엇을 보일지 정한다. */
+function pillContent() {
+  const widgets = getNotchSettings().widgets;
+  const state = timerState();
+  const hasMedia = !!(widgets.media && mediaState && mediaState.playing);
+  const hasTimer = !!(widgets.timer && state.status !== 'idle');
+  return { hasMedia, hasTimer, state };
+}
+
+/** 미디어 재생 위치 — 마지막 조회(4.5초 전)에서 지난 시간만큼 앞으로 당긴다. */
+function mediaPositionNow() {
+  if (!mediaState) return 0;
+  let position = mediaState.position;
+  if (mediaState.playing) position += (performance.now() - mediaPolledAt) / 1000;
+  if (mediaState.duration > 0) position = Math.min(position, mediaState.duration);
+  return Math.max(0, position);
+}
+
+/** 접힌 알약을 그린다 — 음악은 왼쪽 날개(이퀄라이저·제목·진행률), 타이머는 오른쪽 날개. */
+function paintPill() {
+  const { hasMedia, hasTimer, state } = pillContent();
+  pillEl.classList.toggle('has-media', hasMedia);
+  pillEl.classList.toggle('has-timer', hasTimer);
+  pillEl.classList.toggle('no-notch', !notchInfo.hasNotch);
+
+  const trackEl = document.getElementById('pill-track');
+  const eqEl = document.getElementById('pill-eq');
+  if (hasMedia) {
+    const titleEl = document.getElementById('pill-title');
+    const progressEl = document.getElementById('pill-progress');
+    if (trackEl) trackEl.hidden = false;
+    if (eqEl) eqEl.hidden = false;
+    if (titleEl) {
+      titleEl.textContent = mediaState.title || mediaState.artist || '재생 중';
+      titleEl.title = [mediaState.artist, mediaState.title].filter(Boolean).join(' — ');
+    }
+    if (progressEl) {
+      const percent = mediaState.duration > 0
+        ? Math.max(0, Math.min(100, (mediaPositionNow() / mediaState.duration) * 100))
+        : 0;
+      progressEl.style.width = `${percent}%`;
+    }
+  } else {
+    if (trackEl) trackEl.hidden = true;
+    if (eqEl) eqEl.hidden = true;
+  }
+
+  const timerEl = document.getElementById('pill-timer');
+  const clockEl = document.getElementById('pill-clock');
+  if (timerEl && clockEl) {
+    timerEl.hidden = !hasTimer;
+    timerEl.classList.toggle('is-paused', state.status === 'paused');
+    timerEl.classList.toggle('is-done', state.status === 'done');
+    clockEl.textContent = formatClock(remainingSeconds(state));
+  }
+  pillEl.setAttribute('aria-label', hasMedia || hasTimer
+    ? `TIP 노치 아일랜드 펼치기${hasMedia ? ` — ${mediaState.title || '음악 재생 중'}` : ''}${hasTimer ? ` — 타이머 ${formatClock(remainingSeconds(state))}` : ''}`
+    : 'TIP 노치 아일랜드 펼치기');
+
+  updatePillMode(hasMedia, hasTimer);
+}
+
+/** 알약에 담을 내용이 바뀌면 Rust 에 알린다 — 접힌 창 폭이 그만큼 넓어진다. */
+function updatePillMode(hasMedia, hasTimer) {
+  if (!TAURI) return;
+  const signature = `${hasMedia ? 1 : 0}${hasTimer ? 1 : 0}`;
+  if (signature === pillModeSent) return;
+  pillModeSent = signature;
+  invoke('set_notch_pill', { media: hasMedia, timer: hasTimer }).catch(() => {
+    // 못 알렸으면 다음 그림에 다시 시도한다.
+    pillModeSent = '';
+  });
+}
+
+/** 노치 화면 정보 — 가운데 물리 노치 너비를 CSS 변수로 넣어 그 자리를 비운다. */
+async function loadNotchMetrics() {
+  if (!TAURI) {
+    notchInfo = { hasNotch: false, notchWidth: 0 };
+    applyNotchGap();
+    return;
+  }
+  try {
+    const info = await invoke('notch_metrics');
+    notchInfo = {
+      hasNotch: !!(info && info.hasNotch),
+      notchWidth: Number(info && info.notchWidth) || 0,
+    };
+  } catch {
+    notchInfo = { hasNotch: false, notchWidth: 0 };
+  }
+  applyNotchGap();
+  paintPill();
+}
+
+function applyNotchGap() {
+  // 노치가 없으면 0 — 가운데를 비울 필요가 없다.
+  const gap = notchInfo.hasNotch ? Math.max(0, notchInfo.notchWidth) : 0;
+  pillEl.style.setProperty('--notch-gap', `${gap}px`);
+  pillEl.classList.toggle('no-notch', !notchInfo.hasNotch);
+}
+
+/* ------------------------------ 타이머 (v1.15.0) ------------------------------ */
 
 function timerCard() {
   return widgetCard('timer', `
@@ -1048,43 +1355,83 @@ function timerCard() {
     </div>
     <div class="timer-body">
       <b class="timer-display" id="timer-display">00:00</b>
+      <div class="timer-presets">
+        ${TIMER_PRESETS.map((minutes) => `<button class="timer-chip" type="button" data-timer-seconds="${minutes * 60}">${minutes}분</button>`).join('')}
+      </div>
+      <div class="timer-custom">
+        <label class="timer-field"><span>분</span><input class="timer-input" id="timer-min" type="number" inputmode="numeric" min="0" max="1440" step="1" value="7"></label>
+        <label class="timer-field"><span>초</span><input class="timer-input" id="timer-sec" type="number" inputmode="numeric" min="0" max="59" step="1" value="0"></label>
+        <button class="timer-btn" type="button" id="timer-custom">이 시간</button>
+      </div>
       <div class="timer-row">
-        <button class="timer-chip" type="button" data-min="1">1분</button>
-        <button class="timer-chip" type="button" data-min="5">5분</button>
-        <button class="timer-chip" type="button" data-min="10">10분</button>
-        <button class="timer-btn" type="button" id="timer-toggle">시작</button>
+        <button class="timer-btn primary" type="button" id="timer-toggle">시작</button>
+        <button class="timer-btn" type="button" id="timer-extend">+1분</button>
+        <button class="timer-btn" type="button" id="timer-reset">초기화</button>
       </div>
     </div>
   `);
 }
 
-function paintTimer() {
-  const display = panelEl.querySelector('#timer-display');
-  if (!display) return;
-  const seconds = Math.max(0, Math.ceil(timerLeft));
-  display.textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-  display.classList.toggle('is-running', timerLeft > 0 && !!timerTick);
-  const side = panelEl.querySelector('#timer-side');
-  if (side) side.textContent = timerTick ? '진행 중' : (timerLeft > 0 ? '일시정지' : '대기');
-  const toggle = panelEl.querySelector('#timer-toggle');
-  if (toggle) toggle.textContent = timerTick ? '일시정지' : (timerLeft > 0 ? '계속' : '시작');
+/** 타이머 카드의 분·초 입력 → 초. 0 이면 시작하지 않는다. */
+function timerCardSeconds() {
+  const minEl = panelEl.querySelector('#timer-min');
+  const secEl = panelEl.querySelector('#timer-sec');
+  const minutes = Math.max(0, Math.min(1440, Math.floor(Number(minEl && minEl.value) || 0)));
+  const seconds = Math.max(0, Math.min(59, Math.floor(Number(secEl && secEl.value) || 0)));
+  const total = minutes * 60 + seconds;
+  return total > 0 ? total : 0;
 }
 
-function startTimer() {
-  clearInterval(timerTick);
-  timerTick = setInterval(() => {
-    timerLeft = Math.max(0, timerLeft - 0.25);
-    paintTimer();
-    if (timerLeft <= 0) {
-      clearInterval(timerTick);
-      timerTick = null;
-      paintTimer();
-      toast('타이머가 끝났습니다');
-      try {
-        new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=').play();
-      } catch { /* 소리는 못 내도 알림은 남는다 */ }
-    }
-  }, 250);
+/** 패널의 타이머 카드를 지금 상태로 — 접혀 있어도 요소가 없으면 조용히 넘어간다. */
+function paintTimerCard() {
+  const display = panelEl.querySelector('#timer-display');
+  if (!display) return;
+  const state = timerState();
+  display.textContent = formatClock(remainingSeconds(state));
+  display.classList.toggle('is-running', state.status === 'running');
+  display.classList.toggle('is-done', state.status === 'done');
+  const side = panelEl.querySelector('#timer-side');
+  if (side) {
+    side.textContent = state.status === 'running' ? '진행 중'
+      : state.status === 'paused' ? '일시정지'
+        : state.status === 'done' ? '완료' : '대기';
+  }
+  const toggle = panelEl.querySelector('#timer-toggle');
+  if (toggle) toggle.textContent = state.status === 'running' ? '일시정지' : (state.status === 'paused' ? '계속' : '시작');
+}
+
+/** 시간이 다 됐는지 — 끝났음을 이 창이 확정했을 때만 알림·소리를 낸다. */
+function checkTimerDone() {
+  if (!tickTimer()) return;
+  const state = timerState();
+  alertTimerDone(state.duration);
+  toast('타이머가 끝났습니다');
+  paintPill();
+  paintTimerCard();
+}
+
+/** 알약·타이머를 위한 배경 루프 — 창이 접혀 있어도 돈다. */
+function startPillLoops() {
+  if (!TAURI) return;
+  stopPillLoops();
+  pillMediaTimer = setInterval(() => {
+    if (!getNotchSettings().enabled) return;
+    fetchMedia();
+  }, 4500);
+  pillTickTimer = setInterval(() => {
+    paintPill();
+    paintTimerCard();
+    checkTimerDone();
+  }, 500);
+  fetchMedia();
+  paintPill();
+}
+
+function stopPillLoops() {
+  clearInterval(pillMediaTimer);
+  clearInterval(pillTickTimer);
+  pillMediaTimer = null;
+  pillTickTimer = null;
 }
 
 /* 빠른 메모 */
@@ -1240,24 +1587,20 @@ function startWidgets() {
   clearTimeout(widgetsDelay);
   widgetsDelay = setTimeout(() => {
     if (!expanded) return;
-    refreshMedia();
+    // v1.15.0 — 미디어는 배경 루프가 함께 돌린다(접힌 알약도 곡을 보여 줘야 하므로).
+    fetchMedia();
     refreshCalendar();
+    paintTimerCard();
   }, 220);
-  clearInterval(mediaTimer);
   clearInterval(calendarTimer);
-  mediaTimer = setInterval(refreshMedia, 5000);
   calendarTimer = setInterval(refreshCalendar, 5 * 60 * 1000);
 }
 
 function stopWidgets() {
   clearTimeout(widgetsDelay);
   widgetsDelay = null;
-  clearInterval(mediaTimer);
   clearInterval(calendarTimer);
-  mediaTimer = null;
   calendarTimer = null;
-  clearInterval(timerTick);
-  if (timerLeft <= 0) timerTick = null;
   if (mirrorStream) {
     mirrorStream.getTracks().forEach((track) => track.stop());
     mirrorStream = null;
@@ -1289,6 +1632,23 @@ panelEl.addEventListener('mouseenter', cancelCollapse);
 
 // 패널 안의 위젯 버튼 — 위임 처리
 panelEl.addEventListener('click', (event) => {
+  // v1.15.0 — 일정 추가 폼이 먼저다(카드의 data-cal-open 보다 앞).
+  if (event.target.closest('#cal-form-close') || event.target.closest('#cal-form-cancel')) {
+    closeCalendarForm();
+    return;
+  }
+  if (event.target.closest('#cal-form-save')) {
+    saveCalendarEvent();
+    return;
+  }
+  if (event.target.closest('[data-cal-add]')) {
+    openCalendarForm(calView.open ? calView.selected : null);
+    return;
+  }
+  if (event.target.closest('#cal-add-btn')) {
+    openCalendarForm(calView.selected);
+    return;
+  }
   // v1.13.0 — 캘린더 카드(아이콘·카드 아무 곳)를 누르면 달력 보기가 열린다.
   if (event.target.closest('[data-cal-open]') || event.target.closest('#cal-open')) {
     openCalendarView();
@@ -1358,24 +1718,52 @@ panelEl.addEventListener('click', (event) => {
   }
 
   if (event.target.closest('#timer-toggle')) {
-    if (timerTick) {
-      clearInterval(timerTick);
-      timerTick = null;
+    const state = timerState();
+    if (state.status === 'running' || state.status === 'paused') {
+      toggleTimer();
     } else {
-      if (timerLeft <= 0) timerLeft = 5 * 60;
-      startTimer();
+      const seconds = timerCardSeconds() || 5 * 60;
+      startTimer(seconds);
     }
-    paintTimer();
+    paintTimerCard();
+    paintPill();
+    openHeld();
     return;
   }
 
-  const minBtn = event.target.closest('[data-min]');
-  if (minBtn) {
-    clearInterval(timerTick);
-    timerTick = null;
-    timerLeft = Number(minBtn.dataset.min) * 60;
-    paintTimer();
+  const presetBtn = event.target.closest('[data-timer-seconds]');
+  if (presetBtn) {
+    startTimer(Number(presetBtn.dataset.timerSeconds) || 0);
+    paintTimerCard();
+    paintPill();
     openHeld();
+    return;
+  }
+
+  if (event.target.closest('#timer-custom')) {
+    const seconds = timerCardSeconds();
+    if (!seconds) {
+      toast('분이나 초를 1 이상으로 넣어 주세요');
+      return;
+    }
+    startTimer(seconds);
+    paintTimerCard();
+    paintPill();
+    openHeld();
+    return;
+  }
+
+  if (event.target.closest('#timer-reset')) {
+    resetTimer();
+    paintTimerCard();
+    paintPill();
+    return;
+  }
+
+  if (event.target.closest('#timer-extend')) {
+    if (!extendTimer(60)) toast('먼저 타이머를 시작해 주세요');
+    paintTimerCard();
+    paintPill();
     return;
   }
 
@@ -1396,6 +1784,28 @@ panelEl.addEventListener('click', (event) => {
     setExpanded(false);
   }
 });
+
+// v1.15.0 — 일정 추가 폼의 종일 토글·날짜 변경.
+const calFormBindings = () => {
+  const dom = calFormDom();
+  if (!dom.form) return;
+  dom.allDay.addEventListener('change', syncCalFormAllDay);
+  const fixEnd = () => {
+    const startMs = formDateMs(dom.startDate.value, dom.startTime.value, dom.allDay.checked);
+    const endMs = formDateMs(dom.endDate.value, dom.endTime.value, dom.allDay.checked);
+    if (!Number.isFinite(endMs) || endMs <= startMs) {
+      const start = new Date(startMs || Date.now());
+      const end = new Date(start.getTime() + (dom.allDay.checked ? 0 : 60 * 60 * 1000));
+      if (dom.allDay.checked) end.setDate(end.getDate() + 1);
+      dom.endDate.value = dayKey(end);
+      if (!dom.allDay.checked) dom.endTime.value = clock(end.getTime());
+    }
+  };
+  [dom.startDate, dom.startTime, dom.endDate, dom.endTime].forEach((input) => {
+    input.addEventListener('change', fixEnd);
+  });
+};
+calFormBindings();
 
 // v1.13.0 — 독립 캘린더 필터 — 체크를 바꾸면 바로 다시 읽는다(달력과 노치 요약 모두).
 panelEl.addEventListener('change', (event) => {
@@ -1454,13 +1864,20 @@ window.addEventListener('drop', (event) => {
 window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     event.preventDefault();
+    // 일정 추가 폼이 열려 있으면 폼부터 닫는다.
+    if (calForm.open) {
+      closeCalendarForm();
+      return;
+    }
     setExpanded(false);
   }
 });
 
 // 창 크기가 바뀌면 Rust 가 접거나 펼친 것 — 화면도 맞춘다.
+// v1.15.0 — 접힌 알약이 음악·타이머로 320px 넘게 넓어질 수 있어, 폭이 아니라 **높이**로
+// 펼침을 가른다(접힘 ~36pt · 펼침 600pt).
 function syncLayout() {
-  const wide = window.innerWidth >= 320;
+  const wide = window.innerHeight >= 200;
   if (wide && !expanded) {
     expanded = true;
     notchEl.classList.remove('is-collapsed');
@@ -1473,7 +1890,11 @@ function syncLayout() {
     stopWidgets();
   }
 }
-window.addEventListener('resize', syncLayout);
+window.addEventListener('resize', () => {
+  syncLayout();
+  // 디스플레이를 옮기면 노치 유무가 달라진다 — 가운데 여백을 다시 잰다.
+  if (!expanded) loadNotchMetrics();
+});
 
 window.addEventListener('storage', refreshFromSettings);
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -1501,6 +1922,9 @@ if (TAURI && window.__TAURI__.event) {
     if (expanded) setExpanded(false);
   });
 
+  // v1.15.0 — 타이머가 바뀌면(다른 창에서 시작·정지) 알약을 바로 다시 그린다.
+  listen('tip://timer', () => { paintPill(); paintTimerCard(); });
+
   // Finder 파일 드래그 — 들어오면 펼치고, 놓으면 경로를 읽어 보관함에 담는다.
   listen('tip://shelf-drag', (event) => setDragState(!!(event && event.payload)));
   listen('tip://shelf-drop', (event) => {
@@ -1517,10 +1941,18 @@ function refreshFromSettings() {
   applyAppearance();
   settingsRev += 1;
   renderWidgets();
+  // 미디어 위젯을 꺼면 알약에서도 곧바로 지우고, 켜면 바로 한 번 읽는다.
+  if (!getNotchSettings().widgets.media) {
+    mediaState = null;
+  } else if (!mediaState) {
+    fetchMedia();
+  }
+  paintPill();
+  paintTimerCard();
   // 마우스 오버 설정이 바뀌면 Rust 커서 감시도 바로 따라가게 한다(v1.12.4).
   invoke('set_notch_hover', { enabled: getNotchSettings().hoverOpen }).catch(() => {});
   if (expanded) {
-    refreshMedia();
+    fetchMedia();
     refreshCalendar();
   }
 }
@@ -1534,6 +1966,9 @@ if (new URLSearchParams(location.search).has('bg')) {
 applyAppearance();
 renderWidgets();
 syncLayout();
+// v1.15.0 — 알약의 음악·타이머 표시와 그 배경 루프, 노치 자리(가운데 여백).
+loadNotchMetrics();
+startPillLoops();
 // 노치 창이 직접 저장값을 Rust 에 밀어 준다 — 메인 창이 닫혀 있어도 커서 감시가 맞게 돈다.
 invoke('set_notch_hover', { enabled: getNotchSettings().hoverOpen }).catch(() => {});
 

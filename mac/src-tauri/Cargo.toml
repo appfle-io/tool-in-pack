@@ -1,6 +1,6 @@
 [package]
 name = "tip"
-version = "1.14.0"
+version = "1.15.0"
 description = "TIP (TOOL-IN-PACK) macOS 앱"
 authors = ["유동규 <appfle.io@gmail.com>"]
 edition = "2021"

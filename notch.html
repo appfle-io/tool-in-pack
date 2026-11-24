@@ -29,10 +29,26 @@
 </head>
 <body class="notch-body">
   <div class="notch is-collapsed" id="notch" role="dialog" aria-label="TIP 노치 아일랜드">
-    <!-- 접힌 상태 — 노치 아래에 붙은 작은 필 -->
+    <!-- 접힌 상태 — 노치 아래에 붙은 작은 필
+         v1.15.0 — 음악이 재생 중이면 왼쪽 날개에 이퀄라이저·곡 제목·진행률, 타이머가 돌면
+         오른쪽 날개에 남은 시간. 가운데(--notch-gap)는 물리 노치 자리라 아무것도 그리지 않는다. -->
     <button class="pill" id="pill" type="button" aria-label="TIP 노치 아일랜드 펼치기">
-      <span class="pill-logo">TIP</span>
-      <span class="pill-dot" id="pill-dot" aria-hidden="true"></span>
+      <span class="pill-wing pill-wing-left" id="pill-left">
+        <span class="pill-logo" id="pill-logo">TIP</span>
+        <span class="pill-eq" id="pill-eq" aria-hidden="true" hidden><i></i><i></i><i></i><i></i></span>
+        <span class="pill-track" id="pill-track" hidden>
+          <b class="pill-title" id="pill-title"></b>
+          <span class="pill-progress" aria-hidden="true"><span class="pill-progress-fill" id="pill-progress"></span></span>
+        </span>
+        <span class="pill-dot" id="pill-dot" aria-hidden="true"></span>
+      </span>
+      <span class="pill-gap" id="pill-gap" aria-hidden="true"></span>
+      <span class="pill-wing pill-wing-right" id="pill-right">
+        <span class="pill-timer" id="pill-timer" hidden>
+          <svg class="pill-timer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 10v3.6l2.2 1.4"/><path d="M9.5 3h5"/></svg>
+          <b id="pill-clock">00:00</b>
+        </span>
+      </span>
     </button>
 
     <!-- 펼친 상태 -->
@@ -68,6 +84,7 @@
             </button>
           </div>
           <div class="cal-view-tools">
+            <button class="cal-tool cal-add-btn" type="button" id="cal-add-btn" title="일정 추가">+ 일정</button>
             <button class="cal-tool" type="button" id="cal-today-btn" title="오늘로">오늘</button>
             <button class="cal-tool" type="button" id="cal-filter-btn" aria-expanded="false" title="캘린더 고르기">캘린더</button>
             <button class="cal-icon-btn" type="button" id="cal-view-close" aria-label="달력 닫기" title="닫기">
@@ -96,6 +113,42 @@
         <div class="cal-grid-wrap" id="cal-grid-wrap"></div>
         <div class="cal-day-head" id="cal-day-head"></div>
         <ul class="cal-day-list" id="cal-day-list"></ul>
+      </section>
+
+      <!-- v1.15.0 — 일정 추가 (EventKit). 달력·다가오는 일정 카드의 + 로 연다. -->
+      <section class="cal-form" id="cal-form" aria-label="일정 추가" hidden>
+        <header class="cal-form-head">
+          <b>일정 추가</b>
+          <button class="cal-icon-btn" type="button" id="cal-form-close" aria-label="닫기" title="닫기">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <label class="cal-field">
+          <span>제목</span>
+          <input class="cal-input" id="cal-form-title" type="text" maxlength="120" autocomplete="off" spellcheck="false" placeholder="예: 시우 병원">
+        </label>
+        <label class="cal-check"><input type="checkbox" id="cal-form-allday"> 종일 일정</label>
+        <div class="cal-form-dates">
+          <label class="cal-field">
+            <span>시작</span>
+            <input class="cal-input" id="cal-form-start-date" type="date">
+            <input class="cal-input cal-time" id="cal-form-start-time" type="time" step="60">
+          </label>
+          <label class="cal-field">
+            <span>끝</span>
+            <input class="cal-input" id="cal-form-end-date" type="date">
+            <input class="cal-input cal-time" id="cal-form-end-time" type="time" step="60">
+          </label>
+        </div>
+        <label class="cal-field">
+          <span>캘린더</span>
+          <select class="cal-input" id="cal-form-calendar"></select>
+        </label>
+        <p class="cal-form-note" id="cal-form-note">저장하면 맥 캘린더 앱에도 바로 보입니다.</p>
+        <div class="cal-form-actions">
+          <button class="cal-btn primary" type="button" id="cal-form-save">저장</button>
+          <button class="cal-btn" type="button" id="cal-form-cancel">취소</button>
+        </div>
       </section>
 
       <p class="panel-empty" id="panel-empty" hidden>

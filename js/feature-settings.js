@@ -26,6 +26,77 @@ export const SYSTEM_COMMANDS = {
 const SHORTCUTS_KEY = 'tip.shortcuts.v1';
 const SCOPE_KEY = 'tip.searchScope.v1';
 
+/* v1.15.0 — 모듈 단축키의 공통 조합(Prefix)과 한 글자.
+ *
+ * 유동규 님 지시: "전역에 컨트롤+쉽프트로 해두고 다른 단축키 지정은 여기서 알파벳만.
+ * (옵션+스페이스는 그대로 유지. 이건 별도야)"
+ *   · 공통 조합 하나(tip.shortcutPrefix.v1, 기본 Control+Shift)를 정하고
+ *   · 각 모듈·도구는 알파벳·숫자 한 글자(tip.shortcutLetters.v1)만 고른다.
+ *   · 실제 전역 단축키는 'Control+Shift+KeyS' 처럼 조합해 Rust 에 넘긴다.
+ * v1.14.0 의 '전체 조합 직접 입력'(tip.shortcuts.v1) 값은 한 번 옮긴다 — 기본 조합과
+ * 같은 조합은 글자로, 방향키처럼 글자로 표현할 수 없는 조합은 그대로 남긴다(extra).
+ */
+const PREFIX_KEY = 'tip.shortcutPrefix.v1';
+const LETTERS_KEY = 'tip.shortcutLetters.v1';
+const EXTRA_KEY = 'tip.shortcutExtra.v1';
+const MIGRATION_KEY = 'tip.shortcutMigration.v115';
+
+/** 고를 수 있는 공통 조합 — 모두 'Shift 또는 Control/Command' 가 붙어 오타 입력이 없다. */
+export const SHORTCUT_PREFIXES = [
+  { id: 'Control+Shift', label: 'Control + Shift', short: '⌃⇧' },
+  { id: 'Alt+Shift', label: 'Option + Shift', short: '⌥⇧' },
+  { id: 'Command+Shift', label: 'Command + Shift', short: '⌘⇧' },
+  { id: 'Control+Alt', label: 'Control + Option', short: '⌃⌥' },
+  { id: 'Command+Alt', label: 'Command + Option', short: '⌘⌥' },
+  { id: 'Control+Command', label: 'Control + Command', short: '⌃⌘' },
+];
+
+export const DEFAULT_PREFIX = 'Control+Shift';
+
+/** 저장된 공통 조합 — 모르는 값이면 기본값. */
+export function getShortcutPrefix() {
+  try {
+    const saved = localStorage.getItem(PREFIX_KEY);
+    return SHORTCUT_PREFIXES.some((item) => item.id === saved) ? saved : DEFAULT_PREFIX;
+  } catch {
+    return DEFAULT_PREFIX;
+  }
+}
+
+export function setShortcutPrefix(prefix) {
+  if (!SHORTCUT_PREFIXES.some((item) => item.id === prefix)) return false;
+  try {
+    localStorage.setItem(PREFIX_KEY, prefix);
+  } catch { /* 저장하지 못하면 이번에만 */ }
+  return true;
+}
+
+/** 'KeyS' → 'S', 'Digit1' → '1'. 글자·숫자가 아니면 ''. */
+export function letterForCode(code) {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  return '';
+}
+
+/** 'S' → 'KeyS', '1' → 'Digit1'. 알파벳·숫자 한 글자가 아니면 ''. */
+export function codeForLetter(letter) {
+  const value = String(letter || '').trim().toUpperCase();
+  if (/^[A-Z]$/.test(value)) return `Key${value}`;
+  if (/^[0-9]$/.test(value)) return `Digit${value}`;
+  return '';
+}
+
+/** 공통 조합 + 한 글자 → 실제 accelerator. 글자가 없으면 ''. */
+export function acceleratorForLetter(letter, prefix = getShortcutPrefix()) {
+  const code = codeForLetter(letter);
+  return code ? `${prefix}+${code}` : '';
+}
+
+/** 모듈 단축키로 쓸 수 있는 한 글자인지. */
+export function validShortcutLetter(letter) {
+  return !!codeForLetter(letter);
+}
+
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
 function invoke(command, args) {
@@ -122,41 +193,116 @@ export function setSystemCommandEnabled(id, on) {
 
 /* ------------------------------ 전역 단축키 ------------------------------ */
 
-/** 기능 id → 단축키. 값이 없으면 그 기능은 단축키가 없다. */
-export function getShortcuts() {
-  return readJson(SHORTCUTS_KEY, {});
+/** 기능 id → 한 글자. 값이 없으면 그 기능은 단축키가 없다. */
+export function getShortcutLetters() {
+  return readJson(LETTERS_KEY, {});
 }
 
+/** 글자로 표현할 수 없는 조합(방향키 등, v1.14.0에서 직접 정한 값). */
+export function getShortcutExtras() {
+  return readJson(EXTRA_KEY, {});
+}
+
+/** v1.14.0 값 옮기기 — 한 번만. 기본 조합과 같은 것은 글자로, 나머지는 extra 로. */
+function migrateShortcuts() {
+  try {
+    if (localStorage.getItem(MIGRATION_KEY) === '1') return;
+  } catch {
+    return;
+  }
+  const old = readJson(SHORTCUTS_KEY, {});
+  const prefix = getShortcutPrefix();
+  const letters = readJson(LETTERS_KEY, {});
+  const extras = readJson(EXTRA_KEY, {});
+  Object.entries(old).forEach(([key, accelerator]) => {
+    const value = String(accelerator || '').trim();
+    if (!value || letters[key] || extras[key]) return;
+    const match = value.match(/^(.*)\+(Key[A-Z]|Digit[0-9])$/);
+    if (match && match[1] === prefix) letters[key] = letterForCode(match[2]);
+    else extras[key] = value;
+  });
+  writeJson(LETTERS_KEY, letters);
+  writeJson(EXTRA_KEY, extras);
+  try {
+    localStorage.setItem(MIGRATION_KEY, '1');
+  } catch { /* 다음 실행에 다시 시도해도 결과는 같다 */ }
+}
+
+migrateShortcuts();
+
+/** 지금 실제로 등록할 단축키 — 글자(공통 조합과 합침) + 그대로 쓴 조합. */
+export function shortcutEntries() {
+  const prefix = getShortcutPrefix();
+  const entries = [];
+  Object.entries(getShortcutLetters()).forEach(([key, letter]) => {
+    const accelerator = acceleratorForLetter(letter, prefix);
+    if (accelerator) entries.push([key, accelerator]);
+  });
+  Object.entries(getShortcutExtras()).forEach(([key, accelerator]) => {
+    if (String(accelerator || '').trim()) entries.push([key, String(accelerator).trim()]);
+  });
+  return entries;
+}
+
+/** 기능 id → 실제 accelerator. 글자가 먼저, 없으면 직접 정한 조합. */
 export function getShortcut(actionKey) {
-  return getShortcuts()[actionKey] || '';
+  const letter = getShortcutLetters()[actionKey];
+  if (letter) return acceleratorForLetter(letter);
+  return getShortcutExtras()[actionKey] || '';
 }
 
+/** v1.14.0 호환 — 전체 조합을 직접 넣는다(방향키처럼 글자가 아닌 것만). */
 export function setShortcut(actionKey, accelerator) {
-  const next = { ...getShortcuts() };
   const value = String(accelerator || '').trim();
-  if (value) next[actionKey] = value;
-  else delete next[actionKey];
-  writeJson(SHORTCUTS_KEY, next);
-  return next;
+  const extras = { ...getShortcutExtras() };
+  if (value) extras[actionKey] = value;
+  else delete extras[actionKey];
+  writeJson(EXTRA_KEY, extras);
+  return extras;
+}
+
+/** 한 글자로 지정한다. 같은 조합을 이미 쓰는 기능이 있으면 { ok:false, owner }. */
+export function setShortcutLetter(actionKey, letter) {
+  const value = String(letter || '').trim().toUpperCase();
+  if (!value) return { ok: false, reason: 'empty' };
+  if (!validShortcutLetter(value)) return { ok: false, reason: 'invalid' };
+  const accelerator = acceleratorForLetter(value);
+  const owner = shortcutOwner(accelerator, actionKey);
+  if (owner) return { ok: false, reason: 'duplicate', owner, accelerator };
+
+  const letters = { ...getShortcutLetters(), [actionKey]: value };
+  writeJson(LETTERS_KEY, letters);
+  // 같은 기능에 직접 정한 조합이 남아 있으면 지운다 — 둘 다 등록되면 늘 실패한다.
+  const extras = { ...getShortcutExtras() };
+  if (extras[actionKey]) {
+    delete extras[actionKey];
+    writeJson(EXTRA_KEY, extras);
+  }
+  return { ok: true, accelerator };
 }
 
 export function clearShortcut(actionKey) {
-  return setShortcut(actionKey, '');
+  const letters = { ...getShortcutLetters() };
+  const extras = { ...getShortcutExtras() };
+  delete letters[actionKey];
+  delete extras[actionKey];
+  writeJson(LETTERS_KEY, letters);
+  writeJson(EXTRA_KEY, extras);
+  return letters;
 }
 
 /** 같은 단축키를 이미 쓰는 기능 — 충돌을 미리 알려 준다. */
 export function shortcutOwner(accelerator, exceptKey) {
   const target = String(accelerator || '').trim();
   if (!target) return null;
-  const entries = Object.entries(getShortcuts());
-  const found = entries.find(([key, value]) => key !== exceptKey && value === target);
+  const found = shortcutEntries().find(([key, value]) => key !== exceptKey && value === target);
   return found ? found[0] : null;
 }
 
 /** 저장된 단축키를 Rust 에 통째로 등록한다. 실패한 항목 목록을 돌려준다. */
 export async function syncShortcuts() {
   if (!TAURI) return [];
-  const items = Object.entries(getShortcuts()).filter(([, value]) => !!String(value || '').trim());
+  const items = shortcutEntries();
   try {
     const failures = await invoke('set_module_shortcuts', { items });
     return Array.isArray(failures) ? failures : [];

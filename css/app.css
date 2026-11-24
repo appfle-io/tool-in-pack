@@ -4063,3 +4063,118 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
 @media (max-width: 420px) {
   .addr-ship-fields { grid-template-columns: 1fr; }
 }
+
+/* ------------------------------ 타이머 (v1.15.0) ------------------------------ */
+
+.tm { gap: 12px; }
+.tm-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+}
+.tm-clock {
+  font-size: 46px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.tm-clock.is-running { color: var(--accent); }
+.tm-clock.is-done { color: var(--warn); }
+.tm-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.tm-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.25s linear;
+}
+.tm-bar.is-paused .tm-bar-fill { opacity: 0.45; }
+.tm-bar.is-done .tm-bar-fill { background: var(--warn); }
+.tm-state { margin: 0; font-size: 12.5px; color: var(--muted); text-align: center; }
+.tm-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.tm-actions .v16-btn { min-width: 68px; }
+.tm-side { font-size: 11px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+.tm-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.tm-preset {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.tm-preset:hover { border-color: var(--accent); }
+.tm-preset.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.tm-inputs { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.tm-field { display: flex; flex-direction: column; gap: 4px; width: 84px; }
+.tm-field span { font-size: 11px; color: var(--muted); font-weight: 600; }
+.tm-field .pt-input { height: 34px; text-align: center; font-variant-numeric: tabular-nums; }
+.tm-hint {
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted-2);
+}
+.tm-hint code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--card-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text);
+}
+
+/* ------------------- 모듈 단축키 — 공통 조합 + 한 글자 (v1.15.0) ------------------- */
+
+.shortcut-prefix-section .sheet-select { min-width: 190px; }
+.shortcut-prefix-chip { color: var(--muted); }
+.shortcut-letter-group { align-items: center; gap: 6px; }
+.shortcut-plus { font-size: 11px; color: var(--muted-2); }
+.shortcut-letter {
+  width: 40px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.shortcut-letter::placeholder { color: var(--muted-2); font-weight: 500; }
+.shortcut-letter:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.shortcut-extra-chip {
+  border-style: dashed;
+  color: var(--muted);
+  font-weight: 600;
+}
+.shortcut-clear { white-space: nowrap; }

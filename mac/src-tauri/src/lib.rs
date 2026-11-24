@@ -55,6 +55,10 @@ const NOTCH_PILL_W: f64 = 92.0;
 const NOTCH_PILL_H: f64 = 28.0;
 const NOTCH_OPEN_W: f64 = 452.0;
 const NOTCH_OPEN_H: f64 = 600.0;
+// v1.15.0 — 접힌 알약이 음악·타이머를 품을 때 더하는 폭(논리 pt).
+//   음악 날개: 이퀄라이저 + 짧은 곡 제목 + 진행률 바 / 타이머 날개: 남은 시간.
+const NOTCH_PILL_MEDIA_W: f64 = 150.0;
+const NOTCH_PILL_TIMER_W: f64 = 84.0;
 
 // 전역 빠른 실행 검색 — 화면 가운데 위쪽의 작은 팔레트.
 // v1.14.0 — 계산기·웹 검색·파일·앱·스니펫까지 담느라 440 → 520 으로 조금 높였다.
@@ -85,6 +89,11 @@ static PENDING_SETTINGS: Mutex<bool> = Mutex::new(false);
 
 /// 노치 아일랜드가 펼쳐져 있는지(창 크기 상태).
 static NOTCH_OPEN: Mutex<bool> = Mutex::new(false);
+
+/// 접힌 알약에 지금 무엇을 보여 주는지 — 화면(notch.js)이 알린다(v1.15.0).
+/// true 인 쪽만큼 알약 창을 넓혀 곡 제목·진행률과 타이머를 담는다.
+static PILL_MEDIA: AtomicBool = AtomicBool::new(false);
+static PILL_TIMER: AtomicBool = AtomicBool::new(false);
 
 /// 환경설정의 '마우스를 올려서 열기'(기본 OFF) — 프런트가 값을 밀어 준다.
 static HOVER_OPEN: AtomicBool = AtomicBool::new(false);
@@ -248,7 +257,7 @@ fn notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     }
 
     // v1.12.2 — 접힌 알약은 화면 물리적 최상단에 밀착한다. 노치 화면이면 노치를 감싸는 크기.
-    let (pill_w, pill_h) = notch::pill_size(NOTCH_PILL_W, NOTCH_PILL_H);
+    let (pill_w, pill_h) = collapsed_pill_size();
 
     let mut builder = WebviewWindowBuilder::new(app, NOTCH, WebviewUrl::App("notch.html".into()))
         .title("TIP 노치 아일랜드")
@@ -320,13 +329,26 @@ fn place_notch(app: &AppHandle, win: &WebviewWindow, width: f64, height: f64, op
     place_top_center(app, win, width, height, 0.0);
 }
 
+/// 접힌 알약 창의 크기 — 노치 화면이면 노치를 감싸고, 지금 보여 주는 내용만큼 넓어진다.
+fn collapsed_pill_size() -> (f64, f64) {
+    let (width, height) = notch::pill_size(NOTCH_PILL_W, NOTCH_PILL_H);
+    let mut extra = 0.0;
+    if PILL_MEDIA.load(Ordering::Relaxed) {
+        extra += NOTCH_PILL_MEDIA_W;
+    }
+    if PILL_TIMER.load(Ordering::Relaxed) {
+        extra += NOTCH_PILL_TIMER_W;
+    }
+    (width + extra, height)
+}
+
 /// 접힘/펼침 — 창 크기를 바꾸고 다시 화면 최상단 가운데에 붙인다.
 fn set_notch_open(app: &AppHandle, open: bool) {
     let Some(win) = app.get_webview_window(NOTCH) else { return };
     let (width, height) = if open {
         (NOTCH_OPEN_W, NOTCH_OPEN_H)
     } else {
-        notch::pill_size(NOTCH_PILL_W, NOTCH_PILL_H)
+        collapsed_pill_size()
     };
     *NOTCH_OPEN.lock().unwrap() = open;
     place_notch(app, &win, width, height, open);
@@ -344,7 +366,7 @@ fn show_notch(app: &AppHandle) {
     let (width, height) = if open {
         (NOTCH_OPEN_W, NOTCH_OPEN_H)
     } else {
-        notch::pill_size(NOTCH_PILL_W, NOTCH_PILL_H)
+        collapsed_pill_size()
     };
     place_notch(app, &win, width, height, open);
     // v1.12.3 — win.show()(makeKeyAndOrderFront)는 다른 앱이 전체화면일 때 노치를 그 Space 뒤로 내리고
@@ -368,6 +390,58 @@ fn notch_expand(app: AppHandle) {
 #[tauri::command]
 fn notch_collapse(app: AppHandle) {
     set_notch_open(&app, false);
+}
+
+/* ------------------- 접힌 알약의 내용·크기 (v1.15.0) ------------------- */
+
+/// 접힌 알약에 음악·타이머를 보일지 알린다. 값이 바뀌면 접힌 창 크기를 바로 다시 잡는다
+/// (펼쳐져 있으면 접을 때 새 크기로 돌아간다). 화면이 필요 없는 값은 보내지 않는다.
+#[tauri::command]
+fn set_notch_pill(app: AppHandle, media: bool, timer: bool) {
+    let was_media = PILL_MEDIA.swap(media, Ordering::Relaxed);
+    let was_timer = PILL_TIMER.swap(timer, Ordering::Relaxed);
+    let changed = was_media != media || was_timer != timer;
+    if !changed {
+        return;
+    }
+    if *NOTCH_OPEN.lock().unwrap() {
+        return;
+    }
+    if let Some(win) = app.get_webview_window(NOTCH) {
+        let (width, height) = collapsed_pill_size();
+        place_notch(&app, &win, width, height, false);
+    }
+}
+
+/// 노치 화면 정보 — 화면 크기와 노치 크기(없으면 0). 화면은 가운데를 비워 둔다.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NotchMetrics {
+    has_notch: bool,
+    notch_width: f64,
+    notch_height: f64,
+    screen_width: f64,
+    screen_height: f64,
+}
+
+#[tauri::command]
+fn notch_metrics() -> NotchMetrics {
+    match notch::metrics() {
+        Some((screen_width, screen_height, width, height)) => NotchMetrics {
+            has_notch: width > 1.0 && height > 1.0,
+            notch_width: width,
+            notch_height: height,
+            screen_width,
+            screen_height,
+        },
+        None => NotchMetrics {
+            has_notch: false,
+            notch_width: 0.0,
+            notch_height: 0.0,
+            screen_width: 0.0,
+            screen_height: 0.0,
+        },
+    }
 }
 
 /* --------------------- 커서 감시 — 다른 앱을 쓰는 중에도 열린다 (v1.12.4) --------------------- */
@@ -899,6 +973,47 @@ fn show_main(app: &AppHandle, module: Option<String>, settings: bool) -> Result<
         let _ = quickbar.hide();
     }
     Ok(())
+}
+
+/* ------------------------------ 타이머 알림 (v1.15.0) ------------------------------ */
+
+/// 타이머가 끝났을 때 — 소리와 알림 센터 알림. 화면(js/timer-store.js)이 부른다.
+/// osascript 의 display notification 은 별도 권한이 없어도 알림 센터에 뜨고(거부되면 조용히 실패),
+/// 소리는 afplay 로 낸다 — 알림이 막혀도 소리는 남는다.
+#[tauri::command]
+fn timer_alert(app: AppHandle, title: Option<String>, body: Option<String>) {
+    let _ = &app;
+    let title = title.unwrap_or_else(|| "TIP 타이머".to_string());
+    let body = body.unwrap_or_else(|| "타이머가 끝났습니다".to_string());
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("afplay")
+            .arg("/System/Library/Sounds/Glass.aiff")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        // AppleScript 문자열 안의 따옴표·역슬래시만 이스케이프한다 — 셸을 거치지 않는다.
+        let escape = |text: &str| text.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!(
+            "display notification \"{}\" with title \"{}\"",
+            escape(&body),
+            escape(&title)
+        );
+        let _ = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (&app, title, body);
+    }
 }
 
 /* -------------------------------- 명령 -------------------------------- */
@@ -1524,8 +1639,12 @@ pub fn run() {
             media::calendar_today,
             media::calendar_list,
             media::calendar_events,
+            media::calendar_create,
             notch_expand,
             notch_collapse,
+            set_notch_pill,
+            notch_metrics,
+            timer_alert,
             notch_focus,
             set_notch_hover,
             notch_hover_hold,

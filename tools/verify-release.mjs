@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * TIP v1.14.0 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
+ * TIP v1.15.0 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
  *
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.15.0 — 노치 동적 음악·타이머·공통 단축키 조합·설정 전수 점검을 검사한다.
  * v1.14.0 — Mac 생산성 확장(스티커 메모 · Spotlight형 전역 검색 · 모듈별 단축키 · 스포이드 ·
  *          드래그 OCR · 창 분할 · 파일 일괄 이름 변경 · 스니펫 · 로그인 자동 실행 · 시스템 명령 ·
  *          설정 4탭 · 문의 메일 · 주소 영문 변환)을 검사한다.
@@ -59,7 +60,7 @@ check('Cargo.toml 버전', new RegExp(`^version = "${VERSION}"`, 'm').test(read(
 check('mac/package.json 버전', JSON.parse(read('mac/package.json')).version === VERSION);
 check('sw.js 캐시 버전', read('sw.js').includes(`tip-v${VERSION}`));
 check('js/app.js APP_VERSION', read('js/app.js').includes(`APP_VERSION = '${VERSION}'`));
-check('버전이 1.14.0 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 14 || (minor === 14 && patch >= 0))))(VERSION.split('.').map(Number)), String(VERSION));
+check('버전이 1.15.0 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 15 || (minor === 15 && patch >= 0))))(VERSION.split('.').map(Number)), String(VERSION));
 
 /* ------------------------------ 2. 노치 밀착 ------------------------------ */
 
@@ -170,6 +171,8 @@ const EXPECTED = {
     'clipboard-history', 'qr-gen', 'file-compress', 'ocr-reader', 'unit-converter',
     // v1.14.0
     'sticky-notes', 'snippets', 'screen-picker', 'drag-ocr', 'window-snap', 'bulk-rename',
+    // v1.15.0
+    'timer',
   ],
   online: ['address-search', 'parcel-tracker', 'currency-calc'],
 };
@@ -177,8 +180,8 @@ const EXPECTED = {
 // registry 목록에 적힌 모듈만 센다(파일 시스템 탐색에 기대지 않는다).
 const listed = [...registry.matchAll(/^import\s+(\w+)\s+from\s+'\.\/([^/]+)\/module\.js';/gm)].map((m) => m[2]);
 const total = Object.values(EXPECTED).flat();
-check('registry 모듈 26개', listed.length === 26 && total.length === 26, `${listed.length}/${total.length}`);
-check('registry 가 26개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
+check('registry 모듈 27개', listed.length === 27 && total.length === 27, `${listed.length}/${total.length}`);
+check('registry 가 27개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
 
 Object.entries(EXPECTED).forEach(([category, ids]) => {
   ids.forEach((id) => {
@@ -428,7 +431,82 @@ check('sw.js 가 sticky.html 캐시', read('sw.js').includes("'./sticky.html'"))
 check('sw.js 가 새 스크립트 캐시', ['./js/calc.js', './js/chosung.js', './js/snippets.js', './js/feature-settings.js', './js/sticky.js']
   .every((path) => read('sw.js').includes(`'${path}'`)));
 check('collect-web 이 sticky.html 포함', read('mac/scripts/collect-web.sh').includes('sticky.html'));
-check('README 에 v1.14.0', read('README.md').includes('v1.14.0'));
+check('README 에 v1.15.0', read('README.md').includes('v1.15.0'));
+
+/* ------------------------- v1.15.0 노치 동적 음악·타이머·공통 단축키 ------------------------- */
+
+// 1. 접힌 알약 — 음악(이퀄라이저·제목·진행률) + 타이머
+check('notch.html 알약 이퀄라이저·곡 제목·진행률', read('notch.html').includes('id="pill-eq"')
+  && read('notch.html').includes('id="pill-title"') && read('notch.html').includes('id="pill-progress"'));
+check('notch.html 알약 타이머 시간', read('notch.html').includes('id="pill-clock"') && read('notch.html').includes('id="pill-timer"'));
+check('notch.css 가운데 노치 자리(--notch-gap)', /--notch-gap:\s*0px/.test(read('css/notch.css')) && /\.pill-gap\s*\{[^}]*var\(--notch-gap/.test(read('css/notch.css')));
+check('notch.css 이퀄라이저 애니메이션', /@keyframes pill-eq/.test(read('css/notch.css')) && /prefers-reduced-motion/.test(read('css/notch.css')));
+check('notch.js 가 접힘에서도 미디어를 읽음', /async function fetchMedia\(\)/.test(read('js/notch.js'))
+  && /setInterval\(\(\) => \{[\s\S]{0,120}fetchMedia\(\);/.test(read('js/notch.js')));
+check('notch.js 4~5초 동기화', read('js/notch.js').includes('}, 4500);'));
+check('notch.js 위치 보간', /function mediaPositionNow\(\)/.test(read('js/notch.js')));
+check('notch.js 접힘을 높이로 판단(넓은 알약 오판 없음)', /window\.innerHeight >= 200/.test(read('js/notch.js')));
+const mediaRs = read('mac/src-tauri/src/media.rs');
+check('media.rs 곡 위치·길이 필드', /pub position: f64/.test(mediaRs) && /pub duration: f64/.test(mediaRs));
+check('media.rs Apple Music position/duration', mediaRs.includes('player position') && mediaRs.includes('duration of current track'));
+check('media.rs Spotify ms→초', /\(duration of current track\) \/ 1000/.test(mediaRs));
+check('노치 모듈이 가운데를 비울 수 있게 metrics', /pub fn metrics\(\)/.test(read('mac/src-tauri/src/notch.rs')));
+check('Rust 알약 내용에 따라 폭 확장', /fn set_notch_pill/.test(lib) && /NOTCH_PILL_MEDIA_W/.test(lib) && /NOTCH_PILL_TIMER_W/.test(lib));
+check('Rust notch_metrics 커맨드', /fn notch_metrics\(\)/.test(lib) && lib.includes('notch_metrics,'));
+check('set_notch_pill 등록', lib.includes('set_notch_pill,'));
+
+// 2. TIP 내장 타이머
+const timerStore = read('js/timer-store.js');
+check('js/timer-store.js 공유 상태', exists('js/timer-store.js') && /const KEY = 'tip\.timer\.v1'/.test(timerStore));
+check('타이머 프리셋 1·3·5·10·25분', /TIMER_PRESETS = \[1, 3, 5, 10, 25\]/.test(timerStore));
+check('타이머 시작·일시정지·재개·초기화', ['startTimer', 'pauseTimer', 'resumeTimer', 'resetTimer'].every((name) => new RegExp(`export function ${name}\\(`).test(timerStore)));
+check('타이머 끝 알림', /export async function alertTimerDone/.test(timerStore) && timerStore.includes("invoke('timer_alert'"));
+check('검색어 타이머 해석', /export function parseTimerQuery/.test(timerStore) && timerStore.includes('시간') && timerStore.includes('분'));
+check('타이머 모듈 존재', exists('modules/timer/module.js') && /id: 'timer'/.test(read('modules/timer/module.js')));
+check('타이머 모듈 분·초 입력', /id="tm-min"/.test(read('modules/timer/module.js')) && /id="tm-sec"/.test(read('modules/timer/module.js')));
+check('노치 타이머 카드 분·초·프리셋', read('js/notch.js').includes('id="timer-min"') && read('js/notch.js').includes('data-timer-seconds'));
+check('노치·메인·검색이 같은 타이머 상태', /tip\.timer\.v1/.test(timerStore) && /tip:\/\/timer/.test(read('js/notch.js')) && /tickTimer/.test(appJs));
+check('Rust 타이머 알림 커맨드', /fn timer_alert/.test(lib) && lib.includes('timer_alert,'));
+
+// 2-b. 노치 달력 — 일정 추가 (EventKit)
+check('media.rs 일정 추가 커맨드', /pub async fn calendar_create\(/.test(mediaRs) && mediaRs.includes('saveEvent_span_commit_error'));
+check('일정 추가는 EKEvent 로 만듬', mediaRs.includes('EKEvent::eventWithEventStore') && mediaRs.includes('EKSpan::ThisEvent'));
+check('쓰기 가능한 캘린더만', mediaRs.includes('allowsContentModifications'));
+check('기본 캘린더 사용', mediaRs.includes('defaultCalendarForNewEvents'));
+check('저장 후 캘린더 캐시 비움', /fn clear_calendar_cache/.test(mediaRs));
+check('calendar_list 가 쓰기 가능 여부 전달', /pub writable: bool/.test(mediaRs));
+const notchSource = read('js/notch.js');
+check('Rust calendar_create 등록', lib.includes('media::calendar_create,'));
+check('notch.html 일정 추가 폼', read('notch.html').includes('id="cal-form"')
+  && read('notch.html').includes('id="cal-form-calendar"') && read('notch.html').includes('id="cal-form-save"'));
+check('노치 카드·달력에 + 일정', notchSource.includes('data-cal-add') && notchSource.includes('#cal-add-btn'));
+check('notch.js 가 calendar_create 호출', /function openCalendarForm/.test(notchSource) && notchSource.includes("invoke('calendar_create'"));
+check('쓸 수 있는 캘린더만 고르기', /filter\(\(calendar\) => calendar\.writable\)/.test(notchSource));
+check('CSS 일정 폼', /\.cal-form\s*\{/.test(read('css/notch.css')) && /@keyframes pill-eq/.test(read('css/notch.css')));
+check('README 에 일정 추가', read('README.md').includes('일정 추가'));
+check('Rust 알림은 셸을 거치지 않음', /Command::new\("osascript"\)/.test(lib) && /Command::new\("afplay"\)/.test(lib));
+check('전역 검색 타이머 항목', /kind: 'timer'/.test(searchJs) && /timerItems\(query\)/.test(searchJs));
+const pkg = read('modules/registry.js');
+check('registry 타이머 등록', /import timer from '\.\/timer\/module\.js'/.test(pkg) && /^  timer,$/m.test(pkg));
+check('sw.js 타이머 캐시', read('sw.js').includes("'./js/timer-store.js'") && read('sw.js').includes("'./modules/timer/module.js'"));
+
+// 3. 모듈 단축키 공통 조합 + 한 글자
+const feature = read('js/feature-settings.js');
+check('공통 조합 저장 키', feature.includes('tip.shortcutPrefix.v1'));
+check('기본 조합 Control+Shift', /DEFAULT_PREFIX = 'Control\+Shift'/.test(feature));
+check('한 글자 저장 키', feature.includes('tip.shortcutLetters.v1'));
+check('조합 + 글자 합성', /export function acceleratorForLetter/.test(feature) && /Key\$\{value\}/.test(feature));
+check('중복 글자 검사', /export function shortcutOwner/.test(feature) && /reason: 'duplicate'/.test(feature));
+check('v1.14.0 직접 조합 이전', /MIGRATION_KEY/.test(feature) && feature.includes('tip.shortcutExtra.v1'));
+check('모듈 탭 공통 조합 UI', /function shortcutPrefixSection/.test(appJs) && /shortcut-prefix-select/.test(appJs));
+check('모듈 단축키 한 글자 입력', /class: 'shortcut-letter'/.test(appJs) && /setShortcutLetter\(/.test(appJs));
+check('Option+Space 는 검색 전용으로 유지', /DEFAULT_SEARCH_SHORTCUT: &str = "Alt\+Space"/.test(lib));
+
+// 4. 설정 4탭 — 취소 버그 원인 수정
+check('취소 누름이 캐처를 끊음', /if \(capturing\) \{\s*stop\(\);/.test(appJs));
+check('Esc 캐처가 시트 닫기로 번지지 않음', /event\.stopPropagation\(\);/.test(appJs));
+check('설정 취소 버그 회귀 테스트', exists('tools/settings-e2e.mjs'));
+check('README 모듈 27종', read('README.md').includes('모듈 27종') || read('README.md').includes('27종'));
 
 /* ------------------------------ 결과 ------------------------------ */
 

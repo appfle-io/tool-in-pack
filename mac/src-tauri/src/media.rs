@@ -52,6 +52,10 @@ pub struct MediaState {
     pub playing: bool,
     pub title: String,
     pub artist: String,
+    /// 지금 재생 위치(초). v1.15.0 — 노치 알약의 진행률 바.
+    pub position: f64,
+    /// 곡 길이(초). 0이면 알 수 없음(진행률은 그리지 않는다).
+    pub duration: f64,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -80,6 +84,8 @@ pub struct CalCalendar {
     pub color: String,
     /// 계정 이름(iCloud·Google 등) — 같은 이름의 캘린더를 구분한다.
     pub source: String,
+    /// 이 캘린더에 일정을 만들 수 있는지(v1.15.0 — 일정 추가의 선택 목록).
+    pub writable: bool,
 }
 
 /// 캘린더를 읽을 수 없거나 색을 못 읽었을 때 쓰는 기본 색(팩인백 딥그린).
@@ -183,6 +189,8 @@ fn collect(mut child: Child, success: bool) -> Result<String, String> {
 
 const STATE_SCRIPT: &str = r#"
 set out to ""
+set pos to 0
+set dur to 0
 if application "Spotify" is running then
   tell application "Spotify"
     set st to (player state as text)
@@ -192,7 +200,11 @@ if application "Spotify" is running then
       set t to name of current track
       set ar to artist of current track
     end try
-    set out to "Spotify" & tab & st & tab & t & tab & ar
+    try
+      set pos to player position
+      set dur to (duration of current track) / 1000
+    end try
+    set out to "Spotify" & tab & st & tab & pos & tab & dur & tab & t & tab & ar
   end tell
 else if application "Music" is running then
   tell application "Music"
@@ -203,11 +215,23 @@ else if application "Music" is running then
       set t to name of current track
       set ar to artist of current track
     end try
-    set out to "Music" & tab & st & tab & t & tab & ar
+    try
+      set pos to player position
+      set dur to duration of current track
+    end try
+    set out to "Music" & tab & st & tab & pos & tab & dur & tab & t & tab & ar
   end tell
 end if
 return out
 "#;
+
+/// AppleScript 가 돌려준 숫자를 0 이상의 초로 맞춘다 — 값이 없거나 이상하면 0.
+fn seconds(value: Option<&&str>) -> f64 {
+    value
+        .and_then(|text| text.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(0.0)
+}
 
 fn read_media_state() -> Result<MediaState, String> {
     let raw = osascript(STATE_SCRIPT, MEDIA_TIMEOUT)?;
@@ -217,14 +241,20 @@ fn read_media_state() -> Result<MediaState, String> {
             playing: false,
             title: String::new(),
             artist: String::new(),
+            position: 0.0,
+            duration: 0.0,
         });
     }
     let parts: Vec<&str> = raw.split('\t').collect();
     let app = parts.first().copied().unwrap_or("").to_string();
     let playing = parts.get(1).map(|state| state.contains("playing")).unwrap_or(false);
-    let title = parts.get(2).copied().unwrap_or("").to_string();
-    let artist = parts.get(3).copied().unwrap_or("").to_string();
-    Ok(MediaState { app, playing, title, artist })
+    let position = seconds(parts.get(2));
+    let duration = seconds(parts.get(3));
+    // 곡 제목에 탭이 들어 있어도 제목만 어긋나게 하고 아티스트는 끝까지 모은다.
+    let title = parts.get(4).copied().unwrap_or("").to_string();
+    let artist = parts.iter().skip(5).copied().collect::<Vec<_>>().join("\t");
+    let position = if duration > 0.0 { position.min(duration) } else { position };
+    Ok(MediaState { app, playing, title, artist, position, duration })
 }
 
 #[tauri::command]
@@ -360,13 +390,16 @@ fn read_calendars() -> Result<Vec<CalCalendar>, String> {
             .map(|calendar| {
                 let (id, title, color) = calendar_meta(calendar);
                 // SAFETY: 같은 스레드에서 만든 캘린더만 읽는다. source 는 없을 수 있다.
-                let source = unsafe {
-                    calendar
-                        .source()
-                        .map(|source| source.title().to_string())
-                        .unwrap_or_default()
+                let (source, writable) = unsafe {
+                    (
+                        calendar
+                            .source()
+                            .map(|source| source.title().to_string())
+                            .unwrap_or_default(),
+                        calendar.allowsContentModifications(),
+                    )
                 };
-                CalCalendar { id, title, color, source }
+                CalCalendar { id, title, color, source, writable }
             })
             .collect();
         // 계정 → 이름 순 — 화면의 체크 목록이 매번 같은 차례로 나오게 한다.
@@ -541,4 +574,119 @@ pub async fn calendar_events(
 pub async fn calendar_today() -> Result<Vec<CalEvent>, String> {
     let (start, end) = today_range_ms()?;
     events_for_range(start, end, None).await
+}
+
+/* --------------------------- 캘린더 — 일정 추가 (v1.15.0) --------------------------- */
+
+/// 캐시를 통째로 버린다 — 새 일정을 저장한 직후 화면이 다시 읽을 때 반드시 새 값을 받도록.
+fn clear_calendar_cache() {
+    if let Ok(mut guard) = CALENDAR_CACHE.lock() {
+        guard.clear();
+    }
+}
+
+/// macOS — EventKit 으로 일정을 하나 만든다.
+/// `calendar_id` 가 없거나 쓸 수 없는 캘린더면 `defaultCalendarForNewEvents`,
+/// 그것도 없으면 쓸 수 있는(비어 있지 않은) 첫 캘린더에 넣는다.
+/// 읽기 전용(allowsContentModifications == false) 캘린더에는 절대 쓰지 않는다.
+#[cfg(target_os = "macos")]
+fn create_event(
+    title: &str,
+    start_ms: f64,
+    end_ms: f64,
+    all_day: bool,
+    calendar_id: Option<String>,
+) -> Result<(), String> {
+    use objc2_event_kit::{EKEntityType, EKEvent, EKSpan};
+    use objc2_foundation::{NSDate, NSString};
+
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("일정 제목을 넣어 주세요".into());
+    }
+    let title: String = title.chars().take(200).collect();
+    if !(start_ms.is_finite() && end_ms.is_finite()) || end_ms <= start_ms {
+        return Err("끝 시각이 시작보다 빨라요".into());
+    }
+
+    // with_calendar_store 는 안쪽 Result(저장 결과)를 감싸 돌려준다 — 바깥(권한·store)만 ? 로 풀고
+    // 안쪽(일정 저장 성공·실패)은 그대로 돌려준다.
+    with_calendar_store(|store| -> Result<(), String> {
+        // SAFETY: 메인 스레드가 아닌 워커 스레드의 autoreleasepool 안에서 만든 store 와
+        // 그 store 가 돌려준 객체만 이 블록 안에서 쓴다. 저장은 commit: YES 로 바로 반영한다.
+        unsafe {
+            let calendars = store.calendarsForEntityType(EKEntityType::Event);
+            let writable: Vec<_> = calendars
+                .to_vec()
+                .into_iter()
+                .filter(|calendar| calendar.allowsContentModifications())
+                .collect();
+            if writable.is_empty() {
+                return Err("일정을 저장할 수 있는 캘린더가 없습니다 — 캘린더 앱에서 계정을 확인해 주세요".into());
+            }
+
+            let wanted = calendar_id.unwrap_or_default();
+            let chosen = if wanted.is_empty() {
+                store
+                    .defaultCalendarForNewEvents()
+                    .filter(|calendar| calendar.allowsContentModifications())
+                    .or_else(|| writable.first().cloned())
+            } else {
+                writable
+                    .iter()
+                    .find(|calendar| calendar.calendarIdentifier().to_string() == wanted)
+                    .cloned()
+            };
+            let Some(calendar) = chosen else {
+                return Err("고른 캘린더에는 일정을 쓸 수 없습니다".into());
+            };
+
+            let event = EKEvent::eventWithEventStore(&store);
+            event.setTitle(Some(&NSString::from_str(&title)));
+            let start = NSDate::dateWithTimeIntervalSince1970(start_ms / 1000.0);
+            let end = NSDate::dateWithTimeIntervalSince1970(end_ms / 1000.0);
+            event.setStartDate(Some(&start));
+            event.setEndDate(Some(&end));
+            event.setAllDay(all_day);
+            event.setCalendar(Some(&calendar));
+
+            store
+                .saveEvent_span_commit_error(&event, EKSpan::ThisEvent, true)
+                .map_err(|error| format!("일정을 저장하지 못했습니다: {}", error.localizedDescription()))?;
+            Ok(())
+        }
+    })?
+}
+
+#[cfg(not(target_os = "macos"))]
+fn create_event(
+    _title: &str,
+    _start_ms: f64,
+    _end_ms: f64,
+    _all_day: bool,
+    _calendar_id: Option<String>,
+) -> Result<(), String> {
+    Err("일정 추가는 macOS 앱에서만 됩니다".into())
+}
+
+/// 노치 달력에서 일정을 하나 만든다. 성공하면 조회 캐시를 비워 화면이 새로 읽게 한다.
+#[tauri::command]
+pub async fn calendar_create(
+    title: String,
+    start_ms: f64,
+    end_ms: f64,
+    all_day: Option<bool>,
+    calendar_id: Option<String>,
+) -> Result<(), String> {
+    let all_day = all_day.unwrap_or(false);
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        create_event(&title, start_ms, end_ms, all_day, calendar_id)
+    })
+    .await
+    .map_err(|error| format!("일정 추가를 마치지 못했습니다: {error}"))?;
+
+    if result.is_ok() {
+        clear_calendar_cache();
+    }
+    result
 }

@@ -1,6 +1,6 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.14.0';
+const CACHE_VERSION = 'tip-v1.15.0';
 const APP_SHELL = [
   './',
   './index.html',
@@ -28,6 +28,7 @@ const APP_SHELL = [
   './js/chosung.js',
   './js/snippets.js',
   './js/feature-settings.js',
+  './js/timer-store.js',
   './modules/registry.js',
   './modules/clipboard-history/module.js',
   './modules/address-search/module.js',
@@ -62,6 +63,7 @@ const APP_SHELL = [
   './modules/window-snap/module.js',
   './modules/bulk-rename/module.js',
   './modules/snippets/module.js',
+  './modules/timer/module.js',
   './vendor/heic2any.min.js',
   './vendor/pdfjs/pdf.min.js',
   './vendor/pdfjs/pdf.worker.min.js',

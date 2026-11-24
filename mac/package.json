@@ -1,7 +1,7 @@
 {
   "name": "tip-mac",
   "private": true,
-  "version": "1.14.0",
+  "version": "1.15.0",
   "description": "TIP (TOOL-IN-PACK) macOS 앱 — 메뉴 막대 퀵바 · 노치 아일랜드 · Spotlight형 전역 검색 · 스티커 메모",
   "scripts": {
     "tauri": "tauri",
