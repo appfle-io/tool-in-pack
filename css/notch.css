@@ -190,7 +190,8 @@ html, body {
 .panel {
   margin-top: 0;
   width: calc(100% - 12px);
-  max-height: 100%;
+  /* v1.15.2 — 창 높이는 화면이 잰 내용 높이(notch_resize)로 잡힌다. 600px 을 넘기지 않는다. */
+  max-height: min(100%, 600px);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -198,14 +199,15 @@ html, body {
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.10);
   /* v1.12.1 — 투명 WKWebView 리사이즈 + backdrop-filter 조합은 WindowServer 에서
-     프레임을 크게 떨어뜨렸다. 흐림 대신 고대비 반투명 단색으로 60fps 즉답을 지킨다. */
-  background: rgba(17, 22, 19, 0.96);
+     프레임을 크게 떨어뜨렸다. 흐림 대신 고대비 반투명 단색으로 60fps 즉답을 지킨다.
+     v1.15.2 — 뒤 창 글자가 비치지 않게 불투명도를 0.96 → 0.98 로 올린다. */
+  background: rgba(16, 20, 18, 0.98);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.42);
   color: #F2F2F5;
   overflow: hidden;
 }
 :root[data-theme='light'] .panel {
-  background: rgba(248, 249, 248, 0.97);
+  background: rgba(249, 250, 249, 0.985);
   border-color: rgba(0, 0, 0, 0.08);
   color: #1C1C1E;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
@@ -233,16 +235,6 @@ html, body {
   font-weight: 800;
   letter-spacing: 0.05em;
 }
-.panel-handle {
-  flex: 1;
-  align-self: center;
-  max-width: 150px;
-  height: 4px;
-  margin: 0 6px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.14);
-}
-:root[data-theme='light'] .panel-handle { background: rgba(0, 0, 0, 0.12); }
 .panel-actions { display: flex; gap: 4px; margin-left: auto; }
 .panel-btn {
   display: grid;
@@ -260,14 +252,15 @@ html, body {
 :root[data-theme='light'] .panel-btn:hover { background: rgba(0, 0, 0, 0.06); }
 .panel-btn svg { width: 15px; height: 15px; }
 
-/* ------------------------------ 위젯 격자 ------------------------------ */
+/* ------------------------------ 위젯 배치 ------------------------------ */
 
+/* v1.15.2 — 두 칸짜리 행(.wg-row)을 세로로 쌓는다. 같은 행의 카드는 높이를 맞추고,
+   내용이 없는 위젯은 한 줄 카드로 접힌다. */
 .widgets {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -275,6 +268,10 @@ html, body {
 }
 .widgets::-webkit-scrollbar { width: 6px; }
 .widgets::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 3px; }
+
+.wg-row { display: flex; gap: 6px; align-items: stretch; }
+.wg-row > .wg-card { flex: 1 1 0; min-width: 0; }
+.wg-row > .wg-wide { flex: 1 1 auto; }
 
 .wg-card {
   display: flex;
@@ -286,6 +283,8 @@ html, body {
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.05);
 }
+/* 접힌 한 줄 카드 — 같은 행의 다른 카드가 커도 가운데에 선다. */
+.wg-card.is-compact { justify-content: center; }
 :root[data-theme='light'] .wg-card {
   background: rgba(255, 255, 255, 0.86);
   border-color: rgba(0, 0, 0, 0.07);
@@ -295,8 +294,25 @@ html, body {
 .wg-side { font-size: 10px; opacity: 0.5; white-space: nowrap; }
 .wg-wide, .wg-shelf, .wg-mirror { grid-column: 1 / -1; }
 
-/* 미디어 */
-.media-body { display: flex; align-items: center; gap: 8px; }
+/* ------------------------------ 미디어 (v1.15.2) ------------------------------ */
+/* 미디어 카드 — 같은 줄의 일정 카드가 길어도 내용은 가운데에 선다. */
+.wg-media .media-body { flex: 1 1 auto; }
+.media-body { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+/* 재생 중인 곡이 없으면 카드는 머리 한 줄만 남긴다(재생 버튼은 잠김). */
+.wg-media.is-compact .media-body { display: none; }
+.wg-media.is-compact { min-height: 34px; }
+
+/* 오류·권한 안내 — 제목·아티스트 자리 대신 이 줄에(v1.15.2). */
+.wg-state {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  opacity: 0.68;
+  overflow-wrap: anywhere;
+}
+.wg-state[hidden] { display: none; }
+
 .media-art {
   flex: none;
   display: grid;
@@ -316,12 +332,29 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.media-text span {
+.media-text #media-artist {
   font-size: 10.5px;
   opacity: 0.55;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.media-progress {
+  display: block;
+  height: 2px;
+  margin-top: 3px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+:root[data-theme='light'] .media-progress { background: rgba(0, 0, 0, 0.10); }
+.media-progress[hidden] { display: none; }
+.media-progress i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 1px;
+  background: var(--accent);
 }
 .media-controls { flex: none; display: flex; align-items: center; gap: 1px; }
 .media-btn {
@@ -336,13 +369,17 @@ html, body {
   opacity: 0.72;
   cursor: pointer;
 }
-.media-btn:hover { background: rgba(255, 255, 255, 0.12); opacity: 1; }
-:root[data-theme='light'] .media-btn:hover { background: rgba(0, 0, 0, 0.07); }
+.media-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); opacity: 1; }
+:root[data-theme='light'] .media-btn:hover:not(:disabled) { background: rgba(0, 0, 0, 0.07); }
+/* 재생할 것이 없거나 읽을 수 없을 때 — 누를 수 없음을 분명히 보인다. */
+.media-btn:disabled { opacity: 0.28; cursor: default; }
 .media-btn svg { width: 12px; height: 12px; }
 .media-play { width: 26px; height: 26px; opacity: 1; }
 .media-play svg { width: 14px; height: 14px; }
 
 /* 캘린더 */
+.wg-calendar.is-compact .cal-list { display: none; }
+.wg-calendar.is-compact { min-height: 34px; }
 .cal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .cal-row { display: flex; gap: 7px; min-width: 0; }
 .cal-bar { flex: none; width: 2.5px; border-radius: 2px; background: var(--accent); }
@@ -392,26 +429,55 @@ html, body {
 /* 보관함 */
 .shelf-drop {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 1px;
-  padding: 6px 8px;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
   border-radius: 11px;
   border: 1px dashed rgba(255, 255, 255, 0.20);
-  text-align: center;
+  text-align: left;
   cursor: pointer;
-  transition: border-color 0.16s ease, background 0.16s ease;
+  transition: border-color 0.16s ease, background 0.16s ease, height 0.16s ease;
 }
 .shelf-drop:hover { border-color: var(--accent); background: rgba(255, 255, 255, 0.05); }
 :root[data-theme='light'] .shelf-drop { border-color: rgba(0, 0, 0, 0.16); }
 :root[data-theme='light'] .shelf-drop:hover { background: rgba(0, 0, 0, 0.03); }
-/* 드래그가 노치 위에 들어왔을 때 — 놓을 자리를 바로 보여 준다. */
-.shelf-drop.is-over { border-color: var(--accent); border-style: solid; }
+/* 드래그가 노치 위에 들어왔을 때 — 놓을 자리를 크게 보여 준다. */
+.shelf-drop.is-over {
+  flex-direction: column;
+  justify-content: center;
+  height: 72px;
+  text-align: center;
+  border-color: var(--accent);
+  border-style: solid;
+}
 .shelf-file-input { display: none; }
-.shelf-drop-icon { color: var(--accent); opacity: 0.9; }
+.shelf-drop-icon { color: var(--accent); opacity: 0.9; display: flex; }
 .shelf-drop-icon svg { width: 15px; height: 15px; }
-.shelf-drop b { font-size: 11px; font-weight: 600; }
-.shelf-drop span { font-size: 10px; opacity: 0.5; }
+.shelf-drop-text { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0; }
+.shelf-drop-text b { font-size: 11px; font-weight: 600; }
+.shelf-drop-text span { font-size: 10px; opacity: 0.5; }
+.shelf-drop.is-over .shelf-drop-text { align-items: center; }
+
+/* v1.15.2 — 비어 있는 보관함은 얇은 한 줄(48px 안팎)로 접는다.
+   파일을 끌고 들어오거나 하나라도 담기면 위의 큰 놓기 상자를 다시 보여 준다. */
+.shelf-mini-label { display: none; }
+.wg-shelf.is-empty { padding: 0; gap: 0; }
+.wg-shelf.is-empty .wg-head { display: none; }
+.wg-shelf.is-empty .shelf-drop {
+  height: 48px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.10);
+}
+:root[data-theme='light'] .wg-shelf.is-empty .shelf-drop { border-color: rgba(0, 0, 0, 0.08); }
+.wg-shelf.is-empty .shelf-mini-label { display: inline; opacity: 0.55; }
+.wg-shelf.is-empty .shelf-drop-text span { display: none; }
+
+/* 파일이 담겨 있으면 큰 놓기 상자는 숨기고 목록만 — 자리는 '추가(+)'가 맡는다.
+   파일을 끌고 오는 동안에는 다시 놓기 상자가 나타난다. */
+.wg-shelf:not(.is-empty) .shelf-drop { display: none; }
+.wg-shelf:not(.is-empty) .shelf-drop.is-over { display: flex; }
 
 .shelf-list { display: flex; flex-direction: column; gap: 5px; }
 .shelf-item {
@@ -476,8 +542,9 @@ html, body {
 .shelf-remove:hover { opacity: 1; color: #FF6B5E; }
 .shelf-remove svg { width: 11px; height: 11px; }
 
-/* 타이머 */
+/* 타이머 (v1.15.2 — 프리셋·시작이 기본, 직접 입력은 접어 둔다) */
 .timer-body { display: flex; flex-direction: column; gap: 5px; }
+.timer-top { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
 .timer-display {
   font-size: 17px;
   font-weight: 700;
@@ -488,8 +555,22 @@ html, body {
 .timer-display.is-done { color: #FFB020; }
 :root[data-theme='dark'] .timer-display.is-running { color: #7FC6AC; }
 .timer-presets { display: flex; flex-wrap: wrap; gap: 3px; }
-.timer-row { display: flex; gap: 3px; align-items: center; }
+.timer-row { display: flex; gap: 4px; align-items: stretch; }
 .timer-custom { display: flex; align-items: center; gap: 4px; }
+.timer-custom[hidden] { display: none; }
+.timer-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 9.5px;
+  text-decoration: underline;
+  opacity: 0.5;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.timer-link:hover { opacity: 0.9; }
 .timer-field { display: inline-flex; align-items: center; gap: 3px; font-size: 9.5px; opacity: 0.8; }
 .timer-input {
   width: 34px;
@@ -506,6 +587,7 @@ html, body {
 }
 :root[data-theme='light'] .timer-input { border-color: rgba(0, 0, 0, 0.12); }
 .timer-input:focus { outline: none; border-color: var(--accent); }
+.timer-input:disabled { opacity: 0.45; }
 .timer-chip {
   height: 20px;
   padding: 0 6px;
@@ -519,39 +601,60 @@ html, body {
   cursor: pointer;
 }
 :root[data-theme='light'] .timer-chip { border-color: rgba(0, 0, 0, 0.12); }
-.timer-chip:hover { opacity: 1; border-color: var(--accent); }
+.timer-chip:hover:not(:disabled) { opacity: 1; border-color: var(--accent); }
+.timer-chip.is-on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  opacity: 1;
+  font-weight: 650;
+}
+.timer-chip:disabled { opacity: 0.4; cursor: default; }
+
+/* 시작 · +1분 · 초기화 — 같은 크기·같은 모양, 시작만 색으로 강조한다. */
 .timer-btn {
-  height: 21px;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 22px;
   padding: 0 8px;
   border-radius: 6px;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
   color: inherit;
   font: inherit;
   font-size: 10px;
   font-weight: 650;
+  white-space: nowrap;
   cursor: pointer;
 }
-.timer-btn.primary { background: var(--accent); color: #fff; }
-.timer-btn:hover { border-color: var(--accent); }
+:root[data-theme='light'] .timer-btn { border-color: rgba(0, 0, 0, 0.10); }
+:root[data-theme='light'] .timer-btn:not(.primary) { background: rgba(0, 0, 0, 0.04); }
+.timer-btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
+.timer-btn:hover:not(:disabled) { border-color: var(--accent); }
+.timer-btn:disabled { opacity: 0.42; cursor: default; }
+/* 직접 입력 줄의 '설정' 은 자기 폭만큼만. */
+.timer-custom .timer-btn { flex: 0 0 auto; }
 
 /* 빠른 메모 */
 .memo-input {
+  display: block;
   width: 100%;
-  min-height: 46px;
+  flex: 1 1 auto;
+  min-height: 44px;
   max-height: 110px;
+  box-sizing: border-box;
   resize: vertical;
-  padding: 6px 7px;
+  padding: 5px 7px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.10);
   background: rgba(0, 0, 0, 0.18);
   color: inherit;
   font: inherit;
-  font-size: 11.5px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.45;
   outline: none;
   user-select: text;
 }
+.memo-input::placeholder { font-size: 11px; opacity: 0.45; }
 :root[data-theme='light'] .memo-input { background: #fff; border-color: rgba(0, 0, 0, 0.10); }
 .memo-input:focus { border-color: var(--accent); }
 
@@ -582,15 +685,54 @@ html, body {
 :root[data-theme='light'] .mirror-toggle { border-color: rgba(0, 0, 0, 0.12); }
 .mirror-toggle:hover { border-color: var(--accent); color: var(--accent); }
 
-/* 모듈 실행 */
+/* 모듈 실행 (v1.15.2 — 양끝 페이드·화살표, 새 스티커는 제목 옆 +) */
+.launcher-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
 .launcher-row {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   gap: 4px;
   overflow-x: auto;
-  padding-bottom: 2px;
+  /* 오른쪽 화살표 아래로 마지막 타일이 들어가지 않게 끝에 여백을 둔다. */
+  padding: 0 16px 2px 0;
   scrollbar-width: none;
+  scroll-behavior: smooth;
 }
 .launcher-row::-webkit-scrollbar { display: none; }
+.launcher-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(22, 26, 24, 0.94);
+  color: inherit;
+  opacity: 0.9;
+  cursor: pointer;
+}
+:root[data-theme='light'] .launcher-nav { background: #fff; border-color: rgba(0, 0, 0, 0.10); }
+.launcher-nav:hover { color: var(--accent); border-color: var(--accent); }
+.launcher-nav[data-launcher='prev'] { left: -4px; }
+.launcher-nav[data-launcher='next'] { right: -4px; }
+.launcher-nav[hidden] { display: none; }
+.launcher-nav svg { width: 13px; height: 13px; }
+/* 스크롤할 것이 있는 쪽은 가장자리를 흐리게 — 잘린 타일이 어색하지 않게. */
+.launcher-row.is-fade-start { mask-image: linear-gradient(90deg, transparent 0, #000 16px); }
+.launcher-row.is-fade-end { mask-image: linear-gradient(270deg, transparent 0, #000 16px); }
+.launcher-row.is-fade-start.is-fade-end {
+  mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+}
 .launcher-tile {
   flex: none;
   display: flex;

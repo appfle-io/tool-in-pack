@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TIP v1.15.1 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.15.2 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
@@ -579,6 +579,8 @@ await page.click('.tm-preset[data-min="5"]');
 await page.waitForTimeout(200);
 let timer = await stored('tip.timer.v1');
 check('타이머 — 5분 프리셋 시작', timer?.status === 'running' && timer.duration === 300, JSON.stringify(timer));
+// v1.15.2 — 표시 갱신은 250ms 틱이 맡는다. 고정 대기 대신 값이 나타날 때까지 기다린다(간혈적 실패 방지).
+await page.waitForFunction(() => document.getElementById('tm-clock')?.textContent.startsWith('05:00'), { timeout: 3000 }).catch(() => {});
 check('타이머 — 남은 시간 표시', (await page.locator('#tm-clock').textContent()).startsWith('05:00'), await page.locator('#tm-clock').textContent());
 
 await page.click('#tm-start');   // 일시정지
@@ -688,6 +690,134 @@ await notch.waitForTimeout(2200);
 const alertCall = await notch.evaluate(() => window.__TIP_CALLS__.filter((call) => call.command === 'timer_alert').pop());
 check('알약 — 타이머 종료 알림 호출', !!alertCall, JSON.stringify(alertCall && alertCall.args));
 
+/* -------------------- v1.15.2 노치 펼친 패널 UI/UX -------------------- */
+
+// 1. 빈 상태 — 접힌 한 줄, 높이·정렬, 패널 높이
+const emptyContext = await browser.newContext({ viewport: { width: 452, height: 560 }, locale: 'ko-KR', colorScheme: 'light' });
+await emptyContext.addInitScript(MOCK);
+const emptyPage = await emptyContext.newPage();
+emptyPage.on('pageerror', (error) => consoleErrors.push(`notch pageerror: ${String(error)}`));
+await emptyPage.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
+await emptyPage.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('tip.theme', 'light');
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, widgets: { media: true, calendar: true, shelf: true, timer: true, memo: true, launcher: true } }));
+});
+await emptyPage.reload({ waitUntil: 'networkidle' });
+await emptyPage.waitForTimeout(1200);
+
+check('v1.15.2 — 회색 막대(.panel-handle) 제거', await emptyPage.evaluate(() => !document.querySelector('.panel-handle')));
+const panelHeight = await emptyPage.evaluate(() => Math.round(document.getElementById('panel').getBoundingClientRect().height));
+check('v1.15.2 — 펼친 패널 600px 이하', panelHeight > 0 && panelHeight <= 600, String(panelHeight));
+const alpha = await emptyPage.evaluate(() => {
+  const bg = getComputedStyle(document.getElementById('panel')).backgroundColor;
+  const match = bg.match(/rgba?\(([^)]+)\)/);
+  if (!match) return 1;
+  const parts = match[1].split(',').map((value) => Number(value.trim()));
+  return parts.length === 4 ? parts[3] : 1;
+});
+check('v1.15.2 — 패널 배경 불투명도 0.96 이상', alpha >= 0.96, String(alpha));
+
+const compact = await emptyPage.evaluate(() => ({
+  media: document.querySelector('.wg-media').classList.contains('is-compact'),
+  mediaBodyHidden: getComputedStyle(document.querySelector('.media-body')).display === 'none',
+  mediaPlayDisabled: document.querySelector('[data-media="playpause"]').disabled,
+  calendar: document.querySelector('.wg-calendar').classList.contains('is-compact'),
+  calSide: document.getElementById('cal-side').textContent,
+  shelf: document.querySelector('.wg-shelf').classList.contains('is-empty'),
+  shelfHeight: Math.round(document.getElementById('shelf-drop').getBoundingClientRect().height),
+  mediaHeight: Math.round(document.querySelector('.wg-media').getBoundingClientRect().height),
+  calHeight: Math.round(document.querySelector('.wg-calendar').getBoundingClientRect().height),
+  timerHeight: Math.round(document.querySelector('.wg-timer').getBoundingClientRect().height),
+  memoHeight: Math.round(document.querySelector('.wg-memo').getBoundingClientRect().height),
+  memoHasSide: !!document.getElementById('memo-side'),
+  customHidden: document.getElementById('timer-custom-row').hidden,
+  display: document.getElementById('timer-display').textContent,
+  presetOn: document.querySelector('.timer-chip.is-on')?.dataset.timerSeconds,
+  newStickerTile: [...document.querySelectorAll('.launcher-tile')].some((tile) => tile.textContent.includes('새 스티커')),
+  addButton: !!document.getElementById('launcher-new'),
+}));
+check('v1.15.2 — 음악 없으면 한 줄 접힘', compact.media && compact.mediaBodyHidden);
+check('v1.15.2 — 재생 없으면 재생 버튼 비활성', compact.mediaPlayDisabled);
+check('v1.15.2 — 남은 일정 없으면 한 줄 접힘', compact.calendar && compact.calSide.includes('남은 일정'), compact.calSide);
+check('v1.15.2 — 빈 보관함 얇은 한 줄(40~52px)', compact.shelf && compact.shelfHeight >= 40 && compact.shelfHeight <= 52, String(compact.shelfHeight));
+check('v1.15.2 — 같은 줄 카드 높이 일치(미디어/일정)', compact.mediaHeight === compact.calHeight, `${compact.mediaHeight}/${compact.calHeight}`);
+check('v1.15.2 — 같은 줄 카드 높이 일치(타이머/메모)', compact.timerHeight === compact.memoHeight, `${compact.timerHeight}/${compact.memoHeight}`);
+check('v1.15.2 — 빠른 메모 글자 수 표시 제거', !compact.memoHasSide);
+check('v1.15.2 — 직접 입력은 접혀 있음', compact.customHidden);
+check('v1.15.2 — 기본 표시는 고른 시간(05:00)', compact.display === '05:00', compact.display);
+check('v1.15.2 — 기본 프리셋 5분 선택', compact.presetOn === '300', String(compact.presetOn));
+check('v1.15.2 — 새 스티커는 타일이 아니라 +', !compact.newStickerTile && compact.addButton);
+
+// 프리셋 · 직접 입력 · 설정
+await emptyPage.locator('[data-timer-seconds="600"]').click();
+check('v1.15.2 — 프리셋을 고르면 표시 시간이 따라감', (await emptyPage.locator('#timer-display').textContent()) === '10:00');
+await emptyPage.locator('#timer-custom-toggle').click();
+check('v1.15.2 — 직접 입력 펼침', !(await emptyPage.evaluate(() => document.getElementById('timer-custom-row').hidden)));
+await emptyPage.fill('#timer-min', '2');
+await emptyPage.fill('#timer-sec', '30');
+check('v1.15.2 — 입력값이 곧 표시 시간', (await emptyPage.locator('#timer-display').textContent()) === '02:30', await emptyPage.locator('#timer-display').textContent());
+check('v1.15.2 — 설정 버튼 라벨', (await emptyPage.locator('#timer-custom').textContent()) === '설정');
+await emptyPage.locator('#timer-custom').click();
+check('v1.15.2 — 설정 누르면 접힘', await emptyPage.evaluate(() => document.getElementById('timer-custom-row').hidden));
+check('v1.15.2 — 설정한 시간 유지(02:30)', (await emptyPage.locator('#timer-display').textContent()) === '02:30');
+await emptyPage.evaluate(() => { document.getElementById('timer-toggle').click(); });
+await emptyPage.waitForTimeout(300);
+const startedSeconds = await emptyPage.evaluate(() => JSON.parse(localStorage.getItem('tip.timer.v1')).duration);
+check('v1.15.2 — 시작은 고른 시간으로', startedSeconds === 150, String(startedSeconds));
+await emptyPage.evaluate(() => { document.getElementById('timer-reset').click(); });
+await emptyPage.waitForTimeout(200);
+check('v1.15.2 — 초기화 뒤에도 고른 시간 표시', (await emptyPage.locator('#timer-display').textContent()) === '02:30');
+
+// 모듈 실행 화살표
+const navState = await emptyPage.evaluate(() => {
+  const row = document.getElementById('launcher-row');
+  const next = document.querySelector('[data-launcher="next"]');
+  const before = row.scrollLeft;
+  if (next && !next.hidden) next.click();
+  return { before, overflow: row.scrollWidth > row.clientWidth + 4, nextHidden: next ? next.hidden : true };
+});
+await emptyPage.waitForTimeout(600);
+const navAfter = await emptyPage.evaluate(() => {
+  const row = document.getElementById('launcher-row');
+  return { left: row.scrollLeft, fadeStart: row.classList.contains('is-fade-start'), prevShown: !document.querySelector('[data-launcher="prev"]').hidden };
+});
+check('v1.15.2 — 모듈 줄 다음 화살표', navState.overflow && !navState.nextHidden, JSON.stringify(navState));
+check('v1.15.2 — 화살표로 스크롤·양끝 페이드', navAfter.left > navState.before && navAfter.fadeStart && navAfter.prevShown, JSON.stringify(navAfter));
+const newStickerBefore = await emptyPage.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'sticky_create'));
+await emptyPage.locator('#launcher-new').click();
+await emptyPage.waitForTimeout(250);
+const newStickerAfter = await emptyPage.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'sticky_create'));
+check('v1.15.2 — + 로 새 스티커', !newStickerBefore && newStickerAfter, `${newStickerBefore}/${newStickerAfter}`);
+check('v1.15.2 — 패널 높이를 Rust 에 알림', await emptyPage.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'notch_resize' && call.args.height > 200)));
+
+// 2. 미디어 오류 — 제목 자리가 아니라 별도 상태
+const errorContext = await browser.newContext({ viewport: { width: 452, height: 560 }, locale: 'ko-KR', colorScheme: 'dark' });
+await errorContext.addInitScript(MOCK.replace(
+  'invoke(command, args) {',
+  "invoke(command, args) { if (command === 'media_state') return Promise.reject(new Error('[permission] 음악 앱 자동화 권한이 필요합니다'));",
+));
+const errorPage = await errorContext.newPage();
+errorPage.on('pageerror', (error) => consoleErrors.push(`notch pageerror: ${String(error)}`));
+await errorPage.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
+await errorPage.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, widgets: { media: true, timer: false, calendar: false, shelf: false, memo: false, launcher: false } }));
+});
+await errorPage.reload({ waitUntil: 'networkidle' });
+await errorPage.waitForTimeout(1400);
+const mediaError = await errorPage.evaluate(() => ({
+  state: document.getElementById('media-state')?.hidden === false ? document.getElementById('media-state').textContent : '',
+  perm: document.getElementById('media-perm')?.hidden === false,
+  titleHidden: document.getElementById('media-title').hidden,
+  artistHidden: document.getElementById('media-artist').hidden,
+  disabled: [...document.querySelectorAll('[data-media]')].every((button) => button.disabled),
+}));
+check('v1.15.2 — 미디어 오류는 별도 상태 줄', mediaError.state.includes('권한'), mediaError.state);
+check('v1.15.2 — 권한 설정 버튼', mediaError.perm);
+check('v1.15.2 — 제목·아티스트 자리에 오류 없음', mediaError.titleHidden && mediaError.artistHidden);
+check('v1.15.2 — 오류 때 재생 버튼 비활성', mediaError.disabled);
+
 /* ------------------------------ 결과 ------------------------------ */
 
 const errors = consoleErrors.filter((line) => !/favicon|service worker|ERR_FILE/i.test(line));
@@ -697,7 +827,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.15.1 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.15.2 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

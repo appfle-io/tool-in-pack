@@ -119,6 +119,45 @@ function errorText(error) {
   return raw.length > 90 ? `${raw.slice(0, 90)}…` : raw;
 }
 
+/* ------------------------------ 패널 높이 맞춤 (v1.15.2) ------------------------------ */
+
+let fitTimer = null;
+let fitSent = 0;
+
+/** 펼친 패널이 실제로 필요한 높이 — 창 높이(max-height 100%)에 가려지지 않게 자식들의 높이를 더한다. */
+function panelContentHeight() {
+  const style = getComputedStyle(panelEl);
+  const padTop = parseFloat(style.paddingTop) || 0;
+  const padBottom = parseFloat(style.paddingBottom) || 0;
+  const gap = parseFloat(style.rowGap || style.gap) || 0;
+  const border = (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0);
+  const kids = [...panelEl.children].filter((el) => {
+    if (el.hidden) return false;
+    if (el.id === 'panel-hint' && el.hidden) return false;
+    return el.getClientRects().length > 0;
+  });
+  if (!kids.length) return 0;
+  let total = padTop + padBottom + border + (kids.length - 1) * gap;
+  kids.forEach((el) => {
+    // 위젯 상자는 남는 공간을 채우므로 내용 높이(scrollHeight)를 쓴다.
+    total += el.classList.contains('widgets') ? Math.max(el.scrollHeight, 0) : el.getBoundingClientRect().height;
+  });
+  return Math.ceil(total);
+}
+
+/** 화면이 잰 높이를 Rust 에 알려 창 높이를 내용에 맞춘다 — 조금 바뀐 것으로는 부르지 않는다. */
+function fitPanel() {
+  if (!TAURI || !expanded) return;
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => {
+    if (!expanded) return;
+    const height = panelContentHeight();
+    if (!height || Math.abs(height - fitSent) < 8) return;
+    fitSent = height;
+    invoke('notch_resize', { height }).catch(() => {});
+  }, 160);
+}
+
 /* ------------------------------ 펼침/접힘 ------------------------------ */
 
 function setExpanded(next, { animate = true } = {}) {
@@ -135,6 +174,7 @@ function setExpanded(next, { animate = true } = {}) {
     applyAppearance();
     requestAnimationFrame(() => { invoke('notch_expand').catch(() => {}); });
     startWidgets();
+    fitPanel();
     // v1.13.0 — 달력 보기가 열려 있었으면 다시 펼칠 때 보이는 기간을 새로 읽는다.
     if (calView.open) loadCalendarView();
   } else {
@@ -186,26 +226,50 @@ function widgetCard(id, inner, className = '') {
   return card;
 }
 
+/** 같은 줄에 놓을 카드 묶음 — 행끼리는 세로, 행 안의 카드는 높이를 맞춘다(v1.15.2). */
+function widgetRow() {
+  const row = document.createElement('div');
+  row.className = 'wg-row';
+  return row;
+}
+
 function renderWidgets() {
   syncStore();
   const { widgets } = getNotchSettings();
   widgetsEl.innerHTML = '';
 
   let count = 0;
-  const add = (node) => { widgetsEl.append(node); count += 1; };
+  let row = null;                       // 지금 채우고 있는 두 칸짜리 행
+  const add = (node, wide = false) => {
+    if (wide) {
+      row = null;
+      const only = widgetRow();
+      only.append(node);
+      widgetsEl.append(only);
+    } else {
+      if (!row) {
+        row = widgetRow();
+        widgetsEl.append(row);
+      }
+      row.append(node);
+      if (row.childElementCount === 2) row = null;
+    }
+    count += 1;
+  };
 
   if (widgets.media) add(mediaCard());
   if (widgets.calendar) add(calendarCard());
-  if (widgets.shelf) add(shelfCard());
+  if (widgets.shelf) add(shelfCard(), true);
   if (widgets.timer) add(timerCard());
   if (widgets.memo) add(memoCard());
-  if (widgets.mirror) add(mirrorCard());
-  if (widgets.launcher) add(launcherCard());
+  if (widgets.mirror) add(mirrorCard(), true);
+  if (widgets.launcher) add(launcherCard(), true);
 
   emptyEl.hidden = count > 0;
   // v1.13.0 — 달력 보기가 열려 있으면 위젯 목록은 그 아래에 두고 숨긴다.
   widgetsEl.hidden = calView.open ? true : count === 0;
   renderedSignature = settingsSignature();
+  fitPanel();
 }
 
 /* 미디어 */
@@ -214,28 +278,33 @@ function mediaCard() {
   return widgetCard('media', `
     <div class="wg-head">
       <span class="wg-label">지금 재생 중</span>
-      <span class="wg-side" id="media-app">—</span>
+      <span class="wg-side" id="media-app" hidden></span>
     </div>
     <div class="media-body">
       <div class="media-art" id="media-art" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6.5l10-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>
       </div>
       <div class="media-text">
-        <b id="media-title">재생 중인 곡이 없습니다</b>
-        <span id="media-artist">Apple Music 또는 Spotify</span>
+        <b id="media-title">재생 중인 곡 없음</b>
+        <span id="media-artist">Apple Music · Spotify</span>
+        <span class="media-progress" id="media-progress" hidden aria-hidden="true">
+          <i id="media-progress-fill"></i>
+        </span>
       </div>
       <div class="media-controls">
-        <button class="media-btn" type="button" data-media="previous" aria-label="이전 곡" title="이전">
+        <button class="media-btn" type="button" data-media="previous" aria-label="이전 곡" title="이전" disabled>
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h2v14H7zM19 5v14l-9-7z"/></svg>
         </button>
-        <button class="media-btn media-play" type="button" data-media="playpause" aria-label="재생·일시정지" title="재생·일시정지">
+        <button class="media-btn media-play" type="button" data-media="playpause" aria-label="재생·일시정지" title="재생·일시정지" disabled>
           <svg id="media-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         </button>
-        <button class="media-btn" type="button" data-media="next" aria-label="다음 곡" title="다음">
+        <button class="media-btn" type="button" data-media="next" aria-label="다음 곡" title="다음" disabled>
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 5h2v14h-2zM5 5v14l9-7z"/></svg>
         </button>
       </div>
     </div>
+    <!-- v1.15.2 — 오류·권한 안내는 제목·아티스트 자리가 아니라 이 줄에 따로 보여 준다. -->
+    <p class="wg-state" id="media-state" hidden></p>
     <button class="wg-perm" id="media-perm" type="button" hidden>권한 설정</button>
   `);
 }
@@ -282,34 +351,92 @@ function refreshMedia() {
 }
 
 /** 펼친 패널의 미디어 카드 — 요소가 없으면(다른 위젯만 켜져 있으면) 조용히 넘어간다. */
+/** 진행률 바만 0.5초마다 앞으로 — 조회(4.5초) 사이에도 음악이 흐르게(v1.15.2). */
+function paintMediaProgress() {
+  if (!expanded || !mediaState || !mediaState.duration) return;
+  const progress = panelEl.querySelector('#media-progress');
+  const fill = panelEl.querySelector('#media-progress-fill');
+  if (!progress || !fill || progress.hidden) return;
+  const percent = Math.max(0, Math.min(100, (mediaPositionNow() / mediaState.duration) * 100));
+  fill.style.width = `${percent}%`;
+}
+
 function paintMediaCard() {
   const titleEl = panelEl.querySelector('#media-title');
   if (!titleEl) return;
+  const card = panelEl.querySelector('.wg-media');
   const state = mediaState;
+  const hasTrack = !!(state && state.title);
   const playing = !!(state && state.playing);
   mediaPlaying = playing;
-  panelEl.querySelector('#media-app').textContent = state && state.app ? state.app : '—';
+  const appEl = panelEl.querySelector('#media-app');
+  const artistEl = panelEl.querySelector('#media-artist');
+  const progress = panelEl.querySelector('#media-progress');
+  const fill = panelEl.querySelector('#media-progress-fill');
+  const stateEl = panelEl.querySelector('#media-state');
   const permBtn = panelEl.querySelector('#media-perm');
+  const buttons = panelEl.querySelectorAll('[data-media]');
+
+  // 재생할 것이 없으면 버튼은 늘 잠가 둔다(v1.15.2).
+  buttons.forEach((button) => { button.disabled = !hasTrack || !!mediaError; });
 
   if (mediaError) {
-    // v1.12.3 — 권한 거부(-1743)는 다른 오류와 다르게 안내하고 '권한 설정' 버튼을 띄운다.
+    // v1.15.2 — 권한·오류는 제목·아티스트 자리에 넣지 않고 별도 상태 줄에 보여 준다.
     const permission = isPermissionError(mediaError);
-    titleEl.textContent = permission ? '음악 앱 권한이 필요합니다' : '미디어 정보를 읽지 못했습니다';
-    panelEl.querySelector('#media-artist').textContent = permission
-      ? '시스템 설정 › 자동화에서 TIP을 허용하세요'
-      : errorText(mediaError);
+    if (card) card.classList.remove('is-compact');
+    if (appEl) appEl.hidden = true;
+    titleEl.hidden = true;
+    if (artistEl) artistEl.hidden = true;
+    if (progress) progress.hidden = true;
+    if (stateEl) {
+      stateEl.hidden = false;
+      stateEl.textContent = permission
+        ? '음악 앱 자동화 권한이 필요합니다'
+        : '미디어 정보를 읽지 못했습니다';
+      stateEl.title = permission ? '시스템 설정 › 개인정보 보호 및 보안 › 자동화에서 TIP을 허용하세요' : errorText(mediaError);
+    }
     if (permBtn) permBtn.hidden = !permission;
+    const dot = document.getElementById('pill-dot');
+    if (dot) dot.classList.remove('is-playing');
     return;
   }
 
-  titleEl.textContent = state && state.title ? state.title : '재생 중인 곡이 없습니다';
-  panelEl.querySelector('#media-artist').textContent = state && state.artist
-    ? state.artist
-    : 'Apple Music 또는 Spotify';
+  if (stateEl) stateEl.hidden = true;
+  if (permBtn) permBtn.hidden = true;
+  titleEl.hidden = false;
+  if (artistEl) artistEl.hidden = false;
+  if (appEl) {
+    if (!hasTrack) {
+      // 한 줄로 접힌 카드에서는 상태를 오른쪽에 짧게 보여 준다('—' 대신).
+      appEl.hidden = false;
+      appEl.textContent = '재생 중인 곡 없음';
+    } else {
+      appEl.hidden = !(state && state.app);
+      appEl.textContent = (state && state.app) || '';
+    }
+  }
+
+  // v1.15.2 — 재생 중인 곡이 없으면 카드를 한 줄로 접는다.
+  if (card) card.classList.toggle('is-compact', !hasTrack);
+  titleEl.textContent = hasTrack ? state.title : '재생 중인 곡 없음';
+  if (artistEl) {
+    artistEl.textContent = hasTrack
+      ? (state.artist || '재생 중')
+      : 'Apple Music 또는 Spotify';
+  }
   panelEl.querySelector('#media-icon').innerHTML = playing
     ? '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/>'
     : '<path d="M8 5v14l11-7z"/>';
-  if (permBtn) permBtn.hidden = true;
+
+  // 진행률 — 곡이 있을 때만.
+  if (progress && fill) {
+    const duration = state && state.duration > 0 ? state.duration : 0;
+    progress.hidden = !hasTrack || !duration;
+    fill.style.width = duration
+      ? `${Math.max(0, Math.min(100, (mediaPositionNow() / duration) * 100))}%`
+      : '0%';
+  }
+
   const dot = document.getElementById('pill-dot');
   if (dot) dot.classList.toggle('is-playing', playing);
 }
@@ -322,6 +449,7 @@ function calendarCard() {
   const card = widgetCard('calendar', `
     <div class="wg-head">
       <span class="wg-label">다가오는 일정</span>
+      <span class="wg-side" id="cal-side" hidden></span>
       <span class="wg-tools">
         <button class="wg-link wg-add" type="button" data-cal-add="1" aria-label="일정 추가" title="일정 추가">+</button>
         <button class="wg-link" id="cal-open" type="button" aria-label="달력 열기" title="달력 열기">${CAL_ICON}</button>
@@ -908,6 +1036,7 @@ function openCalendarView() {
   cancelCollapse();
   renderCalendarView();
   loadCalendarView();
+  fitPanel();
 }
 
 function closeCalendarView() {
@@ -919,6 +1048,7 @@ function closeCalendarView() {
   const hint = panelEl.querySelector('#panel-hint');
   if (hint) hint.hidden = false;
   if (dom.filterPanel) dom.filterPanel.hidden = true;
+  fitPanel();
 }
 
 function setCalendarMode(mode) {
@@ -1027,13 +1157,23 @@ async function refreshCalendar() {
       .filter((event) => Math.max(event.end, event.start + 1) >= now)
       .sort((a, b) => (Number(b.allDay) - Number(a.allDay)) || (a.start - b.start))
       .slice(0, 4);
+    const card = panelEl.querySelector('.wg-calendar');
+    const side = panelEl.querySelector('#cal-side');
+    const permBtn = panelEl.querySelector('#cal-perm');
     if (!rows.length) {
+      // v1.15.2 — 남은 일정이 없으면 한 줄로 접는다.
+      if (card) card.classList.add('is-compact');
+      if (side) {
+        side.hidden = false;
+        side.textContent = '남은 일정 없음';
+      }
       list.innerHTML = '<li class="cal-empty">오늘 남은 일정이 없습니다</li>';
-      const permBtn = panelEl.querySelector('#cal-perm');
       if (permBtn) permBtn.hidden = true;
+      fitPanel();
       return;
     }
-    const permBtn = panelEl.querySelector('#cal-perm');
+    if (card) card.classList.remove('is-compact');
+    if (side) side.hidden = true;
     if (permBtn) permBtn.hidden = true;
     list.innerHTML = rows.map((event) => `
       <li class="cal-row">
@@ -1044,15 +1184,21 @@ async function refreshCalendar() {
         </span>
       </li>
     `).join('');
+    fitPanel();
   } catch (error) {
     // v1.12.4 — 캘린더는 EventKit 권한을 쓴다. 권한이면 '권한 설정' 버튼,
     // 그 밖의 오류는 콘솔에만 남기지 않고 짧은 원인을 카드에 함께 보여 준다.
     const permission = isPermissionError(error);
+    const card = panelEl.querySelector('.wg-calendar');
+    const side = panelEl.querySelector('#cal-side');
+    if (card) card.classList.remove('is-compact');
+    if (side) side.hidden = true;
     list.innerHTML = permission
       ? '<li class="cal-empty">캘린더 권한이 필요합니다 — 시스템 설정 › 개인정보 보호 및 보안 › 캘린더에서 TIP을 허용하세요</li>'
       : `<li class="cal-empty">캘린더를 읽지 못했습니다<span class="cal-error">${escapeHtml(errorText(error))}</span></li>`;
     const permBtn = panelEl.querySelector('#cal-perm');
     if (permBtn) permBtn.hidden = !permission;
+    fitPanel();
   } finally {
     calendarBusy = false;
   }
@@ -1067,18 +1213,22 @@ function shelfCard() {
     <div class="wg-head">
       <span class="wg-label">임시 보관함</span>
       <span class="wg-side" id="shelf-count">0개</span>
+      <button class="wg-link wg-add" type="button" data-shelf-add="1" aria-label="파일 추가" title="파일 추가" hidden>+</button>
     </div>
     <div class="shelf-drop" id="shelf-drop" role="button" tabindex="0" title="클릭해서 파일 고르기">
       <span class="shelf-drop-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7.5 8.5 4.5-4.5 4.5 4.5"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
       </span>
-      <b>파일을 끌어다 놓거나 클릭하세요</b>
-      <span>잠깐 보관했다가 바로 변환·압축·모자이크</span>
+      <span class="shelf-drop-text">
+        <b><span class="shelf-mini-label">임시 보관함 · </span>파일을 끌어다 놓거나 클릭하세요</b>
+        <span>잠깐 보관했다가 바로 변환·압축·모자이크</span>
+      </span>
     </div>
     <!-- v1.12.2 — 드래그가 막히는 환경에서도 담을 수 있게 클릭 선택을 함께 둔다. -->
     <input class="shelf-file-input" id="shelf-file" type="file" multiple tabindex="-1" aria-hidden="true">
     <div class="shelf-list" id="shelf-list"></div>
   `);
+  card.classList.add('is-empty');
   requestAnimationFrame(() => {
     renderShelf();
     const picker = card.querySelector('#shelf-file');
@@ -1102,10 +1252,16 @@ const CONVERTERS = [
 function renderShelf() {
   const list = panelEl.querySelector('#shelf-list');
   const count = panelEl.querySelector('#shelf-count');
+  const card = panelEl.querySelector('.wg-shelf');
   if (!list) return;
   if (count) count.textContent = `${shelf.length}개`;
+  const addBtn = card ? card.querySelector('[data-shelf-add]') : null;
+  if (addBtn) addBtn.hidden = shelf.length === 0;
+  // v1.15.2 — 비어 있으면 얇은 한 줄, 담긴 파일이나 드래그가 있으면 펼친다.
+  if (card) card.classList.toggle('is-empty', shelf.length === 0 && !dragHeld);
   if (!shelf.length) {
     list.innerHTML = '';
+    fitPanel();
     return;
   }
   list.innerHTML = '';
@@ -1141,6 +1297,7 @@ function renderShelf() {
     });
     list.append(row);
   });
+  fitPanel();
 }
 
 function addFiles(files) {
@@ -1347,6 +1504,10 @@ function applyNotchGap() {
 
 /* ------------------------------ 타이머 (v1.15.0) ------------------------------ */
 
+/* v1.15.2 — 타이머 카드 상태. 직접 입력은 접어 두고, 고른 시간은 표시 시간과 늘 같다. */
+let timerChoice = 5 * 60;      // 지금 고른 시간(초) — 5분 프리셋으로 시작한다
+let timerCustomOpen = false;   // '직접 입력' 을 펼쳤는지
+
 function timerCard() {
   return widgetCard('timer', `
     <div class="wg-head">
@@ -1354,32 +1515,45 @@ function timerCard() {
       <span class="wg-side" id="timer-side">대기</span>
     </div>
     <div class="timer-body">
-      <b class="timer-display" id="timer-display">00:00</b>
-      <div class="timer-presets">
-        ${TIMER_PRESETS.map((minutes) => `<button class="timer-chip" type="button" data-timer-seconds="${minutes * 60}">${minutes}분</button>`).join('')}
+      <div class="timer-top">
+        <b class="timer-display" id="timer-display">${formatClock(timerChoice)}</b>
+        <button class="timer-link" type="button" id="timer-custom-toggle" aria-expanded="false" aria-controls="timer-custom-row">직접 입력</button>
       </div>
-      <div class="timer-custom">
-        <label class="timer-field"><span>분</span><input class="timer-input" id="timer-min" type="number" inputmode="numeric" min="0" max="1440" step="1" value="7"></label>
-        <label class="timer-field"><span>초</span><input class="timer-input" id="timer-sec" type="number" inputmode="numeric" min="0" max="59" step="1" value="0"></label>
-        <button class="timer-btn" type="button" id="timer-custom">이 시간</button>
+      <div class="timer-presets">
+        ${TIMER_PRESETS.map((minutes) => `<button class="timer-chip${minutes * 60 === timerChoice ? ' is-on' : ''}" type="button" data-timer-seconds="${minutes * 60}">${minutes}분</button>`).join('')}
+      </div>
+      <div class="timer-custom" id="timer-custom-row" hidden>
+        <label class="timer-field"><span>분</span><input class="timer-input" id="timer-min" type="number" inputmode="numeric" min="0" max="1440" step="1" value="${Math.floor(timerChoice / 60)}"></label>
+        <label class="timer-field"><span>초</span><input class="timer-input" id="timer-sec" type="number" inputmode="numeric" min="0" max="59" step="1" value="${timerChoice % 60}"></label>
+        <button class="timer-btn" type="button" id="timer-custom">설정</button>
       </div>
       <div class="timer-row">
         <button class="timer-btn primary" type="button" id="timer-toggle">시작</button>
-        <button class="timer-btn" type="button" id="timer-extend">+1분</button>
-        <button class="timer-btn" type="button" id="timer-reset">초기화</button>
+        <button class="timer-btn" type="button" id="timer-extend" disabled>+1분</button>
+        <button class="timer-btn" type="button" id="timer-reset" disabled>초기화</button>
       </div>
     </div>
   `);
 }
 
-/** 타이머 카드의 분·초 입력 → 초. 0 이면 시작하지 않는다. */
+/** 타이머 카드의 분·초 입력 → 초. 0 이면 0. */
 function timerCardSeconds() {
   const minEl = panelEl.querySelector('#timer-min');
   const secEl = panelEl.querySelector('#timer-sec');
   const minutes = Math.max(0, Math.min(1440, Math.floor(Number(minEl && minEl.value) || 0)));
   const seconds = Math.max(0, Math.min(59, Math.floor(Number(secEl && secEl.value) || 0)));
-  const total = minutes * 60 + seconds;
-  return total > 0 ? total : 0;
+  return minutes * 60 + seconds;
+}
+
+/** 프리셋·입력 강조를 지금 고른 시간에 맞춘다. */
+function paintTimerChoice() {
+  panelEl.querySelectorAll('[data-timer-seconds]').forEach((chip) => {
+    chip.classList.toggle('is-on', Number(chip.dataset.timerSeconds) === timerChoice);
+  });
+  const row = panelEl.querySelector('#timer-custom-row');
+  if (row) row.hidden = !timerCustomOpen;
+  const toggle = panelEl.querySelector('#timer-custom-toggle');
+  if (toggle) toggle.setAttribute('aria-expanded', String(timerCustomOpen));
 }
 
 /** 패널의 타이머 카드를 지금 상태로 — 접혀 있어도 요소가 없으면 조용히 넘어간다. */
@@ -1387,7 +1561,9 @@ function paintTimerCard() {
   const display = panelEl.querySelector('#timer-display');
   if (!display) return;
   const state = timerState();
-  display.textContent = formatClock(remainingSeconds(state));
+  const idle = state.status === 'idle';
+  // v1.15.2 — 고른 시간과 표시 시간이 늘 같다: 대기 중에는 고른 시간을 그대로 보여 준다.
+  display.textContent = formatClock(idle ? timerChoice : remainingSeconds(state));
   display.classList.toggle('is-running', state.status === 'running');
   display.classList.toggle('is-done', state.status === 'done');
   const side = panelEl.querySelector('#timer-side');
@@ -1397,7 +1573,19 @@ function paintTimerCard() {
         : state.status === 'done' ? '완료' : '대기';
   }
   const toggle = panelEl.querySelector('#timer-toggle');
-  if (toggle) toggle.textContent = state.status === 'running' ? '일시정지' : (state.status === 'paused' ? '계속' : '시작');
+  if (toggle) {
+    toggle.textContent = state.status === 'running' ? '일시정지' : (state.status === 'paused' ? '계속' : '시작');
+    toggle.disabled = idle && timerChoice <= 0;
+  }
+  const extend = panelEl.querySelector('#timer-extend');
+  if (extend) extend.disabled = idle || state.status === 'done';
+  const reset = panelEl.querySelector('#timer-reset');
+  if (reset) reset.disabled = idle;
+  // 돌아가는 동안에는 프리셋·직접 입력을 잠깐 잠근다(시간이 엉키지 않게).
+  const running = state.status === 'running' || state.status === 'paused';
+  panelEl.querySelectorAll('[data-timer-seconds]').forEach((chip) => { chip.disabled = running; });
+  panelEl.querySelectorAll('#timer-min, #timer-sec, #timer-custom').forEach((el) => { el.disabled = running; });
+  paintTimerChoice();
 }
 
 /** 시간이 다 됐는지 — 끝났음을 이 창이 확정했을 때만 알림·소리를 낸다. */
@@ -1422,6 +1610,7 @@ function startPillLoops() {
     paintPill();
     paintTimerCard();
     checkTimerDone();
+    paintMediaProgress();
   }, 500);
   fetchMedia();
   paintPill();
@@ -1442,19 +1631,14 @@ function memoCard() {
   const card = widgetCard('memo', `
     <div class="wg-head">
       <span class="wg-label">빠른 메모</span>
-      <span class="wg-side" id="memo-side"></span>
     </div>
-    <textarea class="memo-input" id="memo-input" rows="3" placeholder="한 줄 메모 — 바로 저장됩니다">${escapeHtml(saved)}</textarea>
+    <textarea class="memo-input" id="memo-input" rows="2" placeholder="한 줄 메모 — 바로 저장됩니다">${escapeHtml(saved)}</textarea>
   `);
   requestAnimationFrame(() => {
     const input = card.querySelector('#memo-input');
-    const side = card.querySelector('#memo-side');
     if (!input) return;
-    const paint = () => { if (side) side.textContent = `${input.value.length}자`; };
-    paint();
     let saveTimer = null;
     input.addEventListener('input', () => {
-      paint();
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
         try { localStorage.setItem('tip.quickMemo.v1', input.value); } catch { /* 저장 못하면 이번만 */ }
@@ -1525,35 +1709,28 @@ function launcherCard() {
   const card = widgetCard('launcher', `
     <div class="wg-head">
       <span class="wg-label">모듈 실행</span>
-      <span class="wg-side">켜 둔 모듈</span>
+      <span class="wg-tools">
+        <button class="wg-link wg-add" type="button" id="launcher-new" aria-label="새 스티커 메모" title="새 스티커 메모">+</button>
+      </span>
     </div>
-    <div class="launcher-row" id="launcher-row"></div>
+    <div class="launcher-wrap" id="launcher-wrap">
+      <button class="launcher-nav" type="button" data-launcher="prev" aria-label="이전 모듈" title="이전" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6"/></svg>
+      </button>
+      <div class="launcher-row" id="launcher-row"></div>
+      <button class="launcher-nav" type="button" data-launcher="next" aria-label="다음 모듈" title="다음" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 6 6-6 6"/></svg>
+      </button>
+    </div>
   `, 'wg-wide');
   requestAnimationFrame(() => {
     const row = card.querySelector('#launcher-row');
     if (!row) return;
-    // v1.14.0 — 노치에서도 바로 새 스티커 한 장.
-    if (TAURI) {
-      const add = document.createElement('button');
-      add.className = 'launcher-tile launcher-new';
-      add.type = 'button';
-      add.title = '새 스티커 메모';
-      add.innerHTML = '<span class="launcher-icon" aria-hidden="true">+</span><span>새 스티커</span>';
-      add.addEventListener('click', async () => {
-        try {
-          await invoke('sticky_create', {});
-          setExpanded(false);
-        } catch (error) {
-          console.error('[TIP notch] 스티커를 띄우지 못했습니다', error);
-          toast('스티커를 띄우지 못했습니다');
-        }
-      });
-      row.append(add);
-    }
 
     const ids = quickOrderIds();
     if (!ids.length) {
-      if (!TAURI) row.innerHTML = '<p class="launcher-empty">켜 둔 모듈이 없습니다</p>';
+      row.innerHTML = '<p class="launcher-empty">켜 둔 모듈이 없습니다</p>';
+      paintLauncherNav(card);
       return;
     }
     ids.forEach((id) => {
@@ -1563,6 +1740,7 @@ function launcherCard() {
       btn.className = 'launcher-tile';
       btn.type = 'button';
       btn.title = mod.name;
+      // 넘치는 이름은 shortName 으로 — 타일 폭(54px)에 맞는 이름만 보인다.
       btn.innerHTML = `<span class="launcher-icon">${mod.icon || ''}</span><span>${escapeHtml(mod.shortName || mod.name)}</span>`;
       btn.addEventListener('click', async () => {
         try {
@@ -1576,8 +1754,32 @@ function launcherCard() {
       });
       row.append(btn);
     });
+    row.addEventListener('scroll', () => paintLauncherNav(card), { passive: true });
+    requestAnimationFrame(() => paintLauncherNav(card));
   });
   return card;
+}
+
+/** 가로 스크롤 양끝 화살표·페이드 — 더 볼 것이 있는 쪽만 보인다. */
+function paintLauncherNav(card) {
+  const row = card.querySelector('#launcher-row');
+  if (!row) return;
+  const max = row.scrollWidth - row.clientWidth;
+  const overflow = max > 4;
+  const prev = card.querySelector('[data-launcher="prev"]');
+  const next = card.querySelector('[data-launcher="next"]');
+  if (prev) prev.hidden = !overflow || row.scrollLeft <= 2;
+  if (next) next.hidden = !overflow || row.scrollLeft >= max - 2;
+  row.classList.toggle('is-fade-start', overflow && row.scrollLeft > 2);
+  row.classList.toggle('is-fade-end', overflow && row.scrollLeft < max - 2);
+}
+
+function scrollLauncher(direction) {
+  const row = panelEl.querySelector('#launcher-row');
+  const card = panelEl.querySelector('.wg-launcher');
+  if (!row || !card) return;
+  row.scrollBy({ left: direction * Math.max(60, row.clientWidth * 0.8), behavior: 'smooth' });
+  setTimeout(() => paintLauncherNav(card), 260);
 }
 
 /* ------------------------------ 위젯 생명주기 ------------------------------ */
@@ -1721,9 +1923,8 @@ panelEl.addEventListener('click', (event) => {
     const state = timerState();
     if (state.status === 'running' || state.status === 'paused') {
       toggleTimer();
-    } else {
-      const seconds = timerCardSeconds() || 5 * 60;
-      startTimer(seconds);
+    } else if (timerChoice > 0) {
+      startTimer(timerChoice);
     }
     paintTimerCard();
     paintPill();
@@ -1731,11 +1932,29 @@ panelEl.addEventListener('click', (event) => {
     return;
   }
 
+  // v1.15.2 — 프리셋은 시간을 고르기만 한다(시작은 시작 버튼). 고른 값이 곧 표시 시간이다.
   const presetBtn = event.target.closest('[data-timer-seconds]');
   if (presetBtn) {
-    startTimer(Number(presetBtn.dataset.timerSeconds) || 0);
+    timerChoice = Number(presetBtn.dataset.timerSeconds) || 0;
+    timerCustomOpen = false;
     paintTimerCard();
-    paintPill();
+    fitPanel();
+    openHeld();
+    return;
+  }
+
+  // 분·초 직접 입력은 '직접 입력' 을 눌렀을 때만 보인다.
+  if (event.target.closest('#timer-custom-toggle')) {
+    timerCustomOpen = !timerCustomOpen;
+    const minEl = panelEl.querySelector('#timer-min');
+    const secEl = panelEl.querySelector('#timer-sec');
+    if (timerCustomOpen) {
+      if (minEl) minEl.value = String(Math.floor(timerChoice / 60));
+      if (secEl) secEl.value = String(timerChoice % 60);
+      setTimeout(() => { if (minEl) { minEl.focus(); minEl.select(); } }, 0);
+    }
+    paintTimerCard();
+    fitPanel();
     openHeld();
     return;
   }
@@ -1746,9 +1965,10 @@ panelEl.addEventListener('click', (event) => {
       toast('분이나 초를 1 이상으로 넣어 주세요');
       return;
     }
-    startTimer(seconds);
+    timerChoice = seconds;
+    timerCustomOpen = false;
     paintTimerCard();
-    paintPill();
+    fitPanel();
     openHeld();
     return;
   }
@@ -1767,9 +1987,25 @@ panelEl.addEventListener('click', (event) => {
     return;
   }
 
-  if (event.target.closest('#shelf-drop')) {
+  if (event.target.closest('#shelf-drop') || event.target.closest('[data-shelf-add]')) {
     const picker = panelEl.querySelector('#shelf-file');
     if (picker) picker.click();
+    return;
+  }
+
+  // v1.15.2 — 새 스티커는 타일이 아니라 카드 제목 옆 + 로.
+  if (event.target.closest('#launcher-new')) {
+    invoke('sticky_create', {})
+      .then(() => setExpanded(false))
+      .catch((error) => {
+        console.error('[TIP notch] 스티커를 띄우지 못했습니다', error);
+        toast('스티커를 띄우지 못했습니다');
+      });
+    return;
+  }
+  const launcherNav = event.target.closest('[data-launcher]');
+  if (launcherNav) {
+    scrollLauncher(launcherNav.dataset.launcher === 'next' ? 1 : -1);
     return;
   }
 
@@ -1814,6 +2050,15 @@ panelEl.addEventListener('change', (event) => {
   setCalendarChecked(box.dataset.calId, box.checked);
 });
 
+// v1.15.2 — 분·초를 고치는 동안 표시 시간이 바로 따라간다(입력값 = 표시 시간).
+panelEl.addEventListener('input', (event) => {
+  if (!event.target.closest('#timer-min, #timer-sec')) return;
+  timerChoice = timerCardSeconds();
+  const display = panelEl.querySelector('#timer-display');
+  if (display) display.textContent = formatClock(timerChoice);
+  paintTimerChoice();
+});
+
 /* 파일 끌어다 놓기 — 두 갈래를 모두 받는다. (v1.12.2)
    ① Tauri 네이티브: Rust 가 tip://shelf-drag / tip://shelf-drop(경로 목록)을 보낸다.
       NonactivatingPanel + WKWebView 에서는 HTML5 dataTransfer 로 파일이 오지 않았다.
@@ -1823,6 +2068,9 @@ function setDragState(on) {
   dragHeld = !!on;
   const drop = panelEl.querySelector('#shelf-drop');
   if (drop) drop.classList.toggle('is-over', dragHeld);
+  // 파일을 끌고 들어오면 빈 보관함도 놓을 자리를 보여 준다(v1.15.2).
+  const card = panelEl.querySelector('.wg-shelf');
+  if (card) card.classList.toggle('is-empty', !dragHeld && shelf.length === 0);
   syncHold();
   if (dragHeld) {
     cancelCollapse();
@@ -1830,6 +2078,7 @@ function setDragState(on) {
   } else {
     scheduleCollapse();
   }
+  fitPanel();
 }
 
 window.addEventListener('dragover', (event) => {

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * TIP v1.15.1 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
+ * TIP v1.15.2 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
  *
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.15.2 — 앱 커맨드 창별 제한(AppManifest) · 우편번호 창 저장소 분리(incognito) · CSP http 프레임
+ *          제거 · .app 실행 경로 제한과, 노치 펼친 패널 UI/UX 9종(한 줄 접기·높이 맞힘·타이머 직접
+ *          입력·모듈 화살표·회색 막대 제거·배경 불투명도)을 검사한다.
  * v1.15.1 — 보안 4종(클립보드 비밀번호 제외 · 주소 검색 별도 창 격리 · 위험한 시스템 명령의 Rust
  *          확인·기본 OFF · 로컬 파일 열기 범위 축소)과 환경설정 UX 개편(sticky 탭·높이 고정·
  *          메뉴 막대 묶음·모듈 검색·단축키 표시·캘린더 필터 비활성·⌥Space 표기)을 검사한다.
@@ -63,7 +66,7 @@ check('Cargo.toml 버전', new RegExp(`^version = "${VERSION}"`, 'm').test(read(
 check('mac/package.json 버전', JSON.parse(read('mac/package.json')).version === VERSION);
 check('sw.js 캐시 버전', read('sw.js').includes(`tip-v${VERSION}`));
 check('js/app.js APP_VERSION', read('js/app.js').includes(`APP_VERSION = '${VERSION}'`));
-check('버전이 1.15.1 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 15 || (minor === 15 && patch >= 1))))(VERSION.split('.').map(Number)), String(VERSION));
+check('버전이 1.15.2 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 15 || (minor === 15 && patch >= 2))))(VERSION.split('.').map(Number)), String(VERSION));
 
 /* ------------------------------ 2. 노치 밀착 ------------------------------ */
 
@@ -74,7 +77,8 @@ check('css .pill margin-top 0', /margin-top:\s*0;/.test(pillBlock), pillBlock.tr
 check('css .pill 높이 100%', /height:\s*calc\(100% - 3px\);/.test(pillBlock));
 check('css .pill 폭 넘침 방지', /max-width:\s*100%;/.test(pillBlock));
 check('css .panel margin-top 0', /margin-top:\s*0;/.test(panelBlock));
-check('css .panel max-height 100%', /max-height:\s*100%;/.test(panelBlock));
+// v1.15.2 — 창 높이는 내용에 맞춰 잡되 600px 을 넘지 않는다.
+check('css .panel max-height 600px 이하', /max-height:\s*min\(100%,\s*600px\);/.test(panelBlock), panelBlock.match(/max-height:[^;]+/)?.[0] || '');
 check('css 에 24px/34px 하드코딩 없음', !/margin-top:\s*(24px|34px)/.test(css));
 
 const lib = read('mac/src-tauri/src/lib.rs');
@@ -339,7 +343,7 @@ check('Rust open_postcode_window 커맨드', /fn open_postcode_window\(app: AppH
 check('Rust close_postcode_window 커맨드', /fn close_postcode_window\(app: AppHandle\)/.test(lib));
 check('Rust take_postcode_result 커맨드', /fn take_postcode_result\(\)/.test(lib));
 check('Rust 가 postcode 창을 만든다', lib.includes('WebviewWindowBuilder::new(&app, POSTCODE, WebviewUrl::App("postcode.html".into()))'));
-check('postcode 창은 capabilities 밖(IPC 권한 0)', !/postcode/.test(capability));
+check('postcode 창은 capabilities 밖(IPC 권한 0)', !/"postcode"/.test(capability));
 check('postcode 창에서 Tauri 전역을 지운다', /POSTCODE_HIDE_TAURI/.test(lib) && /delete window\.__TAURI__/.test(lib) && /initialization_script\(POSTCODE_HIDE_TAURI\)/.test(lib));
 check('postcode 창은 조각의 결과만 받는다', /fn postcode_payload\(url: &tauri::Url\)/.test(lib) && lib.includes('strip_prefix("d=")'));
 check('postcode 창이 외부 스킴을 막는다', lib.includes('scheme != "tauri" && scheme != "http" && scheme != "https"'));
@@ -613,6 +617,99 @@ check('로컬 파일 검색 첫 안내', /filesNoticePending/.test(featureJs) &&
   && /홈 폴더 파일 이름을 검색합니다/.test(read('js/search.js')) && /filesNoticePending\(\)/.test(read('js/search.js')));
 check('README 에 v1.15.1', read('README.md').includes('| v1.15.1 |'));
 check('settings-e2e 경로 환경변수화', /TIP_CHROME/.test(read('tools/settings-e2e.mjs')) && /TIP_PLAYWRIGHT|NODE_PATH|PLAYWRIGHT/.test(read('tools/settings-e2e.mjs')));
+
+/* ---------------------- v1.15.2 보안 3종 ---------------------- */
+
+// 1. 앱 커맨드를 창별로 제한 — build.rs 의 AppManifest 와 capabilities 의 allow- 목록
+const buildRs = read('mac/src-tauri/build.rs');
+check('build.rs 가 AppManifest 를 쓴다', /tauri_build::AppManifest::new\(\)\.commands\(/.test(buildRs)
+  && /tauri_build::Attributes::new\(\)[\s\S]{0,80}app_manifest/.test(buildRs));
+check('build.rs 가 try_build 로 속성을 넘긴다', /tauri_build::try_build\(attributes\)/.test(buildRs));
+
+// lib.rs 의 invoke_handler 목록과 build.rs 의 선언이 **정확히** 같은지 센다.
+const handlerBlock = lib.slice(lib.indexOf('invoke_handler(tauri::generate_handler!['), lib.indexOf('])', lib.indexOf('invoke_handler(tauri::generate_handler![')));
+const handlerCommands = [...handlerBlock.matchAll(/^\s{12}([\w:]+),$/gm)]
+  .map((match) => match[1].split('::').pop());
+const manifestBlock = buildRs.slice(buildRs.indexOf('const APP_COMMANDS'), buildRs.indexOf('];', buildRs.indexOf('const APP_COMMANDS')));
+const manifestCommands = [...manifestBlock.matchAll(/^\s{4}"([a-z_]+)",$/gm)].map((match) => match[1]);
+check('invoke_handler 커맨드를 모두 읽었다', handlerCommands.length >= 60, String(handlerCommands.length));
+check('서로 다른 등록 커맨드가 없다', new Set(handlerCommands).size === handlerCommands.length);
+const missingInManifest = handlerCommands.filter((name) => !manifestCommands.includes(name));
+const extraInManifest = manifestCommands.filter((name) => !handlerCommands.includes(name));
+check('build.rs 가 모든 커맨드를 선언', missingInManifest.length === 0, missingInManifest.join(', '));
+check('build.rs 에 없는 커맨드 선언 없음', extraInManifest.length === 0, extraInManifest.join(', '));
+
+const capabilityJson = JSON.parse(capability);
+const capabilityPerms = capabilityJson.permissions.filter((permission) => permission.startsWith('allow-') || permission.startsWith('deny-'));
+const expectedPerms = manifestCommands.map((name) => `allow-${name.replace(/_/g, '-')}`);
+const missingPerms = expectedPerms.filter((permission) => !capabilityJson.permissions.includes(permission));
+check('capabilities 에 모든 allow-<command> 권한', missingPerms.length === 0, missingPerms.slice(0, 6).join(', '));
+check('capabilities allow- 권한 수가 커맨드 수와 같다', capabilityPerms.filter((p) => p.startsWith('allow-')).length === manifestCommands.length,
+  `${capabilityPerms.filter((p) => p.startsWith('allow-')).length}/${manifestCommands.length}`);
+check('capabilities 에 deny- 권한 없음', !capabilityPerms.some((permission) => permission.startsWith('deny-')));
+check('capabilities 창 목록 그대로(앱 창만)', ['"main"', '"quickbar"', '"tool"', '"notch"', '"search"', '"sticky-*"']
+  .every((window) => capability.includes(window)) && capabilityJson.windows.length === 6, String(capabilityJson.windows.length));
+check('postcode·parcel 창은 어떤 권한도 없다', !capabilityJson.windows.includes('postcode') && !capabilityJson.windows.includes('parcel'));
+
+// 2. 우편번호 창 저장소 분리 — incognito + localStorage 미사용
+check('postcode 창을 incognito 로 연다', /\.incognito\(true\)/.test(lib));
+check('postcode 창이 IPC 전역을 지운다(유지)', /initialization_script\(POSTCODE_HIDE_TAURI\)/.test(lib));
+check('postcode.js 가 localStorage 를 쓰지 않는다', !/localStorage/.test(postcodeJs) && !/sessionStorage|indexedDB/.test(postcodeJs));
+check('postcode.html 이 저장소를 쓰지 않는다', !/localStorage|sessionStorage/.test(read('postcode.html')));
+check('주소 모듈이 우편번호 결과를 저장소에서 읽지 않는다', !/tip\.postcode\.result\.v1/.test(address)
+  && !/localStorage\.getItem\(POSTCODE_RESULT_KEY\)/.test(address));
+check('우편번호 결과는 조각으로만 넘긴다', /postcode-done\.html#d=/.test(postcodeJs));
+
+// 3. CSP 의 http 프레임·.app 실행 경로
+check('CSP frame-src 에 http 우편번호 주소 없음', !/frame-src[^;]*http:\/\/postcode\.map/.test(csp));
+check('CSP frame-src 는 https 만', /frame-src 'self' https:\/\/postcode\.map\.daum\.net https:\/\/postcode\.map\.kakao\.com;/.test(csp));
+check('apps.rs .app 은 응용 프로그램 폴더만 실행', /fn is_app_in_applications\(/.test(appsRs) && /fn is_app_bundle\(/.test(appsRs)
+  && /if is_app_bundle\(&path\) && !is_app_in_applications\(&path\)/.test(appsRs));
+check('apps.rs 그 밖의 .app 은 open -R', /is_app_bundle\(&path\) && !is_app_in_applications\(&path\)[\s\S]{0,220}"-R"/.test(appsRs));
+check('apps.rs 실행 허용 폴더 3곳', ['/Applications', '/System/Applications', 'Applications'].every((root) => appsRs.includes(root)));
+
+/* ---------------------- v1.15.2 노치 패널 UI/UX ---------------------- */
+
+const notchCssV2 = read('css/notch.css');
+check('패널 최대 높이 600 이하', /max-height: min\(100%, 600px\)/.test(notchCssV2));
+check('Rust 펼친 높이 한계 300~600', /const NOTCH_OPEN_MAX_H: f64 = 600\.0;/.test(lib) && /const NOTCH_OPEN_MIN_H: f64 = 300\.0;/.test(lib));
+check('Rust 기본 펼친 높이 540', /const NOTCH_OPEN_H: f64 = 540\.0;/.test(lib));
+check('Rust notch_resize 커맨드', /fn notch_resize\(app: AppHandle, height: f64\)/.test(lib) && /notch_resize,/.test(lib));
+check('화면이 잰 높이를 Rust 로', /invoke\('notch_resize', \{ height \}\)/.test(notchJs) && /function panelContentHeight\(/.test(notchJs));
+const panelRgba = (notchCssV2.match(/\.panel \{[\s\S]*?background: rgba\(([^)]+)\)/) || [])[1] || '';
+const panelAlpha = Number((panelRgba.split(',')[3] || '').trim());
+check('다크 패널 불투명도 0.96 이상', panelAlpha >= 0.96, String(panelAlpha));
+const lightPanelAlpha = Number(((notchCssV2.match(/:root\[data-theme='light'\] \.panel \{[\s\S]*?background: rgba\(([^)]+)\)/) || [])[1] || '').split(',')[3] || 0);
+check('라이트 패널 불투명도 0.96 이상', lightPanelAlpha >= 0.96, String(lightPanelAlpha));
+check('회색 막대(.panel-handle) 제거', !notchHtml.includes('panel-handle') && !/\.panel-handle/.test(notchCssV2));
+check('위젯은 두 칸 행(.wg-row)으로 쌓인다', /\.wg-row \{ display: flex/.test(notchCssV2) && /function widgetRow\(/.test(notchJs));
+check('같은 행 카드 높이 맞힘(stretch)', /align-items: stretch/.test(notchCssV2));
+check('음악 없으면 한 줄 접힘', /\.wg-media\.is-compact \.media-body \{ display: none; \}/.test(notchCssV2)
+  && /classList\.toggle\('is-compact', !hasTrack\)/.test(notchJs));
+check('일정 없으면 한 줄 접힘', /\.wg-calendar\.is-compact \.cal-list \{ display: none; \}/.test(notchCssV2)
+  && /card\.classList\.add\('is-compact'\)/.test(notchJs));
+check('빈 보관함은 얇은 한 줄', /\.wg-shelf\.is-empty \.shelf-drop \{[\s\S]{0,120}height: 48px/.test(notchCssV2)
+  && /classList\.toggle\('is-empty'/.test(notchJs));
+check('보관함은 끌어오면 펴진다', /\.shelf-drop\.is-over \{[\s\S]{0,160}height: 72px/.test(notchCssV2)
+  && /card\.classList\.toggle\('is-empty', !dragHeld && shelf\.length === 0\)/.test(notchJs));
+check('미디어 오류는 별도 상태 줄', /id="media-state"/.test(notchJs) && /stateEl\.textContent = permission/.test(notchJs)
+  && /\.wg-state \{/.test(notchCssV2));
+check('오류 때 제목·아티스트 숨김', /titleEl\.hidden = true;/.test(notchJs) && /artistEl\.hidden = true;/.test(notchJs));
+check('재생할 것 없으면 버튼 비활성', /button\.disabled = !hasTrack \|\| !!mediaError/.test(notchJs) && /media-btn:disabled/.test(notchCssV2));
+check('미디어 앱 이름 옆 \u2014 제거', !/id="media-app">\u2014</.test(notchJs));
+check('타이머 직접 입력은 접어 둔다', /id="timer-custom-row" hidden/.test(notchJs) && /\uC9C1\uC811 \uC785\uB825/.test(notchJs));
+check('타이머 \uC774 \uC2DC\uAC04 \u2192 설정', !/\uC774 \uC2DC\uAC04/.test(notchJs) && /id="timer-custom">설정</.test(notchJs));
+check('타이머 입력값 = 표시 시간', /display\.textContent = formatClock\(idle \? timerChoice : remainingSeconds\(state\)\)/.test(notchJs)
+  && /timerChoice = timerCardSeconds\(\)/.test(notchJs));
+check('타이머 세 버튼 모양 통일', /\.timer-btn \{[\s\S]{0,160}flex: 1 1 0;/.test(notchCssV2));
+check('빠른 메모 글자 수 표시 제거', !/memo-side/.test(notchJs) && !/\$\{input\.value\.length\}자/.test(notchJs));
+check('모듈 실행 양끝 화살표', /data-launcher="prev"/.test(notchJs) && /data-launcher="next"/.test(notchJs)
+  && /function paintLauncherNav\(/.test(notchJs) && /\.launcher-nav \{/.test(notchCssV2));
+check('모듈 실행 양끝 페이드', /is-fade-start/.test(notchCssV2) && /is-fade-end/.test(notchCssV2) && /mask-image/.test(notchCssV2));
+check('잘린 이름은 shortName', /mod\.shortName \|\| mod\.name/.test(notchJs));
+check('새 스티커는 제목 옆 +', /id="launcher-new"/.test(notchJs) && !/launcher-tile launcher-new/.test(notchJs));
+check('README 에 v1.15.2', read('README.md').includes('| v1.15.2 |'));
+check('settings-e2e 가 v1.15.2 UI 를 본다', /v1\.15\.2 \u2014 펼친 패널 600px 이하/.test(read('tools/settings-e2e.mjs')));
 
 /* ------------------------------ 결과 ------------------------------ */
 

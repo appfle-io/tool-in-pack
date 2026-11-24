@@ -58,7 +58,11 @@ const TOOL_H: f64 = 680.0;
 const NOTCH_PILL_W: f64 = 92.0;
 const NOTCH_PILL_H: f64 = 28.0;
 const NOTCH_OPEN_W: f64 = 452.0;
-const NOTCH_OPEN_H: f64 = 600.0;
+// v1.15.2 — 펼친 패널의 높이. 예전 한 값(600) 대신 내용에 맞춰 화면이 요청한 높이를 쓴다
+// (notch_resize). 아래 한계 안에서만 움직이고, 기본값은 그보다 조금 낮춘 540 이다.
+const NOTCH_OPEN_H: f64 = 540.0;
+const NOTCH_OPEN_MIN_H: f64 = 300.0;
+const NOTCH_OPEN_MAX_H: f64 = 600.0;
 // v1.15.0 — 접힌 알약이 음악·타이머를 품을 때 더하는 폭(논리 pt).
 //   음악 날개: 이퀄라이저 + 짧은 곡 제목 + 진행률 바 / 타이머 날개: 남은 시간.
 const NOTCH_PILL_MEDIA_W: f64 = 150.0;
@@ -107,6 +111,10 @@ static PENDING_SETTINGS: Mutex<bool> = Mutex::new(false);
 
 /// 노치 아일랜드가 펼쳐져 있는지(창 크기 상태).
 static NOTCH_OPEN: Mutex<bool> = Mutex::new(false);
+
+/// 펼친 패널의 높이 — 화면(notch.js)이 내용 높이를 재서 알려 준 값(v1.15.2).
+/// None 이면 기본값(NOTCH_OPEN_H)을 쓴다. 값은 NOTCH_OPEN_MIN_H..=NOTCH_OPEN_MAX_H 로 자른다.
+static NOTCH_OPEN_HEIGHT: Mutex<Option<f64>> = Mutex::new(None);
 
 /// 접힌 알약에 지금 무엇을 보여 주는지 — 화면(notch.js)이 알린다(v1.15.0).
 /// true 인 쪽만큼 알약 창을 넓혀 곡 제목·진행률과 타이머를 담는다.
@@ -360,11 +368,21 @@ fn collapsed_pill_size() -> (f64, f64) {
     (width + extra, height)
 }
 
+/// 펼친 패널의 높이 — 화면이 재서 알려 준 값(한계 안으로 자른 값), 없으면 기본값.
+fn notch_open_height() -> f64 {
+    NOTCH_OPEN_HEIGHT
+        .lock()
+        .ok()
+        .and_then(|slot| *slot)
+        .unwrap_or(NOTCH_OPEN_H)
+        .clamp(NOTCH_OPEN_MIN_H, NOTCH_OPEN_MAX_H)
+}
+
 /// 접힘/펼침 — 창 크기를 바꾸고 다시 화면 최상단 가운데에 붙인다.
 fn set_notch_open(app: &AppHandle, open: bool) {
     let Some(win) = app.get_webview_window(NOTCH) else { return };
     let (width, height) = if open {
-        (NOTCH_OPEN_W, NOTCH_OPEN_H)
+        (NOTCH_OPEN_W, notch_open_height())
     } else {
         collapsed_pill_size()
     };
@@ -382,7 +400,7 @@ fn show_notch(app: &AppHandle) {
     };
     let open = *NOTCH_OPEN.lock().unwrap();
     let (width, height) = if open {
-        (NOTCH_OPEN_W, NOTCH_OPEN_H)
+        (NOTCH_OPEN_W, notch_open_height())
     } else {
         collapsed_pill_size()
     };
@@ -408,6 +426,31 @@ fn notch_expand(app: AppHandle) {
 #[tauri::command]
 fn notch_collapse(app: AppHandle) {
     set_notch_open(&app, false);
+}
+
+/// 펼친 패널의 높이를 내용에 맞춘다(v1.15.2). 화면(notch.js)이 잰 높이를 넘기고,
+/// Rust 가 한계(300~600pt) 안으로 자른 값만 쓴다. 펼쳐져 있을 때만 창을 다시 배치한다.
+#[tauri::command]
+fn notch_resize(app: AppHandle, height: f64) {
+    if !height.is_finite() {
+        return;
+    }
+    let clamped = height.clamp(NOTCH_OPEN_MIN_H, NOTCH_OPEN_MAX_H);
+    let changed = {
+        let Ok(mut slot) = NOTCH_OPEN_HEIGHT.lock() else { return };
+        let previous = slot.unwrap_or(NOTCH_OPEN_H);
+        if (previous - clamped).abs() < 1.0 {
+            return;
+        }
+        *slot = Some(clamped);
+        true
+    };
+    if !changed || !*NOTCH_OPEN.lock().unwrap() {
+        return;
+    }
+    if let Some(win) = app.get_webview_window(NOTCH) {
+        place_notch(&app, &win, NOTCH_OPEN_W, clamped, true);
+    }
 }
 
 /* ------------------- 접힌 알약의 내용·크기 (v1.15.0) ------------------- */
@@ -1213,6 +1256,10 @@ fn open_postcode_window(app: AppHandle) -> Result<(), String> {
         .min_inner_size(420.0, 520.0)
         .resizable(true)
         .visible(false)
+        // v1.15.2 — 저장소를 메인 앱과 완전히 분리한다. 카카오 우편번호 스크립트가 쓰는
+        // 쿠키·localStorage 가 앱 창(같은 출처)의 저장소에 닿지 않게, 이 창은 비공개(incognito)
+        // 데이터 저장소를 쓴다. 창을 닫으면 그 저장소도 함께 사라진다.
+        .incognito(true)
         .initialization_script(POSTCODE_HIDE_TAURI)
         .on_navigation(move |url| {
             // 앱 안의 문서(우편번호·결과 안내)와 카카오 우편번호의 https 프레임만 지나가게 한다.
@@ -1741,6 +1788,7 @@ pub fn run() {
             media::calendar_create,
             notch_expand,
             notch_collapse,
+            notch_resize,
             set_notch_pill,
             notch_metrics,
             timer_alert,

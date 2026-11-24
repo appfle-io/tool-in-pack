@@ -9,18 +9,19 @@
  *     · Rust 가 초기화 스크립트로 window.__TAURI__·window.__TAURI_INTERNALS__ 를 지운 뒤 문서를 연다.
  *     · 이 창에는 부모가 없다(window.parent === window) → parent.__TAURI__ 도 없다.
  *
- * 결과는 이렇게 돌려준다(둘 다 쓴다):
+ * 결과는 이렇게 돌려준다:
  *   1) 주소를 고르면 postcode-done.html#d=<base64 JSON> 로 이동한다. Rust 의 on_navigation 이 그
  *      조각을 읽어 `tip://postcode-result` 이벤트로 화면에 넘기고, 화면이 이 창을 닫는다.
- *   2) 같은 값을 localStorage('tip.postcode.result.v1')에도 남긴다 — 이벤트를 놓쳐도 화면이
- *      그 값을 읽어 쓸 수 있게(같은 출처의 창들이 저장소를 공유한다).
+ *      이벤트를 놓쳤어도 Rust 가 마지막 결과 한 건을 들고 있어 take_postcode_result 로 꺼낼 수 있다.
  *
- * 이 문서는 앱 저장소를 읽지 않고, 주소 값은 다음 서비스가 준 값만 넘긴다.
+ * v1.15.2 — 이 창은 앱과 저장소를 공유하지 않는다(Rust 가 incognito 창으로 띄운다).
+ *   예전에는 결과를 창의 웹 저장소에도 한 번 남겼지만, 이제 그 저장소는 앱 창의 것과 다른 곳이라
+ *   보험도 되지 않고, 카카오 스크립트가 남기는 값만 늘었다.
+ *   이 문서는 웹 저장소를 **전혀** 읽거나 쓰지 않는다.
  */
 
 (function () {
   var SRC = 'https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
-  var RESULT_KEY = 'tip.postcode.result.v1';
   var statusEl = document.getElementById('postcode-status');
   var embedEl = document.getElementById('postcode-embed');
   var loading = null;
@@ -62,11 +63,7 @@
       buildingName: data.buildingName || '',
     };
     var json = JSON.stringify(payload);
-    // 보험 1 — 같은 출처 창들이 공유하는 저장소에 한 번 남긴다.
-    try {
-      localStorage.setItem(RESULT_KEY, JSON.stringify({ at: Date.now(), data: payload }));
-    } catch (error) { /* 저장하지 못해도 아래 이동으로 결과는 전달된다 */ }
-    // 보험 2 — Rust 가 이 주소 조각을 읽어 화면에 이벤트로 넘긴다.
+    // 결과는 주소 조각으로만 넘긴다 — Rust 가 그 조각을 읽어 화면에 이벤트로 전한다.
     var encoded = '';
     try {
       encoded = btoa(unescape(encodeURIComponent(json)));

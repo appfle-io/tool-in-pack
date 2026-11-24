@@ -290,11 +290,37 @@ fn is_openable_file(path: &Path) -> bool {
     }
 }
 
+/// 실행해도 되는 .app 번들인지 — 시스템·사용자 응용 프로그램 폴더 아래만(v1.15.2).
+/// 내려받은(~/Downloads) 앱이나 메신저로 받은 앱을 검색 결과에서 한 번에 실행하지 못하게,
+/// 그 밖의 .app 은 open -R 로 Finder 에서 위치만 보여 준다.
+fn is_app_in_applications(path: &Path) -> bool {
+    app_roots().iter().any(|root| path.starts_with(root))
+}
+
+/// 이 경로가 .app 번들인지 — 경로 이름으로 본다(번들 안을 가리키는 경로도 있다).
+fn is_app_bundle(path: &Path) -> bool {
+    path.components().any(|part| {
+        part.as_os_str()
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .ends_with(".app")
+    })
+}
+
 #[tauri::command]
 pub fn open_local_file(path: String) -> Result<(), String> {
     let path = PathBuf::from(path.trim());
     if !is_openable_file(&path) {
         return Err("검색 결과에 있는 경로만 열 수 있습니다".into());
+    }
+    // v1.15.2 — 응용 프로그램 폴더 밖의 .app 은 실행하지 않고 Finder 에서 위치만 보여 준다.
+    if is_app_bundle(&path) && !is_app_in_applications(&path) {
+        return Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .status()
+            .map(|_| ())
+            .map_err(|error| format!("Finder 에서 위치를 보여 주지 못했습니다: {error}"));
     }
     // v1.15.1 — 스크립트·설치 파일은 실행하지 않고 Finder 에서 위치만 보여 준다.
     if is_script_file(&path) {

@@ -6,6 +6,8 @@
  *   · Mac 앱(v1.15.1): **IPC 권한이 없는 별도 창**(postcode.html)에서 띄운다 — 카카오 스크립트가
  *     window.__TAURI__ 도 parent.__TAURI__ 도 쓸 수 없다(창 라벨이 capabilities 에 없고, Rust 가
  *     전역을 지운 뒤 문서를 연다). 고른 주소만 `tip://postcode-result` 이벤트로 돌아온다.
+ *     v1.15.2 — 그 창은 앱과 저장소를 공유하지 않는다(incognito). 결과는 이벤트와 Rust 보관함
+ *     (take_postcode_result) 두 길로만 받는다.
  *   · 웹(PWA): 예전처럼 전용 iframe(address-frame.html)에서 돌리고 postMessage 로만 받는다
  *     (웹에는 __TAURI__ 가 없어 격리 문제가 없다).
  * - 해외 주소 — OpenStreetMap Nominatim 검색 API 로 한글·영어 검색, 주소·영문명·좌표를 보여 준다.
@@ -18,8 +20,6 @@ import { romanizeAddress } from './romanize.js';
 
 const DAUM_FRAME = './address-frame.html';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
-/// 우편번호 창이 고른 주소를 남기는 열쇠 — 이벤트를 놓쳤을 때 화면이 직접 읽는 보험(v1.15.1).
-const POSTCODE_RESULT_KEY = 'tip.postcode.result.v1';
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
 const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6.5-5.4 6.5-11a6.5 6.5 0 1 0-13 0C5.5 15.6 12 21 12 21z"/><circle cx="12" cy="10" r="2.4"/></svg>';
@@ -39,7 +39,6 @@ function mount(root, ctx) {
   let daumReady = false;
   let daumTimer = null;
   let postcodePoll = null;
-  let postcodeSeenAt = 0;
   let worldBusy = false;
   let lastKorean = null;
 
@@ -212,7 +211,8 @@ function mount(root, ctx) {
     postcodePoll = null;
   }
 
-  /** 우편번호 창의 결과를 살펴본다 — 이벤트를 놓쳤을 때를 위한 두 겹의 보험(Rust 보관함 → 저장소). */
+  /** 우편번호 창의 결과를 살펴본다 — 이벤트를 놓쳤을 때를 위해 Rust 가 들고 있는 마지막 결과를 꺼낸다.
+   *  (v1.15.2 — 우편번호 창은 앱과 저장소를 공유하지 않으므로 localStorage 보험은 없앴다.) */
   function checkPostcodeResult() {
     if (!TAURI) return;
     invoke('take_postcode_result').then((payload) => {
@@ -223,19 +223,10 @@ function mount(root, ctx) {
         console.error('[TIP address-search] 주소 결과를 읽지 못했습니다', error);
       }
     }).catch(() => {});
-
-    try {
-      const saved = JSON.parse(localStorage.getItem(POSTCODE_RESULT_KEY) || 'null');
-      if (saved && saved.data && Number(saved.at) >= postcodeSeenAt) {
-        localStorage.removeItem(POSTCODE_RESULT_KEY);
-        deliverKorean(saved.data);
-      }
-    } catch { /* 읽지 못하면 다음 차례에 다시 본다 */ }
   }
 
   /** Mac 앱 — 우편번호를 별도 창으로 열고 결과를 기다린다. */
   function openKoreanWindow() {
-    postcodeSeenAt = Date.now();
     krError.hidden = true;
     krEmbed.hidden = true;
     krHint.textContent = '별도 창에서 검색 중…';
@@ -571,7 +562,7 @@ export default {
   subtitle: '한글·영문 주소와 우편번호 찾기',
   description: '한국 주소는 다음 우편번호 서비스로 도로명·지번·영문·우편번호를, 해외 주소는 OpenStreetMap 으로 찾습니다.',
   icon: ICON,
-  version: '1.15.1',
+  version: '1.15.2',
   category: 'online',
   defaultEnabled: true,
   defaultPinned: false,
