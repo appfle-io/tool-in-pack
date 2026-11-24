@@ -34,8 +34,9 @@ const NOTCH_WINDOW_LEVEL: objc2_app_kit::NSWindowLevel = 27;
 const DEFAULT_NOTCH_H: f64 = 32.0;
 
 /// 노치 알약이 노치를 감쌀 때 양옆으로 더 두는 여유(논리 pt).
+/// v1.12.4 — 56 → 16. 알약 양옆으로 남는 투명 창이 메뉴 막대 아이콘을 덮지 않을 만큼만 둔다.
 #[cfg(target_os = "macos")]
-const NOTCH_SIDE_ROOM: f64 = 56.0;
+const NOTCH_SIDE_ROOM: f64 = 16.0;
 
 /* ------------------------------ 패널 클래스 ------------------------------ */
 
@@ -177,6 +178,10 @@ pub fn pin(win: &tauri::WebviewWindow) -> bool {
         panel.setBecomesKeyOnlyIfNeeded(false);
         panel.setHidesOnDeactivate(false);
         panel.setReleasedWhenClosed(false);
+        // v1.12.4 — 마우스 이동(mouseMoved) 이벤트를 받는다. 이게 없으면 클릭하기 전에는
+        // 비활성 패널에 마우스 이동이 전달되지 않아, 다른 앱을 쓰는 중 알약 위로 커서를 올려도
+        // 화면이 반응하지 않았다(한 번 클릭해야 그 뒤부터 먹혔다).
+        panel.setAcceptsMouseMovedEvents(true);
 
         // 마지막에 레벨·동작 — 다른 앱을 전체화면으로 쓸 때 그 Space 에서도 노치가 보여야 한다.
         // CanJoinAllSpaces(모든 Space) + FullScreenAuxiliary(전체화면 위) + Stationary(스크롤해도 제자리).
@@ -223,7 +228,7 @@ pub fn order_front(win: &tauri::WebviewWindow) -> bool {
 }
 
 /// 접힌 알약 창의 크기 — 노치 화면이면 노치를 감싸는 크기(노치 너비+양옆 여유 · 노치 높이),
-/// 아니면 받은 기본 크기(240×28). 창 위쪽은 항상 화면 최상단(y=0)에 붙는다.
+/// 아니면 받은 기본 크기(92×28). 창 위쪽은 항상 화면 최상단(y=0)에 붙는다.
 #[cfg(target_os = "macos")]
 pub fn pill_size(base_width: f64, base_height: f64) -> (f64, f64) {
     let Some(mtm) = objc2::MainThreadMarker::new() else {
@@ -277,6 +282,32 @@ pub fn place(win: &tauri::WebviewWindow, width: f64, height: f64, open: bool) ->
     true
 }
 
+/* ------------------------------ 커서 위치 (v1.12.4) ------------------------------ */
+
+/// 커서가 이 창(알약 또는 펼친 패널) 안에 있는지 — `margin` 만큼 바깥을 여유로 본다.
+/// NSEvent::mouseLocation() 은 화면 좌표(왼쪽 아래가 원점)로 창 프레임과 같은 좌표계다.
+/// 손쉬운 사용 권한이 필요 없고, 다른 앱이 활성 상태여도 그대로 읽힌다.
+#[cfg(target_os = "macos")]
+pub fn cursor_inside(win: &tauri::WebviewWindow, margin: f64) -> Option<bool> {
+    use objc2_app_kit::{NSEvent, NSWindow};
+
+    // AppKit 은 메인 스레드에서만 만진다.
+    objc2::MainThreadMarker::new()?;
+    let ptr = win.ns_window().ok()?;
+
+    // SAFETY: 메인 스레드에서 이 창의 NSWindow 포인터로 프레임만 읽는다.
+    let (point, frame) = unsafe {
+        let window = &*(ptr as *const NSWindow);
+        (NSEvent::mouseLocation(), window.frame())
+    };
+
+    let inside = point.x >= frame.origin.x - margin
+        && point.x <= frame.origin.x + frame.size.width + margin
+        && point.y >= frame.origin.y - margin
+        && point.y <= frame.origin.y + frame.size.height + margin;
+    Some(inside)
+}
+
 /// 노치 창을 key window 로 만들어 키보드 입력을 받게 한다(빠른 메모 클릭).
 /// 첫 응답자는 내용 뷰(WKWebView) — 그 안의 textarea 가 바로 타이핑을 받는다.
 #[cfg(target_os = "macos")]
@@ -321,6 +352,11 @@ pub fn pill_size(base_width: f64, base_height: f64) -> (f64, f64) {
 #[cfg(not(target_os = "macos"))]
 pub fn place(_win: &tauri::WebviewWindow, _width: f64, _height: f64, _open: bool) -> bool {
     false
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn cursor_inside(_win: &tauri::WebviewWindow, _margin: f64) -> Option<bool> {
+    None
 }
 
 #[cfg(not(target_os = "macos"))]

@@ -6,10 +6,13 @@
 // - 퀵바에서 모듈을 고르면 420×680 컴팩트 창(tool)이 그 모듈 화면으로 열린다.
 // - 모든 창은 같은 origin 이라 localStorage(모듈 켜기/끄기, 순서, 테마)를 그대로 공유한다.
 
+use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use tauri::{
@@ -40,7 +43,9 @@ const TOOL_H: f64 = 680.0;
 
 // 노치 아일랜드 — 화면 최상단 중앙(y=0, 노치 자리). 접힌 알약과 펼친 패널의 크기만 다르다.
 // v1.12.2 — 알약 높이를 46 → 28 로 줄여 화면 최상단에 밀착한다(노치 화면에서는 노치 높이).
-const NOTCH_PILL_W: f64 = 240.0;
+// v1.12.4 — 알약 창 너비를 240 → 92 로 줄인다. 알약(TIP ●)은 72px 남짓인데 창이 240px 이라
+//  양옆으로 84px 씩 투명한 창이 메뉴 막대 아이콘을 덮어 클릭이 먹지 않았다.
+const NOTCH_PILL_W: f64 = 92.0;
 const NOTCH_PILL_H: f64 = 28.0;
 const NOTCH_OPEN_W: f64 = 452.0;
 const NOTCH_OPEN_H: f64 = 600.0;
@@ -65,8 +70,26 @@ static PENDING_SETTINGS: Mutex<bool> = Mutex::new(false);
 /// 노치 아일랜드가 펼쳐져 있는지(창 크기 상태).
 static NOTCH_OPEN: Mutex<bool> = Mutex::new(false);
 
+/// 환경설정의 '마우스를 올려서 열기'(기본 OFF) — 프런트가 값을 밀어 준다.
+static HOVER_OPEN: AtomicBool = AtomicBool::new(false);
+/// 프런트가 '지금은 접지 마라'고 알린 상태(입력 중·파일 드래그 중).
+static HOVER_HOLD: AtomicBool = AtomicBool::new(false);
+/// 커서 감시 스레드를 이미 띄웠는지.
+static HOVER_WATCH: AtomicBool = AtomicBool::new(false);
+/// 펼친 패널 밖으로 커서가 나간 시각 — 0.7초 넘게 밖에 있으면 접는다.
+static HOVER_OUTSIDE_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+
 /// 지금 등록된 전역 빠른 실행 단축키.
 static SEARCH_SHORTCUT: Mutex<Option<String>> = Mutex::new(None);
+
+/// check_app_update 가 찾은 자동 업데이트 대상 — 설치 커맨드는 이 값만 쓴다(v1.12.4).
+/// 프런트가 임의의 주소를 넘겨 임의 파일을 설치하지 못하게 하기 위해서다.
+static UPDATE_TARGET: Mutex<Option<UpdateTarget>> = Mutex::new(None);
+
+/// 드롭으로 받은 파일 경로 — read_shelf_file 은 이 목록에 있는 경로만 한 번 읽는다(v1.12.4).
+static SHELF_ALLOWED: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+/// 허용 목록에 담아 둘 최대 개수 — 넘치면 오래된 것부터 버린다.
+const SHELF_ALLOWED_MAX: usize = 64;
 
 /* ----------------------------- 창 위치 계산 ----------------------------- */
 
@@ -249,6 +272,8 @@ fn notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
                     .iter()
                     .map(|path| path.to_string_lossy().to_string())
                     .collect();
+                // v1.12.4 — 실제로 드롭된 경로만 read_shelf_file 이 읽을 수 있게 허용 목록에 담는다.
+                allow_shelf_paths(&paths);
                 let _ = drop_win.emit("tip://shelf-drop", files);
             }
             tauri::DragDropEvent::Leave => {
@@ -322,6 +347,101 @@ fn notch_collapse(app: AppHandle) {
     set_notch_open(&app, false);
 }
 
+/* --------------------- 커서 감시 — 다른 앱을 쓰는 중에도 열린다 (v1.12.4) --------------------- */
+
+/// 환경설정의 '마우스를 올려서 열기' — 프런트(store.js)가 저장값을 그대로 밀어 준다.
+/// 켜면 커서 감시 스레드가 알약 위로 커서가 들어오는 순간 펼친다(클릭 불필요).
+#[tauri::command]
+fn set_notch_hover(app: AppHandle, enabled: bool) {
+    HOVER_OPEN.store(enabled, Ordering::Relaxed);
+    if enabled {
+        start_hover_watch(app);
+    } else if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
+        *slot = None;
+    }
+}
+
+/// 프런트가 알리는 '지금은 접지 마라' — 빠른 메모 입력 중·파일 드래그 중.
+#[tauri::command]
+fn notch_hover_hold(hold: bool) {
+    HOVER_HOLD.store(hold, Ordering::Relaxed);
+}
+
+/// 130ms 마다 커서 위치를 본다 — WKWebView 는 앱이 백그라운드일 때 DOM mouseenter 를 보내지 않아
+/// 다른 앱(사파리·피클)을 쓰는 중에는 마우스를 올려도 반응이 없었다. NSEvent::mouseLocation() 은
+/// 손쉬운 사용 권한 없이 쓸 수 있는 AppKit 의 커서 좌표다(창 프레임과 같은 좌표계).
+fn start_hover_watch(app: AppHandle) {
+    if HOVER_WATCH.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(130));
+        if !HOVER_OPEN.load(Ordering::Relaxed) {
+            if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
+                *slot = None;
+            }
+            continue;
+        }
+        // AppKit 을 만지는 부분은 메인 스레드로 보낸는다(웹뷰·창은 메인 스레드 소유).
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || hover_tick(&handle));
+    });
+}
+
+/// 한 번의 커서 확인 — 접혀 있으면 알약 위로 들어올 때 펼치고,
+/// 펼쳐져 있으면 패널 밖으로 0.7초 넘게 나가 있으면 접는다.
+fn hover_tick(app: &AppHandle) {
+    let Some(win) = app.get_webview_window(NOTCH) else { return };
+    if !win.is_visible().unwrap_or(false) {
+        return;
+    }
+    let open = *NOTCH_OPEN.lock().unwrap();
+    // 여유를 조금 둔다 — 알약 가장자리에서 깜박이지 않게.
+    let Some(inside) = notch::cursor_inside(&win, if open { 6.0 } else { 4.0 }) else {
+        return;
+    };
+
+    if inside {
+        if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
+            *slot = None;
+        }
+        if !open {
+            set_notch_open(app, true);
+            let _ = app.emit("tip://notch-hover-enter", ());
+        }
+        return;
+    }
+
+    if !open || HOVER_HOLD.load(Ordering::Relaxed) {
+        if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
+            *slot = None;
+        }
+        return;
+    }
+
+    let now = Instant::now();
+    let elapsed = {
+        let mut slot = match HOVER_OUTSIDE_SINCE.lock() {
+            Ok(slot) => slot,
+            Err(_) => return,
+        };
+        match *slot {
+            Some(since) => now.duration_since(since),
+            None => {
+                *slot = Some(now);
+                Duration::from_millis(0)
+            }
+        }
+    };
+    if elapsed >= Duration::from_millis(700) {
+        set_notch_open(app, false);
+        if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
+            *slot = None;
+        }
+        let _ = app.emit("tip://notch-hover-leave", ());
+    }
+}
+
 /// 노치 창을 key window 로 만든다 — 빠른 메모(textarea)를 클릭했을 때 바로 타이핑되게.
 /// borderless NSPanel 은 스스로 key window 가 되지 못해 입력이 들어가지 않았다(v1.12.2).
 #[tauri::command]
@@ -352,8 +472,36 @@ fn open_privacy_settings(kind: String) -> Result<(), String> {
 
 /// 임시 보관함 — 드롭한 파일 하나를 읽어 바이트로 돌려준다.
 /// 프런트(notch.js)가 이 바이트로 File 을 만들어 보관함에 넣는다.
-/// 안전 장치: 일반 파일만 · 50MB 이하만 · 읽을 수 있는 절대 경로만.
+/// v1.12.4 — 아무 경로나 읽지 않는다. Finder 드롭으로 받은 경로만(한 번만) 읽는다.
+/// 안전 장치: 드롭 허용 목록 · 일반 파일만 · 50MB 이하만 · 절대 경로만.
 const SHELF_MAX_BYTES: u64 = 50 * 1024 * 1024;
+
+/// 드롭 이벤트로 받은 경로를 허용 목록에 넣는다(최대 SHELF_ALLOWED_MAX개, 넘으면 비운다).
+fn allow_shelf_paths(paths: &[PathBuf]) {
+    let mut slot = match SHELF_ALLOWED.lock() {
+        Ok(slot) => slot,
+        Err(_) => return,
+    };
+    let set = slot.get_or_insert_with(HashSet::new);
+    if set.len() + paths.len() > SHELF_ALLOWED_MAX {
+        set.clear();
+    }
+    for path in paths {
+        set.insert(path.clone());
+    }
+}
+
+/// read_shelf_file 이 읽어도 되는 경로인지 — 목록에 있으면 꺼내 오고(1회성) 없으면 None.
+fn take_shelf_path(path: &Path) -> bool {
+    let mut slot = match SHELF_ALLOWED.lock() {
+        Ok(slot) => slot,
+        Err(_) => return false,
+    };
+    match slot.as_mut() {
+        Some(set) => set.remove(path),
+        None => false,
+    }
+}
 
 #[tauri::command]
 async fn read_shelf_file(path: String) -> Result<tauri::ipc::Response, String> {
@@ -370,6 +518,10 @@ fn read_shelf_bytes(path: &str) -> Result<tauri::ipc::Response, String> {
     }
     if path.components().count() < 2 {
         return Err("파일 경로가 아닙니다".into());
+    }
+    // 드롭으로 받은 경로만 읽는다 — 목록에서 꺼내면 다시 읽을 수 없다.
+    if !take_shelf_path(&path) {
+        return Err("보관함에 끌어다 놓은 파일만 담을 수 있습니다".into());
     }
 
     let meta = fs::metadata(&path).map_err(|error| format!("파일을 찾지 못했습니다: {error}"))?;
@@ -648,6 +800,30 @@ fn open_parcel_webview(app: AppHandle, url: String, title: String) -> Result<(),
 
 /* ------------------------------ 앱 업데이트 ------------------------------ */
 
+/// 자동 업데이트로 설치할 파일 — check_app_update 가 찾은 값만 여기에 남는다(v1.12.4).
+/// 설치 커맨드는 인자를 받지 않으므로, 화면(웹뷰 스크립트)이 임의의 주소로 다른 파일을
+/// 설치하게 만들 수 없다.
+#[derive(Clone)]
+struct UpdateTarget {
+    version: String,
+    /// `.app.tar.gz` 내려받기 주소 — GitHub Releases 의 자산 주소만 받는다.
+    archive: String,
+    /// `SHA256SUMS.txt` 내려받기 주소 — 같은 릴리스의 자산만 받는다.
+    sums: String,
+}
+
+/// TIP 의 공개 릴리스 자산 주소 꾸러미 — 이 접두사로 시작하는 주소만 내려받는다.
+const RELEASE_DOWNLOAD_PREFIX: &str =
+    "https://github.com/appfle-io/tool-in-pack/releases/download/";
+
+/// 내려받아도 되는 주소인지 — TIP 저장소의 릴리스 자산(HTTPS)만.
+fn is_release_asset(url: &str) -> bool {
+    url.starts_with(RELEASE_DOWNLOAD_PREFIX)
+        && !url.contains(' ')
+        && !url.contains("..")
+        && !url.to_ascii_lowercase().contains("%2e%2e")
+}
+
 /// GitHub Releases 최신 정보 — 프런트가 그대로 쓴다(check_app_update).
 #[derive(serde::Serialize)]
 struct UpdateInfo {
@@ -720,36 +896,57 @@ async fn check_app_update() -> Result<UpdateInfo, String> {
     let body: serde_json::Value = response.json().await.map_err(|error| error.to_string())?;
     let tag = body.get("tag_name").and_then(|value| value.as_str()).unwrap_or("");
     let notes = body.get("body").and_then(|value| value.as_str()).unwrap_or("");
-    let url = body
-        .get("assets")
-        .and_then(|value| value.as_array())
-        .and_then(|assets| {
+    let assets = body.get("assets").and_then(|value| value.as_array());
+
+    // 자산 두 개를 찾는다 — 설치 파일(`.app.tar.gz`)과 해시 목록(`SHA256SUMS.txt`).
+    let asset_url = |predicate: &dyn Fn(&str) -> bool| -> Option<String> {
+        assets.and_then(|assets| {
             assets.iter().find_map(|asset| {
                 let name = asset.get("name").and_then(|value| value.as_str()).unwrap_or("");
-                if name.ends_with(".app.tar.gz") {
-                    asset
-                        .get("browser_download_url")
-                        .and_then(|value| value.as_str())
-                        .map(|value| value.to_string())
-                } else {
-                    None
+                if !predicate(name) {
+                    return None;
                 }
+                asset
+                    .get("browser_download_url")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string())
             })
-        });
+        })
+    };
+    let url = asset_url(&|name| name.ends_with(".app.tar.gz")).filter(|url| is_release_asset(url));
+    let sums = asset_url(&|name| name == "SHA256SUMS.txt").filter(|url| is_release_asset(url));
 
     let latest = tag.trim().trim_start_matches('v').to_string();
     let newer = !latest.is_empty() && parse_version(&latest) > parse_version(&current);
+
+    // 설치 파일과 해시 목록 주소가 "둘 다" TIP 릴리스 자산으로 확인될 때만 설치 대상을 남긴다.
+    let target = match (&url, &sums) {
+        (Some(archive), Some(sums)) if is_release_asset(archive) && is_release_asset(sums) => {
+            Some(UpdateTarget {
+                version: latest.clone(),
+                archive: archive.clone(),
+                sums: sums.clone(),
+            })
+        }
+        _ => None,
+    };
+    let installable = newer && target.is_some();
+    if let Ok(mut slot) = UPDATE_TARGET.lock() {
+        *slot = if installable { target } else { None };
+    }
 
     let message = if !newer {
         format!("최신 버전입니다 (v{current})")
     } else if url.is_none() {
         format!("새 버전 v{latest} 이 있지만 설치 파일(.app.tar.gz)이 없습니다. 릴리스 페이지에서 내려받아 주세요.")
+    } else if !installable {
+        format!("새 버전 v{latest} 이 있지만 해시 목록(SHA256SUMS.txt)이 없어 자동 설치할 수 없습니다. 릴리스 페이지에서 내려받아 주세요.")
     } else {
         format!("새 버전 v{latest} 이 있습니다.")
     };
 
     Ok(UpdateInfo {
-        available: newer && url.is_some(),
+        available: installable,
         current,
         version: if latest.is_empty() { None } else { Some(latest) },
         url,
@@ -880,14 +1077,81 @@ fn replace_bundle(target: &Path, new_app: &Path, work: &Path) -> Result<(), Stri
     Ok(())
 }
 
+/// 파일의 SHA-256 — 설치 파일이 릴리스의 해시 목록과 같은지 대조한다(v1.12.4).
+fn sha256_file(path: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+
+    let mut file = fs::File::open(path).map_err(|error| format!("파일을 열지 못했습니다: {error}"))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("파일을 읽지 못했습니다: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// `SHA256SUMS.txt` 본문에서 파일 이름에 해당하는 해시를 꺼낸다.
+/// 줄 형식: `<64자리 hex>  <파일 이름>` (sha256sum 기본 출력).
+fn hash_from_sums(sums: &str, file_name: &str) -> Option<String> {
+    for line in sums.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        let hash = parts.next().unwrap_or("");
+        let name = parts.next().unwrap_or("").trim_start_matches('*');
+        if name == file_name && hash.len() == 64 && hash.chars().all(|ch| ch.is_ascii_hexdigit()) {
+            return Some(hash.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
 /// `.app.tar.gz` 를 내려받아 설치하고 앱을 다시 시작한다(진행률은 이벤트로 보낸다).
+/// v1.12.4 — 인자가 없다. check_app_update 가 확인한 TIP 릴리스 자산만 내려받고,
+/// 같은 릴리스의 SHA256SUMS.txt 와 해시가 같을 때만 설치한다.
 #[tauri::command]
-async fn install_app_update_and_restart(app: AppHandle, url: String) -> Result<(), String> {
+async fn install_app_update_and_restart(app: AppHandle) -> Result<(), String> {
+    let target = UPDATE_TARGET
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+        .ok_or_else(|| "먼저 '업데이트 확인'을 해 주세요 — 설치할 파일 주소가 없습니다".to_string())?;
+
+    // 저장된 값이라도 한 번 더 본다 — 주소는 TIP 릴리스 자산만, 버전은 지금보다 높은 것만.
+    if !is_release_asset(&target.archive) || !is_release_asset(&target.sums) {
+        return Err("업데이트 주소가 TIP 릴리스가 아닙니다 — 설치를 중단했습니다".into());
+    }
+    if parse_version(&target.version) <= parse_version(env!("CARGO_PKG_VERSION")) {
+        return Err(format!(
+            "설치할 버전(v{})이 지금 버전(v{})보다 높지 않습니다 — 설치를 중단했습니다",
+            target.version,
+            env!("CARGO_PKG_VERSION")
+        ));
+    }
+
     emit_progress(&app, "download", Some(0.0));
 
     let work = std::env::temp_dir().join("tip-update");
     let _ = fs::remove_dir_all(&work);
     fs::create_dir_all(&work).map_err(|error| format!("임시 폴더를 만들지 못했습니다: {error}"))?;
+    let archive_name = target
+        .archive
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| "설치 파일 이름을 읽지 못했습니다".to_string())?
+        .to_string();
+    if !archive_name.ends_with(".app.tar.gz") {
+        return Err("설치 파일 형식이 아닙니다 — 설치를 중단했습니다".into());
+    }
     let archive = work.join("TIP.app.tar.gz");
 
     let client = reqwest::Client::builder()
@@ -897,7 +1161,7 @@ async fn install_app_update_and_restart(app: AppHandle, url: String) -> Result<(
         .map_err(|error| error.to_string())?;
 
     let response = client
-        .get(url.as_str())
+        .get(target.archive.as_str())
         .send()
         .await
         .map_err(|error| format!("내려받지 못했습니다: {error}"))?;
@@ -922,6 +1186,29 @@ async fn install_app_update_and_restart(app: AppHandle, url: String) -> Result<(
     }
     drop(file);
 
+    // 해시 대조 — 목록을 받지 못하거나 값이 다르면 압축을 풀지도 않고 멈춘다.
+    emit_progress(&app, "verify", Some(100.0));
+    let sums_text = client
+        .get(target.sums.as_str())
+        .send()
+        .await
+        .map_err(|error| format!("해시 목록을 내려받지 못했습니다: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("해시 목록을 내려받지 못했습니다: {error}"))?
+        .text()
+        .await
+        .map_err(|error| format!("해시 목록을 읽지 못했습니다: {error}"))?;
+    let expected = hash_from_sums(&sums_text, &archive_name).ok_or_else(|| {
+        format!("SHA256SUMS.txt 에 {archive_name} 의 해시가 없습니다 — 설치를 중단했습니다")
+    })?;
+    let actual = sha256_file(&archive)?;
+    if actual != expected {
+        let _ = fs::remove_dir_all(&work);
+        return Err(format!(
+            "내려받은 파일의 해시가 릴리스와 다릅니다 — 설치를 중단했습니다\n(기대 {expected} / 실제 {actual})"
+        ));
+    }
+
     emit_progress(&app, "extract", Some(100.0));
     let unpacked = work.join("unpacked");
     fs::create_dir_all(&unpacked).map_err(|error| error.to_string())?;
@@ -940,14 +1227,14 @@ async fn install_app_update_and_restart(app: AppHandle, url: String) -> Result<(
         .ok_or_else(|| "내려받은 파일 안에 앱(.app)이 없습니다".to_string())?;
 
     emit_progress(&app, "install", Some(100.0));
-    let target = current_bundle_path()
+    let target_bundle = current_bundle_path()
         .ok_or_else(|| "앱 번들 위치를 찾지 못했습니다(개발 빌드에서는 자동 설치를 쓸 수 없습니다)".to_string())?;
-    replace_bundle(&target, &new_app, &work)?;
+    replace_bundle(&target_bundle, &new_app, &work)?;
 
     emit_progress(&app, "restart", Some(100.0));
     std::process::Command::new("open")
         .arg("-n")
-        .arg(&target)
+        .arg(&target_bundle)
         .spawn()
         .map_err(|error| format!("앱을 다시 시작하지 못했습니다: {error}"))?;
 
@@ -991,6 +1278,8 @@ pub fn run() {
             notch_expand,
             notch_collapse,
             notch_focus,
+            set_notch_hover,
+            notch_hover_hold,
             open_privacy_settings,
             read_shelf_file,
             set_notch_enabled,

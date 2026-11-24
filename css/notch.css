@@ -1,6 +1,7 @@
-/* TIP · 노치 아일랜드 창 — 접힌 알약과 펼친 패널. v1.12.2
- * 창은 투명하고, Rust 가 접힘 240×28(노치 디스플레이에서는 노치 높이) /
- * 펼침 452×600 으로 크기를 바꾼다.
+/* TIP · 노치 아일랜드 창 — 접힌 알약과 펼친 패널. v1.12.4
+ * 창은 투명하고, Rust 가 접힘 92×28(노치 디스플레이에서는 노치 너비+16) /
+ * 펼침 452×600 으로 크기를 바꾼다. 접힌 창을 240px 로 두었을 때는 알약 양옆의 투명한 창이
+ * 메뉴 막대 아이콘을 덮어 클릭이 먹지 않았다(v1.12.4 에서 92px 로 줄임).
  * 창은 화면 최상단(y=0) 가운데에 NSPanel 로 붙는다(mac/src-tauri/src/notch.rs).
  * v1.12.2 — 위쪽 24px/34px 여백을 없애 알약·패널이 화면 최상단에 밀착한다.
  *   (창 높이가 곧 알약 높이이므로 .pill 은 100% 로 채우고, 유리에 붙는 3px 만 남긴다.)
@@ -48,8 +49,12 @@ html, body {
   height: calc(100% - 3px);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   padding: 0 10px;
+  /* v1.12.4 — 창 너비 92px 안에서 좌우가 잘리지 않게 한다(내용은 60px 남짓). */
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid rgba(0, 0, 0, 0.22);
   border-top: 0;
   border-radius: 0 0 13px 13px;
@@ -256,6 +261,14 @@ html, body {
 }
 .cal-text span { font-size: 10px; opacity: 0.55; }
 .cal-empty { font-size: 10.5px; opacity: 0.5; line-height: 1.5; }
+/* v1.12.4 — 권한 문제가 아닌 오류의 짧은 원인(콘솔에만 남기지 않는다) */
+.cal-error {
+  display: block;
+  margin-top: 2px;
+  font-size: 9.5px;
+  opacity: 0.75;
+  word-break: break-word;
+}
 
 /* v1.12.3 — 권한이 막혔을 때 카드에 붙는 '권한 설정' 버튼 */
 .wg-perm {

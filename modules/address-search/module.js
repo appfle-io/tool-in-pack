@@ -1,17 +1,17 @@
 /**
- * TIP · 주소 검색 (address-search) — v1.12.0
+ * TIP · 주소 검색 (address-search) — v1.12.4
  *
  * 두 갈래:
- * - 한국 주소 — 다음(카카오) 우편번호 서비스를 화면 안에 embed 해서 도로명·지번·영문 주소와
- *   우편번호를 한 번에 받는다(API 키 없음).
+ * - 한국 주소 — 다음(카카오) 우편번호 서비스를 **전용 iframe(address-frame.html)** 안에서 열어
+ *   도로명·지번·영문 주소와 우편번호를 받는다(API 키 없음). v1.12.4 부터 이 화면은 그 서비스의
+ *   스크립트를 직접 불러오지 않는다 — 다른 문서에서 돌리고 고른 주소만 postMessage 로 받는다.
  * - 해외 주소 — OpenStreetMap Nominatim 검색 API 로 한글·영어 검색, 주소·영문명·좌표를 보여 준다.
  *
  * 이 모듈만 예외적으로 외부 네트워크를 쓴다(사용자가 검색한 주소만 해당 서비스로 간다).
  * 입력한 검색어는 TIP 서버로 가지 않는다 — TIP 에는 서버가 없다.
  */
 
-
-const DAUM_SRC = 'https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
+const DAUM_FRAME = './address-frame.html';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
 
 const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6.5-5.4 6.5-11a6.5 6.5 0 1 0-13 0C5.5 15.6 12 21 12 21z"/><circle cx="12" cy="10" r="2.4"/></svg>';
@@ -27,7 +27,9 @@ function mount(root, ctx) {
   const controller = new AbortController();
   const { signal } = controller;
 
-  let daumPromise = null;
+  let daumFrame = null;
+  let daumReady = false;
+  let daumTimer = null;
   let worldBusy = false;
   let lastKorean = null;
 
@@ -114,31 +116,36 @@ function mount(root, ctx) {
 
   /* ------------------------------ 한국 주소 ------------------------------ */
 
-  function loadDaum() {
-    if (window.daum && window.daum.Postcode) return Promise.resolve();
-    if (daumPromise) return daumPromise;
+  /** iframe 을 만들고 열기 요청을 보낸다 — 서비스 스크립트는 그 안에서만 돈다. */
+  function createKoreanFrame(sandboxed) {
+    const frame = document.createElement('iframe');
+    frame.className = 'addr-frame';
+    frame.title = '우편번호 검색';
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    // 외부 서비스는 샌드박스(불투명 출처) 안에서만 돌린다 — 부모 문서·저장소·IPC 에 손대지 못한다.
+    // (스크립트·폼·팝업만 허용). 이 환경이 불투명 출처 프레임을 막으면 아래에서 샌드박스를 빗긴
+    // 프레임으로 한 번 다시 시도한다 — 웹 PWA 와 Mac 웹뷰 어디서든 주소 검색은 그대로 동작해야 한다.
+    if (sandboxed) {
+      frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox');
+    }
+    frame.src = DAUM_FRAME;
+    daumReady = false;
+    daumFrame = frame;
+    krEmbed.replaceChildren(frame);
+    return frame;
+  }
 
-    daumPromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = DAUM_SRC;
-      script.async = true;
-      const timer = setTimeout(() => reject(new Error('timeout')), 12000);
-      script.onload = () => {
-        clearTimeout(timer);
-        if (window.daum && window.daum.Postcode) resolve();
-        else reject(new Error('missing'));
-      };
-      script.onerror = () => {
-        clearTimeout(timer);
-        reject(new Error('network'));
-      };
-      document.head.append(script);
-    }).catch((error) => {
-      daumPromise = null;
-      throw error;
-    });
+  let sandboxRetried = false;
 
-    return daumPromise;
+  /** 열기 — 필요하면 프레임을 만들고, 준비되면 열기 메시지를 보낸다. */
+  function openKoreanFrame() {
+    if (!daumFrame) {
+      createKoreanFrame(true);
+      return;
+    }
+    if (daumReady && daumFrame.contentWindow) {
+      daumFrame.contentWindow.postMessage({ type: 'tip:address:open' }, '*');
+    }
   }
 
   function koreanRows(data) {
@@ -193,32 +200,56 @@ function mount(root, ctx) {
     krResult.scrollIntoView({ block: 'nearest' });
   }
 
-  krOpen.addEventListener('click', async () => {
+  krOpen.addEventListener('click', () => {
     krError.hidden = true;
     krHint.textContent = '불러오는 중…';
-    krOpen.disabled = true;
-    try {
-      await loadDaum();
+    krEmbed.hidden = false;
+    openKoreanFrame();
+    // iframe 이 준비를 알리면 열기 요청을 다시 보낸다(첫 생성 때는 준비 전에 요청이 갈 수 있다).
+    clearTimeout(daumTimer);
+    daumTimer = setTimeout(() => {
+      if (daumReady) return;
+      // 샌드박스 프레임이 준비 신호를 못 보내는 환경이면 한 번만 샌드박스를 빗긴 프레임으로 재시도한다.
+      if (!sandboxRetried) {
+        sandboxRetried = true;
+        createKoreanFrame(false);
+        return;
+      }
       krHint.textContent = '';
-      krEmbed.hidden = false;
-      krEmbed.innerHTML = '';
-      const postcode = new window.daum.Postcode({
-        oncomplete: (data) => {
-          showKorean(data);
-          krEmbed.hidden = true;
-          krHint.textContent = '다른 주소를 찾으려면 다시 누르세요.';
-        },
-        width: '100%',
-        height: '100%',
-      });
-      postcode.embed(krEmbed);
-    } catch (error) {
-      console.error('[TIP address-search] 우편번호 서비스를 불러오지 못했습니다', error);
-      krHint.textContent = '';
-      krError.hidden = false;
       krEmbed.hidden = true;
-    } finally {
-      krOpen.disabled = false;
+      krError.hidden = false;
+    }, 6000);
+  }, { signal });
+
+  // iframe(우편번호 전용 문서)이 보내는 메시지만 받는다 — 출처가 그 프레임일 때만 처리한다.
+  window.addEventListener('message', (event) => {
+    if (!daumFrame || event.source !== daumFrame.contentWindow) return;
+    const data = event.data;
+    if (!data || typeof data.type !== 'string') return;
+
+    if (data.type === 'tip:address:ready') {
+      daumReady = true;
+      if (!krEmbed.hidden) daumFrame.contentWindow.postMessage({ type: 'tip:address:open' }, '*');
+      return;
+    }
+    if (data.type === 'tip:address:opened') {
+      clearTimeout(daumTimer);
+      krHint.textContent = '';
+      return;
+    }
+    if (data.type === 'tip:address:error') {
+      clearTimeout(daumTimer);
+      console.error('[TIP address-search] 우편번호 서비스를 불러오지 못했습니다', data.message);
+      krHint.textContent = '';
+      krEmbed.hidden = true;
+      krError.hidden = false;
+      return;
+    }
+    if (data.type === 'tip:address:result' && data.data) {
+      clearTimeout(daumTimer);
+      showKorean(data.data);
+      krEmbed.hidden = true;
+      krHint.textContent = '다른 주소를 찾으려면 다시 누르세요.';
     }
   }, { signal });
 
@@ -299,7 +330,10 @@ function mount(root, ctx) {
     if (worldStatus.textContent.includes('오프라인')) worldStatus.textContent = '';
   }, { signal });
 
-  return () => controller.abort();
+  return () => {
+    clearTimeout(daumTimer);
+    controller.abort();
+  };
 }
 
 export default {
@@ -309,7 +343,7 @@ export default {
   subtitle: '한글·영문 주소와 우편번호 찾기',
   description: '한국 주소는 다음 우편번호 서비스로 도로명·지번·영문·우편번호를, 해외 주소는 OpenStreetMap 으로 찾습니다.',
   icon: ICON,
-  version: '1.12.0',
+  version: '1.12.4',
   category: 'online',
   defaultEnabled: true,
   defaultPinned: false,

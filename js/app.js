@@ -119,10 +119,13 @@ function moduleRow(mod, state, { sectionId = null, sortable = false } = {}) {
   });
 
   const openBtn = el('button', {
-    class: 'open-btn',
+    class: 'open-btn module-open',
     type: 'button',
-    text: state.enabled ? '실행' : '중지',
-    'aria-label': `${mod.name} 실행`,
+    // v1.12.4 — '실행' 글자 버튼 대신 > 아이콘. 읽어 주는 이름은 그대로 둔다.
+    'aria-label': state.enabled ? `${mod.name} 실행` : `${mod.name} 사용 중지됨`,
+    title: state.enabled ? `${mod.name} 실행` : '사용 중지된 모듈입니다',
+    'aria-disabled': String(!state.enabled),
+    html: icons.right,
   });
   openBtn.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -763,7 +766,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.12.3';
+const APP_VERSION = '1.12.4';
 
 let updateBusy = false;
 
@@ -895,6 +898,9 @@ function notchSection(rerenderSheet) {
     const next = !getNotchSettings().hoverOpen;
     setNotchHoverOpen(next);
     hoverToggle.setAttribute('aria-pressed', String(next));
+    // v1.12.4 — Rust 의 커서 감시를 같이 켜고 끈다(WKWebView 는 다른 앱 사용 중 hover 를 못 받는다).
+    invokeTauri('set_notch_hover', { enabled: next })
+      .catch((error) => console.warn('[TIP] notch hover:', error));
     toast(next ? '마우스를 올리면 노치가 펼쳐집니다' : '노치를 클릭할 때만 펼쳐집니다');
   });
 
@@ -951,13 +957,13 @@ function notchSection(rerenderSheet) {
 const PRIVACY_ITEMS = [
   {
     kind: 'automation',
-    label: '자동화 (음악 · 캘린더)',
-    hint: 'Apple Music·Spotify 재생 정보를 읽고 재생을 바꿀 때, 캘린더를 AppleScript 로 읽을 때 필요합니다.',
+    label: '자동화 (음악)',
+    hint: 'Apple Music·Spotify 재생 정보를 읽고 재생을 바꿀 때 필요합니다. 캘린더는 v1.12.4 부터 아래 캘린더 권한만 씁니다.',
   },
   {
     kind: 'calendars',
     label: '캘린더',
-    hint: '노치의 오늘 일정을 읽을 때 필요합니다. 처음 물을 때 거부했다면 여기서 직접 켜야 합니다.',
+    hint: '노치의 오늘 일정을 읽을 때 필요합니다(EventKit). 처음 물을 때 거부했다면 여기서 직접 켜야 합니다.',
   },
   {
     kind: 'camera',
@@ -1294,6 +1300,7 @@ function showProgressUi() {
 
 const UPDATE_STAGES = {
   download: '내려받는 중',
+  verify: '해시를 확인하는 중',
   extract: '압축을 푸는 중',
   install: '설치하는 중',
   restart: '앱을 다시 시작하는 중',
@@ -1335,7 +1342,8 @@ async function runUpdate(info) {
 
   try {
     ui.set(0, '내려받는 중 0%');
-    await invokeTauri('install_app_update_and_restart', { url: info.url });
+    // v1.12.4 — 주소는 넘기지 않는다. Rust 가 check_app_update 에서 확인한 릴리스 자산만 설치한다.
+    await invokeTauri('install_app_update_and_restart');
     ui.set(100, '앱을 다시 시작하는 중…');
   } catch (error) {
     console.error('[TIP update]', error);
@@ -1550,11 +1558,13 @@ if (TAURI && window.__TAURI__.event) {
     window.__TAURI__.core.invoke('set_tray_visible', { visible: getMenuBarVisible() })
       .catch((error) => console.warn('[TIP] tray visible:', error));
 
-    // 노치 아일랜드 사용 여부와 빠른 실행 단축키도 저장값을 Rust 에 밀어 준다(v1.12.0).
+    // 노치 아일랜드 사용 여부·마우스 오버·빠른 실행 단축키도 저장값을 Rust 에 밀어 준다(v1.12.0).
     if (getNotchSettings().enabled) {
       window.__TAURI__.core.invoke('set_notch_enabled', { enabled: true })
         .catch((error) => console.warn('[TIP] notch:', error));
     }
+    window.__TAURI__.core.invoke('set_notch_hover', { enabled: getNotchSettings().hoverOpen })
+      .catch((error) => console.warn('[TIP] notch hover:', error));
     window.__TAURI__.core.invoke('set_search_shortcut', { accelerator: getSearchShortcut() })
       .catch((error) => console.warn('[TIP] search shortcut:', error));
   }

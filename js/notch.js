@@ -95,6 +95,13 @@ function escapeHtml(text) {
   ));
 }
 
+/** 오류에서 사람이 읽을 한 줄을 꺼낸다 — 콘솔에만 남기지 않고 카드에도 짧게 보여 준다(v1.12.4). */
+function errorText(error) {
+  const raw = String((error && error.message) || error || '').replace(PERMISSION_TAG, '').trim();
+  if (!raw) return '알 수 없는 오류';
+  return raw.length > 90 ? `${raw.slice(0, 90)}…` : raw;
+}
+
 /* ------------------------------ 펼침/접힘 ------------------------------ */
 
 function setExpanded(next, { animate = true } = {}) {
@@ -116,7 +123,22 @@ function setExpanded(next, { animate = true } = {}) {
     stopWidgets();
     heldOpen = false;
   }
+  syncHold();
   if (!animate) requestAnimationFrame(() => notchEl.classList.remove('no-anim'));
+}
+
+/** Rust 의 커서 감시에 '지금은 접지 마라'를 알린다 — 입력 중·드래그 중·거울이 켜진 동안(v1.12.4). */
+function syncHold() {
+  if (!TAURI) return;
+  const active = document.activeElement;
+  const typing = !!(active && active.matches && active.matches('#notch input, #notch textarea'));
+  const hold = !!(notchHeld() || typing);
+  invoke('notch_hover_hold', { hold }).catch(() => {});
+}
+
+/** 접지 않아야 하는 이유들 — 펼친 뒤 잠깐(openHeld), 파일 드래그, 웹캠 거울. */
+function notchHeld() {
+  return heldOpen || dragHeld || !!mirrorStream;
 }
 
 function scheduleCollapse() {
@@ -221,11 +243,12 @@ async function refreshMedia() {
     if (dot) dot.classList.toggle('is-playing', playing);
   } catch (error) {
     // v1.12.3 — 권한 거부(-1743)는 다른 오류와 다르게 안내하고 '권한 설정' 버튼을 띄운다.
+    // v1.12.4 — 권한 문제가 아닌 오류도 콘솔에만 남기지 않고 짧은 원인을 함께 보여 준다.
     const permission = isPermissionError(error);
     titleEl.textContent = permission ? '음악 앱 권한이 필요합니다' : '미디어 정보를 읽지 못했습니다';
     panelEl.querySelector('#media-artist').textContent = permission
       ? '시스템 설정 › 자동화에서 TIP을 허용하세요'
-      : '음악 앱 접근 권한을 확인하세요';
+      : errorText(error);
     const permBtn = panelEl.querySelector('#media-perm');
     if (permBtn) permBtn.hidden = !permission;
   } finally {
@@ -246,14 +269,14 @@ function calendarCard() {
   `);
 }
 
-function clock(iso) {
-  const date = new Date(iso);
+function clock(ms) {
+  const date = new Date(ms);
   if (Number.isNaN(date.getTime())) return '';
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-function relativeUntil(iso) {
-  const diff = new Date(iso).getTime() - Date.now();
+function relativeUntil(ms) {
+  const diff = new Date(ms).getTime() - Date.now();
   if (!Number.isFinite(diff)) return '';
   if (diff <= 0) return '진행 중';
   const minutes = Math.round(diff / 60000);
@@ -261,6 +284,14 @@ function relativeUntil(iso) {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}시간 뒤`;
   return '내일';
+}
+
+/** Rust(EventKit)는 start 를 에포크 밀리초 숫자로 준다. 예전 문자열도 받아 준다. */
+function startMs(event) {
+  const raw = event && event.start;
+  if (typeof raw === 'number') return raw;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : NaN;
 }
 
 async function refreshCalendar() {
@@ -272,8 +303,9 @@ async function refreshCalendar() {
   try {
     const events = await invoke('calendar_today');
     const rows = (Array.isArray(events) ? events : [])
-      .filter((event) => event && event.start)
-      .sort((a, b) => String(a.start).localeCompare(String(b.start)))
+      .map((event) => ({ event, ms: startMs(event) }))
+      .filter((row) => Number.isFinite(row.ms))
+      .sort((a, b) => a.ms - b.ms)
       .slice(0, 4);
     if (!rows.length) {
       list.innerHTML = '<li class="cal-empty">오늘 남은 일정이 없습니다</li>';
@@ -283,21 +315,22 @@ async function refreshCalendar() {
     }
     const permBtn = panelEl.querySelector('#cal-perm');
     if (permBtn) permBtn.hidden = true;
-    list.innerHTML = rows.map((event) => `
+    list.innerHTML = rows.map(({ event, ms }) => `
       <li class="cal-row">
         <span class="cal-bar" aria-hidden="true"></span>
         <span class="cal-text">
           <b>${escapeHtml(event.title || '(제목 없음)')}</b>
-          <span>${clock(event.start)} · ${relativeUntil(event.start)}</span>
+          <span>${clock(ms)} · ${relativeUntil(ms)}</span>
         </span>
       </li>
     `).join('');
   } catch (error) {
-    // v1.12.3 — 자동화 권한이 막혀 있으면 캘린더와 다른 안내 + '권한 설정' 버튼을 둔다.
+    // v1.12.4 — 캘린더는 EventKit 권한을 쓴다. 권한이면 '권한 설정' 버튼,
+    // 그 밖의 오류는 콘솔에만 남기지 않고 짧은 원인을 카드에 함께 보여 준다.
     const permission = isPermissionError(error);
     list.innerHTML = permission
-      ? '<li class="cal-empty">캘린더 권한이 필요합니다 — 시스템 설정 › 자동화에서 TIP을 허용하세요</li>'
-      : '<li class="cal-empty">캘린더를 읽지 못했습니다 — macOS 캘린더 접근을 허용해 주세요</li>';
+      ? '<li class="cal-empty">캘린더 권한이 필요합니다 — 시스템 설정 › 개인정보 보호 및 보안 › 캘린더에서 TIP을 허용하세요</li>'
+      : `<li class="cal-empty">캘린더를 읽지 못했습니다<span class="cal-error">${escapeHtml(errorText(error))}</span></li>`;
     const permBtn = panelEl.querySelector('#cal-perm');
     if (permBtn) permBtn.hidden = !permission;
   } finally {
@@ -704,7 +737,8 @@ function stopWidgets() {
 function openHeld() {
   heldOpen = true;
   cancelCollapse();
-  setTimeout(() => { heldOpen = false; }, 1200);
+  setTimeout(() => { heldOpen = false; syncHold(); }, 1200);
+  syncHold();
 }
 
 /* ------------------------------ 이벤트 ------------------------------ */
@@ -798,6 +832,7 @@ function setDragState(on) {
   dragHeld = !!on;
   const drop = panelEl.querySelector('#shelf-drop');
   if (drop) drop.classList.toggle('is-over', dragHeld);
+  syncHold();
   if (dragHeld) {
     cancelCollapse();
     if (!expanded) setExpanded(true);
@@ -875,6 +910,16 @@ if (TAURI && window.__TAURI__.event) {
   // 환경설정(테마·기본 색·위젯·퀵바 순서)이 바뀌면 노치도 즉시 다시 그린다.
   listen('tip://notch-refresh', refreshFromSettings);
 
+  // v1.12.4 — Rust 의 커서 감시가 알리는 '알약 위로 커서가 들어왔다/나갔다'.
+  // WKWebView 는 앱이 백그라운드일 때 DOM mouseenter 를 보내지 않아, 다른 앱을 쓰는 중에도
+  // 이 이벤트로 펼치고 접는다.
+  listen('tip://notch-hover-enter', () => {
+    if (!expanded && getNotchSettings().hoverOpen) setExpanded(true);
+  });
+  listen('tip://notch-hover-leave', () => {
+    if (expanded) setExpanded(false);
+  });
+
   // Finder 파일 드래그 — 들어오면 펼치고, 놓으면 경로를 읽어 보관함에 담는다.
   listen('tip://shelf-drag', (event) => setDragState(!!(event && event.payload)));
   listen('tip://shelf-drop', (event) => {
@@ -891,6 +936,8 @@ function refreshFromSettings() {
   applyAppearance();
   settingsRev += 1;
   renderWidgets();
+  // 마우스 오버 설정이 바뀌면 Rust 커서 감시도 바로 따라가게 한다(v1.12.4).
+  invoke('set_notch_hover', { enabled: getNotchSettings().hoverOpen }).catch(() => {});
   if (expanded) {
     refreshMedia();
     refreshCalendar();
@@ -906,3 +953,9 @@ if (new URLSearchParams(location.search).has('bg')) {
 applyAppearance();
 renderWidgets();
 syncLayout();
+// 노치 창이 직접 저장값을 Rust 에 밀어 준다 — 메인 창이 닫혀 있어도 커서 감시가 맞게 돈다.
+invoke('set_notch_hover', { enabled: getNotchSettings().hoverOpen }).catch(() => {});
+
+// 빠른 메모 입력 중·파일 드래그 중에는 Rust 가 접지 않게 한다(v1.12.4).
+document.addEventListener('focusin', syncHold);
+document.addEventListener('focusout', () => setTimeout(syncHold, 0));

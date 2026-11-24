@@ -376,6 +376,25 @@ button { font: inherit; color: inherit; }
   color: var(--muted-2);
 }
 
+/* v1.12.4 — 홈 모듈 카드의 '실행' 글자 버튼 대신 > 아이콘.
+   (img-converter 의 저장 버튼처럼 .open-btn 을 쓰는 곳이 있어 공통 규칙은 건드리지 않는다.) */
+.module-open {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+}
+.module-open svg { width: 15px; height: 15px; }
+.module-open:hover { background: var(--card-2); color: var(--accent); }
+.module-open:active { background: var(--card-2); }
+.module-card:hover .module-open { color: var(--accent); }
+.module-card.is-off .module-open {
+  background: transparent;
+  color: var(--muted-2);
+}
+
 /* ---------- module screen ---------- */
 
 .module-screen {
@@ -3474,6 +3493,8 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
   background: var(--card);
 }
 .addr-embed iframe { width: 100% !important; height: 100% !important; border: 0; }
+/* v1.12.4 — 우편번호 전용 문서(iframe)는 모서리를 맞춰 넣는다. */
+.addr-embed .addr-frame { display: block; border-radius: inherit; background: transparent; }
 
 .addr-result {
   border-radius: var(--radius);

@@ -13,6 +13,13 @@ const CACHE_KEY = 'tip.fx.v1';
 const MANUAL_KEY = 'tip.fx.manual.v1';
 const CACHE_TTL = 12 * 60 * 60 * 1000;
 
+/** v1.12.4 — innerHTML 에 넣는 값을 이스케이프한다(환율표 응답·저장값 모두 거친다). */
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[&<>"']/g, (ch) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
+
 const CURRENCIES = [
   { code: 'KRW', name: '대한민국 원', symbol: '₩' },
   { code: 'USD', name: '미국 달러', symbol: '$' },
@@ -297,8 +304,8 @@ const module = {
       if (state.cache) {
         const when = formatKst(state.cache.rateDate || state.cache.fetchedAt);
         const stale = Date.now() - new Date(state.cache.fetchedAt).getTime() > CACHE_TTL;
-        text.innerHTML = `<b>${when || '시각 미상'} 기준</b>
-          <span>${state.cache.source} · ${agoLabel(state.cache.fetchedAt)} 저장${stale ? ' · 오래된 환율' : ''}</span>`;
+        text.innerHTML = `<b>${escapeHtml(when || '시각 미상')} 기준</b>
+          <span>${escapeHtml(state.cache.source)} · ${escapeHtml(agoLabel(state.cache.fetchedAt))} 저장${stale ? ' · 오래된 환율' : ''}</span>`;
       } else {
         text.innerHTML = '<b>내장 참고 환율</b><span>기준일 미갱신 — 네트워크가 되면 갱신하세요</span>';
       }
@@ -327,7 +334,7 @@ const module = {
         || Number.isFinite(state.manual[`${state.to}_${state.from}`]);
       if (!Number.isFinite(rate)) { pairEl.textContent = ''; return; }
       const unit = 1 / rate;
-      pairEl.innerHTML = `1 ${state.to} = <b>${formatMoney(unit, state.from)}</b> ${state.from}${manual ? ' · 수동' : ''}`;
+      pairEl.innerHTML = `1 ${escapeHtml(state.to)} = <b>${formatMoney(unit, state.from)}</b> ${escapeHtml(state.from)}${manual ? ' · 수동' : ''}`;
     }
 
     function renderResult() {
@@ -356,8 +363,8 @@ const module = {
         row.type = 'button';
         row.className = 'fx-row';
         row.dataset.code = currency.code;
-        row.innerHTML = `<span class="fx-row-code">${currency.code}</span>
-          <span class="fx-row-name">${currency.name}</span>
+        row.innerHTML = `<span class="fx-row-code">${escapeHtml(currency.code)}</span>
+          <span class="fx-row-name">${escapeHtml(currency.name)}</span>
           <span class="fx-row-value">${Number.isFinite(rate) ? formatMoney(amount * rate, currency.code) : '—'}</span>`;
         row.addEventListener('click', () => {
           state.to = currency.code;

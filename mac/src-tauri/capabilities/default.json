@@ -1,13 +1,12 @@
 {
   "identifier": "default",
-  "description": "TIP 앱 창(메인·퀵바·컴팩트·노치·검색·배송 조회)에 필요한 기본 권한",
+  "description": "TIP 앱 창(메인·퀵바·컴팩트·노치·검색)에 필요한 기본 권한",
   "windows": [
     "main",
     "quickbar",
     "tool",
     "notch",
-    "search",
-    "parcel"
+    "search"
   ],
   "permissions": [
     "core:default"

@@ -1,18 +1,29 @@
 #!/usr/bin/env node
 /**
- * TIP v1.12.2 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
+ * TIP v1.12.4 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
  *
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.12.4 — 버전을 mac/src-tauri/tauri.conf.json 에서 읽는다(한 곳만 고치면 되게).
+ *          보안 4종(업데이트 URL·해시 검증 / 보관함 허용 목록 / parcel 창 권한 제외 · CSP /
+ *          주소 검색 iframe 격리)과 이번 기능(EventKit 캘린더 · 노치 커서 감시 · 알약 폭 ·
+ *          카드 > 아이콘)까지 함께 검사한다.
+ *
  * 검사 항목
- *   1. 버전 — tauri.conf.json · Cargo.toml · mac/package.json · sw.js · js/app.js 가 모두 같은 버전
- *   2. 노치 밀착 — css/notch.css 의 위쪽 여백 제거 · 알약 높이 · lib.rs 의 NOTCH_PILL_H(26~30)
- *   3. 권한 — Entitlements.plist 의 세 권한 · tauri.conf.json 의 bundle.macOS.entitlements
+ *   1. 버전 — tauri.conf.json · Cargo.toml · mac/package.json · sw.js · js/app.js 가 같은 버전
+ *   2. 노치 밀착 — css/notch.css 의 위쪽 여백 제거 · 알약 높이/폭 · lib.rs 의 NOTCH_PILL_H·W
+ *   3. 권한 — Entitlements 의 세 권한 · Info.plist 사용 설명(캘린더 전체 접근 포함)
  *   4. 빠른 메모 키 입력 — NSPanel 서브클래스(canBecomeKeyWindow) · makeKeyWindow · notch_focus
- *   5. 파일 드롭 — 네이티브 DragDrop 이벤트 · read_shelf_file · 클릭 선택(input type=file)
+ *   5. 파일 드롭 — 네이티브 DragDrop · read_shelf_file · 보관함 허용 목록(1회성)
  *   6. 설정 동기화 — store.js notifyWindows(emitTo 'notch') · notch.js 의 tip://notch-refresh
  *   7. 카테고리 — 5묶음 정의와 20개 모듈의 배분(3·4·5·5·3)
+ *   8. 캘린더 — EventKit(EKEventStore) 조회 · 권한 요청 · AppleScript 제거 · 밀리초 반환
+ *   9. 커서 감시 — setAcceptsMouseMovedEvents · NSEvent.mouseLocation · set_notch_hover
+ *  10. 업데이트 보안 — URL 은 릴리스 자산만 · SHA256SUMS.txt 대조 · sha2
+ *  11. 창 권한·CSP — parcel 제외 · csp 지시문(wasm·worker·카메라·IPC·외부 API)
+ *  12. 주소 검색 — 다음 우편번호를 iframe 으로 격리 · 메인 문서 직접 삽입 없음
+ *  13. 홈 카드 — '실행' 글자 버튼 대신 > 아이콘
  */
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -21,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(ROOT, path), 'utf8');
+const exists = (path) => existsSync(join(ROOT, path));
 const fails = [];
 const passes = [];
 
@@ -31,36 +43,41 @@ function check(name, ok, detail = '') {
 
 /* ------------------------------ 1. 버전 ------------------------------ */
 
-const VERSION = '1.12.2';
 const conf = JSON.parse(read('mac/src-tauri/tauri.conf.json'));
-check('tauri.conf.json 버전', conf.version === VERSION, conf.version);
+const VERSION = conf.version;
+check('tauri.conf.json 버전 형식', /^\d+\.\d+\.\d+$/.test(String(VERSION)), String(VERSION));
 check('Cargo.toml 버전', new RegExp(`^version = "${VERSION}"`, 'm').test(read('mac/src-tauri/Cargo.toml')));
 check('mac/package.json 버전', JSON.parse(read('mac/package.json')).version === VERSION);
 check('sw.js 캐시 버전', read('sw.js').includes(`tip-v${VERSION}`));
 check('js/app.js APP_VERSION', read('js/app.js').includes(`APP_VERSION = '${VERSION}'`));
+check('버전이 1.12.4 이상', VERSION.split('.').map(Number)[2] >= 4, String(VERSION));
 
 /* ------------------------------ 2. 노치 밀착 ------------------------------ */
 
 const css = read('css/notch.css');
 const pillBlock = css.slice(css.indexOf('.pill {'), css.indexOf('.pill:hover'));
-const panelBlock = css.slice(css.indexOf('.panel {'), css.indexOf(':root[data-theme=\'light\'] .panel'));
+const panelBlock = css.slice(css.indexOf('.panel {'), css.indexOf(":root[data-theme='light'] .panel"));
 check('css .pill margin-top 0', /margin-top:\s*0;/.test(pillBlock), pillBlock.trim().slice(0, 60));
 check('css .pill 높이 100%', /height:\s*calc\(100% - 3px\);/.test(pillBlock));
+check('css .pill 폭 넘침 방지', /max-width:\s*100%;/.test(pillBlock));
 check('css .panel margin-top 0', /margin-top:\s*0;/.test(panelBlock));
 check('css .panel max-height 100%', /max-height:\s*100%;/.test(panelBlock));
 check('css 에 24px/34px 하드코딩 없음', !/margin-top:\s*(24px|34px)/.test(css));
 
 const lib = read('mac/src-tauri/src/lib.rs');
 const pillH = Number((lib.match(/const NOTCH_PILL_H: f64 = ([\d.]+);/) || [])[1]);
+const pillW = Number((lib.match(/const NOTCH_PILL_W: f64 = ([\d.]+);/) || [])[1]);
 check('NOTCH_PILL_H 26~30', pillH >= 26 && pillH <= 30, String(pillH));
+check('NOTCH_PILL_W 100 이하(메뉴 막대 아이콘 가리지 않음)', pillW > 60 && pillW <= 100, String(pillW));
 check('notch.rs 화면 최상단 배치', /frame\.size\.height - top_inset - height/.test(read('mac/src-tauri/src/notch.rs')));
 check('notch.rs 노치 감지(auxiliaryTopLeftArea)', read('mac/src-tauri/src/notch.rs').includes('auxiliaryTopLeftArea'));
+check('notch.rs 노치 양옆 여유 16', /NOTCH_SIDE_ROOM: f64 = 16\.0;/.test(read('mac/src-tauri/src/notch.rs')));
 
 /* ------------------------------ 3. 권한(Entitlements) ------------------------------ */
 
 const entPath = 'mac/src-tauri/Entitlements.plist';
-check('Entitlements.plist 존재', existsSync(join(ROOT, entPath)));
-if (existsSync(join(ROOT, entPath))) {
+check('Entitlements.plist 존재', exists(entPath));
+if (exists(entPath)) {
   const ent = read(entPath);
   ['com.apple.security.automation.apple-events',
     'com.apple.security.personal-information.calendars',
@@ -71,8 +88,10 @@ if (existsSync(join(ROOT, entPath))) {
 }
 check('tauri.conf bundle.macOS.entitlements', conf.bundle?.macOS?.entitlements === 'Entitlements.plist',
   String(conf.bundle?.macOS?.entitlements));
+const plist = read('mac/src-tauri/Info.plist');
 check('Info.plist 사용 설명 3종', ['NSAppleEventsUsageDescription', 'NSCalendarsUsageDescription', 'NSCameraUsageDescription']
-  .every((key) => read('mac/src-tauri/Info.plist').includes(key)));
+  .every((key) => plist.includes(key)));
+check('Info.plist 캘린더 전체 접근 설명(macOS 14+)', plist.includes('NSCalendarsFullAccessUsageDescription'));
 
 /* ------------------------------ 4. 빠른 메모 키 입력 ------------------------------ */
 
@@ -94,6 +113,9 @@ check('lib.rs tip://shelf-drop 송신', lib.includes('tip://shelf-drop'));
 check('lib.rs read_shelf_file', /fn read_shelf_file\(path: String\)/.test(lib));
 check('read_shelf_file 50MB 제한', lib.includes('SHELF_MAX_BYTES: u64 = 50 * 1024 * 1024'));
 check('read_shelf_file 등록', /read_shelf_file,/.test(lib));
+check('보관함 허용 목록(드롭한 경로만)', /fn allow_shelf_paths\(/.test(lib) && /fn take_shelf_path\(/.test(lib));
+check('드롭 시 허용 목록 기록', /allow_shelf_paths\(&paths\)/.test(lib));
+check('허용 목록 1회성(꺼내면 다시 못 읽음)', /if !take_shelf_path\(&path\)/.test(lib));
 check('notch.js tip://shelf-drop 수신', notchJs.includes("listen('tip://shelf-drop'"));
 check('notch.js read_shelf_file 호출', notchJs.includes("invoke('read_shelf_file'"));
 check('보관함 클릭 → 파일 선택창', notchJs.includes('id="shelf-file"') && /picker\.click\(\)/.test(notchJs));
@@ -107,6 +129,8 @@ check('notch.js tip://notch-refresh', notchJs.includes("listen('tip://notch-refr
 check('notch.js 테마·색 적용', /applyTheme\(getTheme\(\)\)/.test(notchJs));
 check('notch.js 펼칠 때 재렌더', /if \(renderedSignature !== settingsSignature\(\)\) renderWidgets\(\)/.test(notchJs));
 check('notch.js 설정 지문 비교', /function settingsSignature\(\)/.test(notchJs));
+check('notch.js 캐시 무효화(syncStore)', /import \{[^}]*syncStore/.test(notchJs) && /syncStore\(\);\n  const \{ widgets \}/.test(notchJs));
+check('store.js syncStore 가 notchCache 를 비운다', /function syncStore\(\)[\s\S]{0,240}notchCache = null;/.test(store));
 
 /* ------------------------------ 7. 카테고리 ------------------------------ */
 
@@ -153,6 +177,111 @@ Object.entries(EXPECTED).forEach(([category, ids]) => {
     check(`${id} → ${category}`, value === category, String(value));
   });
 });
+
+/* ------------------------------ 8. 캘린더(EventKit) ------------------------------ */
+
+const media = read('mac/src-tauri/src/media.rs');
+check('media.rs EKEventStore 사용', media.includes('EKEventStore'));
+check('media.rs 권한 상태 확인', media.includes('authorizationStatusForEntityType'));
+check('media.rs 전체 접근 권한 요청', media.includes('requestFullAccessToEventsWithCompletion'));
+check('media.rs 권한 응답 대기(타임아웃)', /recv_timeout\(CALENDAR_PERMISSION_WAIT\)/.test(media));
+check('media.rs 오늘 범위 술어', media.includes('predicateForEventsWithStartDate_endDate_calendars'));
+check('media.rs eventsMatchingPredicate', media.includes('eventsMatchingPredicate'));
+check('media.rs AppleScript 캘린더 제거', !media.includes('const CALENDAR_SCRIPT') && !/osascript\(CALENDAR_SCRIPT/.test(media) && !/tell application "Calendar"\n/.test(media));
+check('CalEvent.start 가 밀리초(i64)', /pub start: i64/.test(media));
+check('notch.js 가 start 를 밀리초/문자열 모두 처리', /function startMs\(event\)/.test(notchJs));
+check('notch.js 캘린더 오류 원인 표시', /cal-error/.test(notchJs) && /function errorText\(/.test(notchJs));
+
+/* ------------------------------ 9. 커서 감시 ------------------------------ */
+
+check('notch.rs setAcceptsMouseMovedEvents', notchRs.includes('setAcceptsMouseMovedEvents(true)'));
+check('notch.rs NSEvent::mouseLocation', notchRs.includes('NSEvent::mouseLocation()'));
+check('notch.rs cursor_inside', /pub fn cursor_inside\(/.test(notchRs));
+check('lib.rs 커서 감시 스레드', /fn start_hover_watch\(/.test(lib) && /hover_tick\(/.test(lib));
+check('lib.rs 130ms 주기', /Duration::from_millis\(130\)/.test(lib));
+check('lib.rs set_notch_hover 커맨드', /fn set_notch_hover\(/.test(lib) && /set_notch_hover,/.test(lib));
+check('lib.rs notch_hover_hold 커맨드', /fn notch_hover_hold\(/.test(lib) && /notch_hover_hold,/.test(lib));
+check('lib.rs hover 이벤트 송신', lib.includes('tip://notch-hover-enter') && lib.includes('tip://notch-hover-leave'));
+check('notch.js hover 이벤트 수신', notchJs.includes("listen('tip://notch-hover-enter'"));
+check('notch.js hover 설정을 Rust 로', /invoke\('set_notch_hover'/.test(notchJs));
+check('app.js hover 스위치가 Rust 로', /invokeTauri\('set_notch_hover'/.test(read('js/app.js')));
+
+/* ------------------------------ 10. 업데이트 보안 ------------------------------ */
+
+check('install 커맨드가 url 을 받지 않음', /fn install_app_update_and_restart\(app: AppHandle\)/.test(lib));
+check('설치 대상은 Rust 가 보관', /static UPDATE_TARGET: Mutex<Option<UpdateTarget>>/.test(lib));
+check('릴리스 자산 주소만 허용', /const RELEASE_DOWNLOAD_PREFIX: &str =\s*\n?\s*"https:\/\/github\.com\/appfle-io\/tool-in-pack\/releases\/download\/"/.test(lib));
+check('is_release_asset 검증', /fn is_release_asset\(/.test(lib));
+check('SHA256SUMS.txt 자산 찾기', lib.includes('SHA256SUMS.txt'));
+check('해시 대조 함수', /fn sha256_file\(/.test(lib) && /fn hash_from_sums\(/.test(lib));
+check('해시 불일치 시 설치 중단', /해시가 릴리스와 다릅니다 — 설치를 중단했습니다/.test(lib));
+check('sha2 의존성', /^sha2 = "0\.10"/m.test(read('mac/src-tauri/Cargo.toml')));
+const appJs = read('js/app.js');
+check('app.js 가 url 없이 설치 요청', /invokeTauri\('install_app_update_and_restart'\)/.test(appJs)
+  && !/install_app_update_and_restart', \{ url/.test(appJs));
+check('업데이트에 verify 단계 문구', appJs.includes('verify'));
+
+/* ------------------------------ 11. 창 권한 · CSP ------------------------------ */
+
+const capability = read('mac/src-tauri/capabilities/default.json');
+check('capability 에 parcel 창 없음', !/"parcel"/.test(capability));
+['main', 'quickbar', 'tool', 'notch', 'search'].forEach((win) => {
+  check(`capability 창 ${win}`, capability.includes(`"${win}"`));
+});
+
+const csp = conf.app?.security?.csp;
+check('CSP 설정됨', typeof csp === 'string' && csp.length > 40);
+if (typeof csp === 'string') {
+  [
+    ["default-src 'self'", /default-src 'self'/],
+    ['script-src wasm', /script-src [^;]*'wasm-unsafe-eval'/],
+    ['script-src 인라인 부트스트랩 해시', /script-src [^;]*'sha256-/],
+    ['script-src 다음 우편번호', /script-src [^;]*https:\/\/t1\.daumcdn\.net/],
+    ['worker-src blob', /worker-src [^;]*blob:/],
+    ['img-src blob·data', /img-src [^;]*blob:[^;]*data:/],
+    ['media-src 카메라', /media-src [^;]*mediastream:/],
+    ["style-src 'unsafe-inline'", /style-src [^;]*'unsafe-inline'/],
+    ['connect-src IPC', /connect-src [^;]*ipc:[^;]*http:\/\/ipc\.localhost/],
+    ['connect-src 환율 API', /connect-src [^;]*https:\/\/open\.er-api\.com/],
+    ['connect-src frankfurter', /connect-src [^;]*https:\/\/api\.frankfurter\.app/],
+    ['connect-src nominatim', /connect-src [^;]*https:\/\/nominatim\.openstreetmap\.org/],
+    ['connect-src github api', /connect-src [^;]*https:\/\/api\.github\.com/],
+    ['frame-src 다음 우편번호', /frame-src [^;]*https:\/\/postcode\.map\.daum\.net/],
+  ].forEach(([name, pattern]) => check(`CSP ${name}`, pattern.test(csp)));
+  check('CSP 에 script unsafe-inline 없음', !/script-src[^;]*'unsafe-inline'/.test(csp));
+}
+
+/* ------------------------------ 12. 주소 검색 격리 ------------------------------ */
+
+const address = read('modules/address-search/module.js');
+check('address-frame.html 존재', exists('address-frame.html'));
+check('address-frame.js 존재', exists('js/address-frame.js'));
+check('주소 검색이 iframe 사용', address.includes('address-frame.html') && address.includes('createElement(\'iframe\')'));
+check('메인 문서에 다음 스크립트 직접 삽입 없음', !address.includes('t1.daumcdn.net') && !/createElement\('script'\)/.test(address));
+check('iframe 메시지 출처 확인', /event\.source !== daumFrame\.contentWindow/.test(address));
+check('iframe 샌드박스', /allow-scripts/.test(address));
+const addressFrame = read('js/address-frame.js');
+check('프레임이 우편번호 스크립트 로드', addressFrame.includes('t1.daumcdn.net'));
+check('프레임이 결과만 postMessage', addressFrame.includes("type: 'tip:address:result'"));
+check('collect-web 이 address-frame 포함', read('mac/scripts/collect-web.sh').includes('address-frame.html'));
+check('sw.js 가 address-frame 캐시', read('sw.js').includes("'./address-frame.html'"));
+
+/* 이스케이프 — 외부 응답·사용자 입력을 innerHTML 에 넣는 파일은 escapeHtml 을 갖고 쓴다 */
+['modules/address-search/module.js', 'modules/currency-calc/module.js',
+  'modules/parcel-tracker/module.js', 'js/notch.js'].forEach((path) => {
+  const src = read(path);
+  check(`${path} escapeHtml 정의`, /function escapeHtml\(/.test(src));
+  check(`${path} escapeHtml 사용`, /escapeHtml\(/.test(src));
+});
+check('주소 검색 외부 결과 이스케이프', /escapeHtml\(item\.display_name/.test(address)
+  && /escapeHtml\(name \|\| query\)/.test(address));
+check('송장 목록 이스케이프 확인', /escapeHtml\(item\.nickname \|\| item\.invoice\)/.test(read('modules/parcel-tracker/module.js')));
+
+/* ------------------------------ 13. 홈 카드 > 아이콘 ------------------------------ */
+
+check('홈 카드 버튼이 > 아이콘', /class: 'open-btn module-open'/.test(appJs) && /html: icons\.right/.test(appJs));
+check('홈 카드에 실행 글자 버튼 없음', !/text: state\.enabled \? '실행' : '중지'/.test(appJs));
+check('카드 버튼 aria-label 유지', /'aria-label': state\.enabled \? `\$\{mod\.name\} 실행`/.test(appJs));
 
 /* ------------------------------ 결과 ------------------------------ */
 
