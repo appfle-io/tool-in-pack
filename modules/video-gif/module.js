@@ -67,7 +67,7 @@ const module = {
   kind: 'tool',
   category: 'media',
   version: '1.0.0',
-  subtitle: 'GIF 나 짧은 클립으로 자르기',
+  subtitle: 'GIF나 짧은 클립으로 자르기',
   description: '동영상의 원하는 구간을 GIF 로 만들거나 짧은 클립으로 잘라 저장합니다.',
   icon: ICON,
   defaultEnabled: true,
@@ -94,7 +94,7 @@ const module = {
         <div class="dr-empty" id="vg-empty">
           <div class="dz-icon">${ICON}</div>
           <button class="primary-btn" type="button" id="vg-browse">${icons.upload} 동영상 선택</button>
-          <p>MP4, WebM, MOV — 끌어다 놓아도 됩니다</p>
+          <p>MP4·WebM·MOV 영상을 고르거나 여기로 끌어다 놓으세요.</p>
         </div>
         <input type="file" id="vg-input" class="sr-only" accept="${ACCEPT}">
         <div id="vg-main" hidden>
@@ -334,7 +334,7 @@ const module = {
       clipBtn.disabled = busy || !hasRecorder || !duration;
       $('#vg-clip-hint').textContent = hasRecorder
         ? `구간 길이만큼 실시간으로 다시 인코딩합니다 (${fmtTime(span)})`
-        : '이 브라우저는 클립 저장(MediaRecorder)을 지원하지 않습니다 — GIF를 사용해 주세요.';
+        : '이 브라우저는 클립 저장(MediaRecorder)을 지원하지 않습니다. GIF를 사용해 주세요.';
       gifBtn.disabled = busy || !duration;
     }
 

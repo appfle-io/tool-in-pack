@@ -151,7 +151,7 @@ const module = {
         regex = new RegExp(pattern, flagString);
       } catch (error) {
         highlight.textContent = text;
-        showSummary('bad', `정규식 문법 오류 — ${error.message}`);
+        showSummary('bad', `정규식 문법 오류. ${error.message}`);
         return;
       }
 
@@ -174,7 +174,7 @@ const module = {
         }
       } catch (error) {
         highlight.textContent = text;
-        showSummary('bad', `정규식을 실행하지 못했습니다 — ${error.message}`);
+        showSummary('bad', `정규식을 실행하지 못했습니다. ${error.message}`);
         return;
       }
 

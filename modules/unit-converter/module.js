@@ -134,7 +134,7 @@ function unitOf(category, id) {
 
 /** 읽기 좋게: 아주 크거나 작으면 지수, 그 밖에는 자릿수 맞춘 소수. */
 function formatNumber(value) {
-  if (!Number.isFinite(value)) return '—';
+  if (!Number.isFinite(value)) return '-';
   if (value === 0) return '0';
   const abs = Math.abs(value);
   if (abs >= 1e15 || abs < 1e-9) return value.toExponential(4).replace('e+', 'e');

@@ -107,7 +107,7 @@ const module = {
         <div class="dr-empty vm-empty" id="vm-empty">
           <div class="dz-icon">${ICON}</div>
           <button class="primary-btn" type="button" id="vm-browse">${icons.upload} 영상 선택</button>
-          <p>MP4, WebM, MOV — 끌어다 놓아도 됩니다</p>
+          <p>MP4·WebM·MOV 영상을 고르거나 여기로 끌어다 놓으세요.</p>
         </div>
         <input type="file" id="vm-input" class="sr-only" accept="video/*,.mp4,.m4v,.webm,.mov,.ogv">
 
@@ -115,7 +115,7 @@ const module = {
           <div class="vm-grid">
             <div class="vm-left">
               <div class="vm-stage" id="vm-stage">
-                <canvas id="vm-canvas" aria-label="영상 미리보기 — 가릴 곳을 드래그하세요"></canvas>
+                <canvas id="vm-canvas" aria-label="영상 미리보기. 가릴 곳을 드래그하세요"></canvas>
                 <div class="vm-hint" id="vm-hint">가릴 곳을 드래그하세요</div>
               </div>
               <div class="vm-transport">

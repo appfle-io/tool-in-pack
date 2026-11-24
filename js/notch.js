@@ -784,7 +784,7 @@ function renderDayPanel(dom) {
   if (calView.permission) {
     dom.dayHead.innerHTML = `<span>${when}</span>`;
     dom.dayList.innerHTML = `
-      <li class="cal-empty">캘린더 권한이 필요합니다 — 시스템 설정 › 개인정보 보호 및 보안 › 캘린더에서 TIP을 허용하세요</li>
+      <li class="cal-empty">캘린더 권한이 필요합니다. 시스템 설정 › 개인정보 보호 및 보안 › 캘린더에서 TIP을 허용하세요</li>
       <li><button class="cal-tool" type="button" data-cal-perm>권한 설정 열기</button></li>`;
     return;
   }
@@ -960,7 +960,7 @@ async function openCalendarForm(date = null) {
     const allowed = selectedCalendarIds();
     const preferred = writable.find((calendar) => !allowed || allowed.includes(calendar.id));
     writable.forEach((calendar) => {
-      const label = calendar.source ? `${calendar.title} — ${calendar.source}` : calendar.title;
+      const label = calendar.source ? `${calendar.title} (${calendar.source})` : calendar.title;
       const option = new Option(label, calendar.id);
       option.selected = preferred ? calendar.id === preferred.id : false;
       dom.calendar.append(option);
@@ -1194,7 +1194,7 @@ async function refreshCalendar() {
     if (card) card.classList.remove('is-compact');
     if (side) side.hidden = true;
     list.innerHTML = permission
-      ? '<li class="cal-empty">캘린더 권한이 필요합니다 — 시스템 설정 › 개인정보 보호 및 보안 › 캘린더에서 TIP을 허용하세요</li>'
+      ? '<li class="cal-empty">캘린더 권한이 필요합니다. 시스템 설정 › 개인정보 보호 및 보안 › 캘린더에서 TIP을 허용하세요</li>'
       : `<li class="cal-empty">캘린더를 읽지 못했습니다<span class="cal-error">${escapeHtml(errorText(error))}</span></li>`;
     const permBtn = panelEl.querySelector('#cal-perm');
     if (permBtn) permBtn.hidden = !permission;
@@ -1435,7 +1435,7 @@ function paintPill() {
     if (eqEl) eqEl.hidden = false;
     if (titleEl) {
       titleEl.textContent = mediaState.title || mediaState.artist || '재생 중';
-      titleEl.title = [mediaState.artist, mediaState.title].filter(Boolean).join(' — ');
+      titleEl.title = [mediaState.artist, mediaState.title].filter(Boolean).join(' · ');
     }
     if (progressEl) {
       const percent = mediaState.duration > 0
@@ -1457,7 +1457,7 @@ function paintPill() {
     clockEl.textContent = formatClock(remainingSeconds(state));
   }
   pillEl.setAttribute('aria-label', hasMedia || hasTimer
-    ? `TIP 노치 아일랜드 펼치기${hasMedia ? ` — ${mediaState.title || '음악 재생 중'}` : ''}${hasTimer ? ` — 타이머 ${formatClock(remainingSeconds(state))}` : ''}`
+    ? `TIP 노치 아일랜드 펼치기, ${[hasMedia ? (mediaState.title || '음악 재생 중') : '', hasTimer ? `타이머 ${formatClock(remainingSeconds(state))}` : ''].filter(Boolean).join(', ')}`
     : 'TIP 노치 아일랜드 펼치기');
 
   updatePillMode(hasMedia, hasTimer);
@@ -1632,7 +1632,7 @@ function memoCard() {
     <div class="wg-head">
       <span class="wg-label">빠른 메모</span>
     </div>
-    <textarea class="memo-input" id="memo-input" rows="2" placeholder="한 줄 메모 — 바로 저장됩니다">${escapeHtml(saved)}</textarea>
+    <textarea class="memo-input" id="memo-input" rows="2" placeholder="한 줄 메모. 바로 저장됩니다">${escapeHtml(saved)}</textarea>
   `);
   requestAnimationFrame(() => {
     const input = card.querySelector('#memo-input');
@@ -1713,7 +1713,7 @@ async function toggleMirror() {
     openHeld();
   } catch (error) {
     console.error('[TIP notch] 카메라를 열지 못했습니다', error);
-    toast('카메라를 열 수 없습니다 — 시스템 설정에서 카메라 접근을 허용해 주세요');
+    toast('카메라를 열 수 없습니다. 시스템 설정에서 카메라 접근을 허용해 주세요');
   }
 }
 
@@ -1924,7 +1924,7 @@ panelEl.addEventListener('click', (event) => {
       .then(() => setTimeout(refreshMedia, 350))
       .catch((error) => {
         if (isPermissionError(error)) {
-          toast('음악 앱 자동화 권한이 필요합니다 — 권한 설정을 눌러 주세요');
+          toast('음악 앱 자동화 권한이 필요합니다. 권한 설정을 눌러 주세요');
           refreshMedia();   // 카드에 '권한 설정' 버튼을 띄운다
         } else {
           toast('음악 앱을 조작하지 못했습니다');

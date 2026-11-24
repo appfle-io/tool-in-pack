@@ -104,7 +104,7 @@ const module = {
         <div class="dr-empty" id="ig-empty">
           <div class="dz-icon">${ICON}</div>
           <button class="primary-btn" type="button" id="ig-browse">${icons.upload} 이미지 선택</button>
-          <p>PNG, JPG, WebP, SVG — 1024px 이상을 권장합니다</p>
+          <p>PNG·JPG·WebP·SVG 파일을 고르세요. 1024px 이상을 권장합니다.</p>
         </div>
         <input type="file" id="ig-input" class="sr-only" accept="image/*">
 
@@ -251,7 +251,7 @@ const module = {
         }
       } catch (error) {
         console.error('[TIP icon-gen]', error);
-        setStatus('bad', `아이콘을 만들지 못했습니다 — ${error.message}`);
+        setStatus('bad', `아이콘을 만들지 못했습니다. ${error.message}`);
         runBtn.disabled = false;
         runBtn.textContent = 'PNG 7종 만들기';
         return;
@@ -293,7 +293,7 @@ const module = {
         setStatus('ok', `app-icons.zip 저장, PNG ${results.length}개 + manifest-snippet.json, ${formatBytes(blob.size)}`);
       } catch (error) {
         console.error('[TIP icon-gen]', error);
-        setStatus('bad', `ZIP을 만들지 못했습니다 — ${error.message}`);
+        setStatus('bad', `ZIP을 만들지 못했습니다. ${error.message}`);
       } finally {
         zipBtn.disabled = false;
       }

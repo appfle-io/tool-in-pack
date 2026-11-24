@@ -92,7 +92,7 @@ function currencyOf(code) {
 }
 
 function formatMoney(value, code) {
-  if (!Number.isFinite(value)) return '—';
+  if (!Number.isFinite(value)) return '-';
   const abs = Math.abs(value);
   if (abs !== 0 && abs < 0.01) return value.toPrecision(4).replace(/e\+?/, 'e');
   const maxDigits = abs >= 100 ? 2 : abs >= 1 ? 2 : 4;
@@ -221,7 +221,7 @@ const module = {
           <div class="fx-side">
             <span class="fx-label">결과</span>
             <div class="fx-field fx-result-field">
-              <output class="fx-result" id="fx-result" aria-live="polite">—</output>
+              <output class="fx-result" id="fx-result" aria-live="polite">-</output>
               <select class="fx-select" id="fx-to" aria-label="바꿀 통화"></select>
             </div>
             <p class="fx-pair-rate" id="fx-pair-rate"></p>
@@ -307,7 +307,7 @@ const module = {
         text.innerHTML = `<b>${escapeHtml(when || '시각 미상')} 기준</b>
           <span>${escapeHtml(state.cache.source)}, ${escapeHtml(agoLabel(state.cache.fetchedAt))} 저장${stale ? ', 오래된 환율' : ''}</span>`;
       } else {
-        text.innerHTML = '<b>내장 참고 환율</b><span>기준일 미갱신 — 네트워크가 되면 갱신하세요</span>';
+        text.innerHTML = '<b>내장 참고 환율</b><span>기준일 미갱신. 네트워크가 되면 갱신하세요</span>';
       }
       if (error) {
         const detail = document.createElement('span');
@@ -342,7 +342,7 @@ const module = {
       const amount = raw === '' ? 0 : Number(raw);
       const rate = rateFromTo(state.from, state.to);
       if (!Number.isFinite(amount) || !Number.isFinite(rate)) {
-        resultEl.textContent = '—';
+        resultEl.textContent = '-';
         return;
       }
       state.amount = amountEl.value;
@@ -365,7 +365,7 @@ const module = {
         row.dataset.code = currency.code;
         row.innerHTML = `<span class="fx-row-code">${escapeHtml(currency.code)}</span>
           <span class="fx-row-name">${escapeHtml(currency.name)}</span>
-          <span class="fx-row-value">${Number.isFinite(rate) ? formatMoney(amount * rate, currency.code) : '—'}</span>`;
+          <span class="fx-row-value">${Number.isFinite(rate) ? formatMoney(amount * rate, currency.code) : '-'}</span>`;
         row.addEventListener('click', () => {
           state.to = currency.code;
           toEl.value = currency.code;

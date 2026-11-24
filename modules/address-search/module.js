@@ -329,16 +329,16 @@ function mount(root, ctx) {
         <p class="addr-ship-full">${escapeHtml(shipping.full)}</p>
         <div class="addr-ship-fields">
           <button class="addr-ship-field" type="button" data-copy="${escapeHtml(shipping.line)}" data-label="Address Line">
-            <span>Address Line</span><b>${escapeHtml(shipping.line || '—')}</b>
+            <span>Address Line</span><b>${escapeHtml(shipping.line || '없음')}</b>
           </button>
           <button class="addr-ship-field" type="button" data-copy="${escapeHtml(shipping.city)}" data-label="City">
-            <span>City</span><b>${escapeHtml(shipping.city || '—')}</b>
+            <span>City</span><b>${escapeHtml(shipping.city || '없음')}</b>
           </button>
           <button class="addr-ship-field" type="button" data-copy="${escapeHtml(shipping.state)}" data-label="State / Province">
-            <span>State / Province</span><b>${escapeHtml(shipping.state || '—')}</b>
+            <span>State / Province</span><b>${escapeHtml(shipping.state || '없음')}</b>
           </button>
           <button class="addr-ship-field" type="button" data-copy="${escapeHtml(shipping.zip)}" data-label="Zip Code">
-            <span>Zip Code</span><b>${escapeHtml(shipping.zip || '—')}</b>
+            <span>Zip Code</span><b>${escapeHtml(shipping.zip || '없음')}</b>
           </button>
         </div>
       </div>
@@ -496,16 +496,16 @@ function mount(root, ctx) {
         <b>영문 주소</b>
         <button class="addr-chip" type="button" data-copy="${escapeHtml(result.full)}" data-label="영문 주소 전체">전체 복사</button>
       </div>
-      <p class="addr-ship-full">${escapeHtml(result.full || '—')}</p>
+      <p class="addr-ship-full">${escapeHtml(result.full || '없음')}</p>
       <div class="addr-ship-fields">
         ${fields.map(([label, value]) => `
           <button class="addr-ship-field" type="button" data-copy="${escapeHtml(value || '')}" data-label="${escapeHtml(label)}">
-            <span>${escapeHtml(label)}</span><b>${escapeHtml(value || '—')}</b>
+            <span>${escapeHtml(label)}</span><b>${escapeHtml(value || '없음')}</b>
           </button>
         `).join('')}
       </div>
       <p class="addr-note addr-result-note">
-        도로명 주소는 도로 고유 표기가 따로 있습니다 — 배송지에는 주소 검색 결과의 공식 영문 주소를 쓰고,
+        도로명 주소는 도로 고유 표기가 따로 있습니다. 배송지에는 주소 검색 결과의 공식 영문 주소를 쓰고,
         이 변환은 붙여넣은 주소를 빠르게 옮길 때 쓰세요.
       </p>
     `;
@@ -540,7 +540,7 @@ function mount(root, ctx) {
 
   if (!navigator.onLine) {
     krHint.textContent = '지금은 오프라인입니다.';
-    worldStatus.textContent = '지금은 오프라인입니다 — 인터넷에 연결하면 검색할 수 있습니다.';
+    worldStatus.textContent = '지금은 오프라인입니다. 인터넷에 연결하면 검색할 수 있습니다.';
   }
 
   window.addEventListener('online', () => {
@@ -562,7 +562,7 @@ export default {
   subtitle: '한글과 영문 주소, 우편번호 찾기',
   description: '한국 주소는 다음 우편번호 서비스에서 도로명, 지번, 영문, 우편번호로 찾고 해외 주소는 OpenStreetMap 에서 찾습니다. 주소를 찾을 때만 인터넷을 씁니다.',
   icon: ICON,
-  version: '1.15.3',
+  version: '1.15.4',
   category: 'online',
   defaultEnabled: true,
   defaultPinned: false,

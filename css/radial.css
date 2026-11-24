@@ -210,7 +210,7 @@
   color: var(--accent-text);
 }
 .rw-slot:hover .rw-label,
-.rw-slot:focus-visible .rw-label { color: var(--accent); }
+.rw-slot:focus-visible .rw-label { color: var(--accent-ink); }
 .rw-slot:focus-visible { outline: none; }
 .rw-slot:active .rw-tile { transform: scale(0.95); }
 

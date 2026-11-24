@@ -88,7 +88,7 @@ const module = {
       } catch (error) {
         const message = typeof error === 'string' ? error : (error && error.message) || '';
         if (message.includes('[permission]')) {
-          setStatus('손쉬운 사용 권한이 필요합니다 — 아래 [손쉬운 사용 설정 열기]로 TIP 을 켜 주세요.', true);
+          setStatus('손쉬운 사용 권한이 필요합니다. 아래 [손쉬운 사용 설정 열기]로 TIP 을 켜 주세요.', true);
         } else {
           setStatus(message || '창을 옮기지 못했습니다.', true);
         }

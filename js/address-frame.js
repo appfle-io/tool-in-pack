@@ -32,7 +32,7 @@
   function fail(message) {
     if (statusEl) {
       statusEl.hidden = false;
-      statusEl.textContent = '우편번호 서비스를 불러오지 못했습니다 — 인터넷 연결을 확인한 뒤 다시 눌러 주세요.';
+      statusEl.textContent = '우편번호 서비스를 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 눌러 주세요.';
     }
     post({ type: 'tip:address:error', message: String(message || 'network') });
   }

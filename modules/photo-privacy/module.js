@@ -176,7 +176,7 @@ const module = {
         <div class="dr-empty" id="pp-empty">
           <div class="dz-icon">${ICON}</div>
           <button class="primary-btn" type="button" id="pp-browse">${icons.upload} 사진 선택</button>
-          <p>JPG, PNG, WebP, HEIC — 끌어다 놓아도 됩니다</p>
+          <p>JPG·PNG·WebP·HEIC 사진을 고르거나 여기로 끌어다 놓으세요.</p>
         </div>
         <input type="file" id="pp-input" class="sr-only" accept="${ACCEPT}">
         <div id="pp-main" hidden>
@@ -360,10 +360,10 @@ const module = {
         foot.textContent = '이 사진에는 촬영 정보나 위치 정보가 없습니다. 저장할 때 다시 한 번 인코딩하므로 결과물도 깨끗합니다.';
       } else if (meta.gps) {
         foot.className = 'pp-exif-note warn';
-        foot.textContent = `위치 정보가 들어 있습니다 — 저장하면 완전히 지워집니다. (${summary.text})`;
+        foot.textContent = `위치 정보가 들어 있습니다. 저장하면 완전히 지워집니다. (${summary.text})`;
       } else {
         foot.className = 'pp-exif-note';
-        foot.textContent = `${summary.text} — 저장하면 모두 제거됩니다.`;
+        foot.textContent = `${summary.text}. 저장하면 모두 제거됩니다.`;
       }
       exifEl.append(foot);
     }

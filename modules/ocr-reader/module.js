@@ -110,7 +110,7 @@ const module = {
         <div class="dr-empty" id="ocr-empty">
           <div class="dz-icon">${ICON}</div>
           <button class="primary-btn" type="button" id="ocr-browse">${icons.upload} 이미지 선택</button>
-          <p>PNG, JPG, WebP, BMP — 글자가 또렷할수록 잘 읽습니다</p>
+          <p>PNG·JPG·WebP·BMP 이미지를 고르거나 끌어다 놓으세요. 글자가 또렷할수록 잘 읽습니다.</p>
         </div>
         <input type="file" id="ocr-input" class="sr-only" accept="image/*">
 
@@ -300,7 +300,7 @@ const module = {
       } catch (error) {
         console.error('[TIP ocr-reader]', error);
         hideProgress();
-        setError(`텍스트를 추출하지 못했습니다 — ${error.message}`);
+        setError(`텍스트를 추출하지 못했습니다. ${error.message}`);
       } finally {
         busy = false;
         runBtn.disabled = false;

@@ -206,7 +206,7 @@ const module = {
         : '원본은 그대로 두고, 이름을 바꾼 사본을 ZIP 으로 묶어 내려받습니다.';
       applyBtn.disabled = !nativeCount || errors > 0 || busy;
       zipBtn.disabled = !entries.length || errors > 0 || busy;
-      setStatus(errors ? `${errors}개 이름에 문제가 있습니다 — 겹치거나 비어 있습니다.` : '', errors > 0);
+      setStatus(errors ? `${errors}개 이름에 문제가 있습니다. 겹치거나 비어 있습니다.` : '', errors > 0);
       work.hidden = entries.length === 0;
     }
 

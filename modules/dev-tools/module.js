@@ -303,7 +303,7 @@ const module = {
         setJsonStatus('ok', `${describeJson(value)}, ${result.length.toLocaleString()}자, ${formatBytes(bytesOf(result))}`);
       } catch (error) {
         jsonOut.value = '';
-        setJsonStatus('bad', `JSON 문법 오류 — ${jsonPositionNote(text, error.message)}`);
+        setJsonStatus('bad', `JSON 문법 오류. ${jsonPositionNote(text, error.message)}`);
       }
     }
 
@@ -320,7 +320,7 @@ const module = {
         const value = JSON.parse(text);
         setJsonStatus('ok', `유효한 JSON 입니다. ${describeJson(value)}, ${formatBytes(bytesOf(text))}`);
       } catch (error) {
-        setJsonStatus('bad', `JSON 문법 오류 — ${jsonPositionNote(text, error.message)}`);
+        setJsonStatus('bad', `JSON 문법 오류. ${jsonPositionNote(text, error.message)}`);
       }
     }, { signal });
     root.querySelector('#dv-json-copy').addEventListener('click', async () => {
@@ -365,7 +365,7 @@ const module = {
       } catch (error) {
         codecOut.value = '';
         const label = mode === 'b64d' ? 'Base64' : mode === 'urld' ? 'URL 인코딩' : '';
-        setCodecStatus('bad', `${label} 형식이 올바르지 않습니다 — ${error.message}`);
+        setCodecStatus('bad', `${label} 형식이 올바르지 않습니다. ${error.message}`);
       }
     }
 
@@ -426,7 +426,7 @@ const module = {
       if (!raw) return;
       const parts = raw.split('.');
       if (parts.length !== 3) {
-        jwtOut.innerHTML = `<div class="v16-status bad">JWT 형식이 아닙니다 — 점(.)으로 나뉜 3부분이어야 합니다. (${parts.length}부분)</div>`;
+        jwtOut.innerHTML = `<div class="v16-status bad">JWT 형식이 아닙니다. 점(.)으로 나뉜 3부분이어야 합니다. (${parts.length}부분)</div>`;
         return;
       }
       let header;

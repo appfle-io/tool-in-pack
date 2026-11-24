@@ -298,7 +298,7 @@ const module = {
       undoBtn.disabled = false;
       clean.value = after;
       updateCounts();
-      setCleanStatus('ok', `${message} — ${splitLines(before).length}줄 → ${splitLines(after).length}줄`);
+      setCleanStatus('ok', `${message}. ${splitLines(before).length}줄 → ${splitLines(after).length}줄`);
     }
 
     clean.addEventListener('input', scheduleCounts, { signal });

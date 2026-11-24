@@ -170,7 +170,7 @@ const module = {
           <div class="dr-empty fc-drop" id="fc-img-drop">
             <div class="dz-icon">${DROP_ICON}</div>
             <button class="primary-btn" type="button" id="fc-img-browse">${icons.upload} 이미지 선택</button>
-            <p>JPG, PNG, WebP, GIF, HEIC — 끌어다 놓아도 됩니다</p>
+            <p>JPG·PNG·WebP·GIF·HEIC 파일을 고르거나 끌어다 놓으세요.</p>
           </div>
           <input type="file" id="fc-img-input" class="sr-only" accept="image/*" multiple>
 

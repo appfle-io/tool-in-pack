@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TIP v1.15.3 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.15.4 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
@@ -917,6 +917,140 @@ check('v1.15.3 — 홈과 모듈 화면 이름이 같다', nameMismatch.length =
 check('v1.15.3 — 모듈 이름에 · 없음', Object.values(cardNames).every((name) => !name.includes('·')), Object.values(cardNames).filter((name) => name.includes('·')).join(', '));
 check('v1.15.3 — 상단 바 부제 제거', await mobile.evaluate(() => !document.querySelector('.brand-text i')));
 
+/* v1.15.4 — 편집 모드 핀: 고정은 채운 아이콘, 아닌 것은 선 아이콘 */
+await mobile.click('#edit-btn');
+await mobile.waitForTimeout(200);
+const pinShapes = await mobile.evaluate(() => {
+  const pins = [...document.querySelectorAll('.home-sections.is-editing .pin-btn')];
+  const rows = pins.map((node) => ({
+    pressed: node.getAttribute('aria-pressed'),
+    fill: node.querySelector('svg')?.getAttribute('fill') || '',
+  }));
+  return {
+    total: rows.length,
+    filled: rows.filter((row) => row.fill === 'currentColor').length,
+    outline: rows.filter((row) => row.fill === 'none').length,
+    mismatched: rows.filter((row) => (row.pressed === 'true') !== (row.fill === 'currentColor')).length,
+  };
+});
+check('v1.15.4 — 핀 모양이 고정 상태와 같다(채움/선)', pinShapes.total > 0 && pinShapes.filled > 0 && pinShapes.outline > 0 && pinShapes.mismatched === 0, JSON.stringify(pinShapes));
+
+const outlineId = await mobile.evaluate(() => {
+  const node = [...document.querySelectorAll('.home-sections.is-editing .pin-btn')]
+    .find((pin) => pin.querySelector('svg')?.getAttribute('fill') === 'none');
+  return node ? node.dataset.moduleId : '';
+});
+await mobile.locator(`.pin-btn[data-module-id="${outlineId}"]`).click();
+await mobile.waitForTimeout(300);
+const pinAfter = await mobile.evaluate((id) => {
+  const pin = document.querySelector(`.pin-btn[data-module-id="${id}"]`);
+  return {
+    section: pin?.closest('.home-section')?.dataset.section || '',
+    fill: pin?.querySelector('svg')?.getAttribute('fill') || '',
+    pressed: pin?.getAttribute('aria-pressed') || '',
+  };
+}, outlineId);
+check('v1.15.4 — 고정하면 채운 핀으로 바뀌고 맨 위로', pinAfter.section === 'pinned' && pinAfter.fill === 'currentColor' && pinAfter.pressed === 'true', JSON.stringify(pinAfter));
+await mobile.locator(`.pin-btn[data-module-id="${outlineId}"]`).click();   // 되돌리기
+await mobile.waitForTimeout(250);
+const pinBack = await mobile.evaluate((id) => {
+  const pin = document.querySelector(`.pin-btn[data-module-id="${id}"]`);
+  return { fill: pin?.querySelector('svg')?.getAttribute('fill') || '', pressed: pin?.getAttribute('aria-pressed') || '' };
+}, outlineId);
+check('v1.15.4 — 고정을 풀면 선 핀으로 돌아온다', pinBack.fill === 'none' && pinBack.pressed === 'false', JSON.stringify(pinBack));
+await mobile.click('#edit-btn');
+await mobile.waitForTimeout(150);
+
+/* v1.15.4 — 휴대폰 검색창·색 선택 44px */
+await mobile.evaluate(() => { location.hash = '#/clipboard-history'; });
+await mobile.waitForTimeout(500);
+const clipSearch = await mobile.evaluate(() => {
+  const input = document.querySelector('#view .clip-search input');
+  const box = document.querySelector('#view .clip-search');
+  if (!input) return null;
+  return {
+    inputH: Math.round(input.getBoundingClientRect().height),
+    boxH: Math.round(box?.getBoundingClientRect().height || 0),
+  };
+});
+check('v1.15.4 — 휴대폰 검색창 44px', !!clipSearch && clipSearch.inputH >= 44 && clipSearch.boxH >= 44, JSON.stringify(clipSearch));
+await mobile.evaluate(() => { location.hash = '#/qr-gen'; });
+await mobile.waitForTimeout(500);
+const qrColor = await mobile.evaluate(() => {
+  const input = document.querySelector('#view .qr-color input[type="color"]');
+  if (!input) return null;
+  const rect = input.getBoundingClientRect();
+  return { w: Math.round(rect.width), h: Math.round(rect.height) };
+});
+check('v1.15.4 — 휴대폰 QR 색 선택 44px', !!qrColor && qrColor.w >= 44 && qrColor.h >= 44, JSON.stringify(qrColor));
+
+/* -------------------- v1.15.4 다크 모드 주요 버튼 대비 실측 -------------------- */
+
+const measureContrast = (target, selector) => target.evaluate((sel) => {
+  const node = document.querySelector(sel);
+  if (!node) return null;
+  const parse = (value) => {
+    const match = String(value).match(/rgba?\(([^)]+)\)/);
+    if (!match) return [0, 0, 0, 1];
+    const parts = match[1].split(',').map((part) => Number(part.trim()));
+    return [parts[0], parts[1], parts[2], parts.length > 3 ? parts[3] : 1];
+  };
+  const blend = (top, bottom) => [0, 1, 2].map((i) => Math.round(top[i] * top[3] + bottom[i] * (1 - top[3])));
+  let bg = parse(getComputedStyle(node).backgroundColor);
+  if (bg[3] < 1) {
+    let parent = node.parentElement;
+    let under = [255, 255, 255];
+    while (parent) {
+      const value = parse(getComputedStyle(parent).backgroundColor);
+      if (value[3] > 0.9) { under = value; break; }
+      parent = parent.parentElement;
+    }
+    bg = blend(bg, under);
+  }
+  const fg = parse(getComputedStyle(node).color);
+  const lin = (channel) => { const c = channel / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const lum = (rgb) => 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+  const [hi, lo] = [lum(fg), lum(bg)].sort((a, b) => b - a);
+  const box = node.getBoundingClientRect();
+  return {
+    ratio: Number(((hi + 0.05) / (lo + 0.05)).toFixed(2)),
+    color: getComputedStyle(node).color,
+    background: getComputedStyle(node).backgroundColor,
+    size: [Math.round(box.width), Math.round(box.height)],
+  };
+}, selector);
+
+const darkContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'ko-KR', colorScheme: 'dark' });
+await darkContext.addInitScript(MOCK);
+const darkPage = await darkContext.newPage();
+darkPage.on('pageerror', (error) => consoleErrors.push(`dark pageerror: ${String(error)}`));
+await darkPage.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+await darkPage.evaluate(() => { localStorage.clear(); localStorage.setItem('tip.theme', 'dark'); });
+await darkPage.reload({ waitUntil: 'networkidle' });
+check('v1.15.4 — 다크 테마 적용', (await darkPage.getAttribute('html', 'data-theme')) === 'dark');
+
+const brandContrast = await measureContrast(darkPage, '.brand-mark');
+check('v1.15.4 — 다크 모드 주요 버튼 대비 · 로고', !!brandContrast && brandContrast.ratio >= 4.5, JSON.stringify(brandContrast));
+
+await darkPage.evaluate(() => { location.hash = '#/img-converter'; });
+await darkPage.waitForTimeout(500);
+const primaryContrast = await measureContrast(darkPage, '.primary-btn');
+check('v1.15.4 — 다크 모드 주요 버튼 대비 · 기본 버튼', !!primaryContrast && primaryContrast.ratio >= 4.5, JSON.stringify(primaryContrast));
+
+await darkPage.evaluate(() => { location.hash = '#/timer'; });
+await darkPage.waitForTimeout(500);
+const v16Contrast = await measureContrast(darkPage, '.v16-btn.primary');
+check('v1.15.4 — 다크 모드 주요 버튼 대비 · 모듈 버튼', !!v16Contrast && v16Contrast.ratio >= 4.5, JSON.stringify(v16Contrast));
+
+// 글자색으로 쓰는 자리는 밝은 초록(--accent-ink) — 단위 변환의 기준 줄 값이 늘 보인다.
+await darkPage.evaluate(() => { location.hash = '#/unit-converter'; });
+await darkPage.waitForTimeout(500);
+const inkContrast = await measureContrast(darkPage, '.uc-row.is-base .uc-row-value');
+check('v1.15.4 — 다크 글자 초록 4.5:1 이상', !!inkContrast && inkContrast.ratio >= 4.5, JSON.stringify(inkContrast));
+const unitLabel = await measureContrast(darkPage, '.uc-row.is-base .uc-row-label');
+check('v1.15.4 — 다크 기준 줄 라벨 4.5:1 이상', !!unitLabel && unitLabel.ratio >= 4.5, JSON.stringify(unitLabel));
+await darkContext.close();
+
 /* 스티커 메모 — 새 스티커 버튼 · 삭제 2단계 확인 */
 await mobile.evaluate(() => { location.hash = '#/sticky-notes'; });
 await mobile.waitForTimeout(400);
@@ -996,7 +1130,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.15.3 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.15.4 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

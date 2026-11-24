@@ -170,7 +170,7 @@ const module = {
         <div class="dr-empty" id="ic-empty">
           <div class="dz-icon">${module.icon}</div>
           <button class="primary-btn" type="button" id="ic-browse">${icons.upload} 이미지 선택</button>
-          <p>JPG, PNG, WebP, GIF, BMP, SVG, AVIF, ICO, HEIC — 여러 장 선택 가능</p>
+          <p>JPG·PNG·WebP·GIF·BMP·SVG·AVIF·ICO·HEIC 이미지를 여러 장 고르거나 여기로 끌어다 놓으세요.</p>
         </div>
         <input type="file" id="ic-input" class="sr-only" accept="${ACCEPT}" multiple>
         <div id="ic-main" hidden>

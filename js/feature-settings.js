@@ -141,7 +141,7 @@ export const SEARCH_SCOPE_ITEMS = [
   { id: 'modules', label: 'TIP 모듈', hint: '켜 둔 모듈을 이름이나 키워드로 찾아 실행' },
   { id: 'apps', label: '맥 앱 (초성)', hint: '/Applications 의 앱을 이름이나 초성(ㅋㄹ → 크롬)으로 찾아 실행', mac: true },
   { id: 'files', label: '로컬 파일 (mdfind)', hint: '홈 폴더의 파일 이름을 Spotlight 색인으로 찾아 열기', mac: true },
-  { id: 'calc', label: '즉석 계산기', hint: '수식을 넣으면 결과를 바로 — Enter 로 복사' },
+  { id: 'calc', label: '즉석 계산기', hint: '수식을 넣으면 결과가 바로 나옵니다. Enter 로 복사' },
   { id: 'web', label: '웹 검색', hint: 'g 나 n 으로 Google, Naver 검색. 결과 아래에서 바로 열 수도 있습니다' },
   { id: 'snippets', label: '스니펫', hint: '/별칭 이나 낱말로 자주 쓰는 문구를 찾아 복사' },
   { id: 'system', label: '시스템 명령', hint: '화면 잠금이나 잠자기, 다크 모드, 종료 같은 명령입니다. 위험한 명령은 한 번 더 확인합니다', mac: true },
@@ -398,7 +398,7 @@ export const MODULE_SETTINGS = {
       },
       { key: 'ocr.autoCopy', label: '추출한 글자 자동 복사', type: 'switch', fallback: true },
     ],
-    actions: [{ key: 'drag-ocr', label: '화면 영역 글자 추출', hint: '단축키를 누르고 화면을 드래그' }],
+    actions: [{ key: 'drag-ocr', label: '화면 글자 읽기', hint: '단축키를 누르고 화면을 드래그' }],
   },
   'window-snap': {
     values: [],

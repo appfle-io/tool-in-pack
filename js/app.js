@@ -126,10 +126,11 @@ function moduleRow(mod, state, { sectionId = null, sortable = false } = {}) {
     class: 'pin-btn',
     type: 'button',
     'aria-pressed': String(state.pinned),
-    'aria-label': `${mod.name} 상단 고정`,
+    'aria-label': `${mod.name} ${state.pinned ? '상단 고정 해제' : '상단 고정'}`,
     'data-module-id': mod.id,
     'data-control': 'pin',
-    html: icons.pin,
+    // v1.15.4 — 고정된 것(채운 핀)과 아닌 것(선 핀)은 모양부터 다르게.
+    html: state.pinned ? icons.pin : icons.pinOutline,
   });
   pinBtn.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -817,7 +818,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.15.3';
+const APP_VERSION = '1.15.4';
 
 let updateBusy = false;
 
@@ -856,7 +857,7 @@ function menuBarQuickbarSection() {
   const orderRow = el('button', {
     class: 'sheet-menu',
     type: 'button',
-    'aria-label': `반원 퀵바 순서 (지금: ${RADIAL_MODE_LABELS[mode]}) — 열기`,
+    'aria-label': `반원 퀵바 순서 (지금: ${RADIAL_MODE_LABELS[mode]}) 설정 열기`,
   }, [
     el('span', { class: 'sheet-menu-label', text: '반원 퀵바 순서' }),
     el('span', { class: 'sheet-menu-value', text: RADIAL_MODE_LABELS[mode] }),
@@ -1727,7 +1728,7 @@ function searchScopeSection() {
       // v1.15.1 — 로컬 파일 검색을 처음 켠 사람에게 무엇을 검색하는지 한 번만 알린다.
       if (item.id === 'files' && next && filesNoticePending()) {
         markFilesNoticeShown();
-        toast('홈 폴더 파일 이름을 검색합니다 — 찾은 경로만 열 수 있습니다', 3600);
+        toast('홈 폴더 파일 이름을 검색합니다. 찾은 경로만 열 수 있습니다', 3600);
       }
     });
     return el('div', { class: 'mb-row' }, [
@@ -1773,7 +1774,7 @@ function systemCommandSection(render) {
         el('i', {
           class: 'notch-hint',
           text: command.risky
-            ? (enabled[command.id] ? '실행할 때 macOS 확인창이 뜹니다' : '기본은 꺼짐 — 켜야 쓸 수 있습니다')
+            ? (enabled[command.id] ? '실행할 때 macOS 확인창이 뜹니다' : '기본은 꺼짐. 켜야 쓸 수 있습니다')
             : '검색에서 바로 실행',
         }),
       ]),
@@ -1912,7 +1913,7 @@ function shortcutPrefixSection(render) {
     busy = false;
     render();
     if (failures.length) {
-      toast(`${prettyShortcut(next)} 로 바꿨지만 ${failures.length}개는 등록하지 못했습니다 — 다른 조합도 써 보세요`);
+      toast(`${prettyShortcut(next)} 로 바꿨지만 ${failures.length}개는 등록하지 못했습니다. 다른 조합도 써 보세요`);
     } else {
       toast(`모듈 단축키 조합을 ${prettyShortcut(next)} 로 바꿨습니다`);
     }
@@ -2096,7 +2097,7 @@ function shortcutRow(action, render) {
     if (failure) {
       clearShortcut(action.key);
       await syncShortcuts();
-      toast(`${prettyShortcut(result.accelerator)} 를 등록하지 못했습니다 — 다른 글자를 써 주세요`);
+      toast(`${prettyShortcut(result.accelerator)} 를 등록하지 못했습니다. 다른 글자를 써 주세요`);
       render();
       return;
     }
@@ -2281,7 +2282,7 @@ async function openInquiry() {
   try {
     if (TAURI) await invokeTauri('copy_text', { text: MAIL_TO });
     else await navigator.clipboard.writeText(MAIL_TO);
-    toast(`메일 앱을 열지 못해 주소를 복사했습니다 — ${MAIL_TO}`, 3600);
+    toast(`메일 앱을 열지 못해 주소를 복사했습니다. ${MAIL_TO}`, 3600);
   } catch {
     toast(`문의 주소: ${MAIL_TO}`, 4000);
   }
@@ -2411,7 +2412,7 @@ if (TAURI && window.__TAURI__.event) {
     // v1.14.0 — 기능별 전역 단축키도 저장값 그대로 등록한다. 실패한 조합은 조용히 알린다.
     syncShortcuts().then((failures) => {
       if (failures.length) {
-        toast(`${failures.length}개 단축키를 등록하지 못했습니다 — 설정 → 모듈에서 확인해 주세요`, 3600);
+        toast(`${failures.length}개 단축키를 등록하지 못했습니다. 설정 → 모듈에서 확인해 주세요`, 3600);
       }
     });
 

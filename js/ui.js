@@ -101,6 +101,8 @@ export const icons = {
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
   pin: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14.5 2.5a1 1 0 0 1 .9 1.5l-1.6 3.2 3 3a1 1 0 0 1-.4 1.7l-3.4.9-4.4 4.4.5 2.6a1 1 0 0 1-1.7.9l-4.8-4.8a1 1 0 0 1 .9-1.7l2.6.5 4.4-4.4.9-3.4a1 1 0 0 1 1.7-.4l3 3 3.2-1.6a1 1 0 0 1 1-.1z"/></svg>',
+  /* v1.15.4 — 고정하지 않은 카드는 선 아이콘. 고정된 것(채움)과 모양부터 달라 바로 보인다. */
+  pinOutline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2.5a1 1 0 0 1 .9 1.5l-1.6 3.2 3 3a1 1 0 0 1-.4 1.7l-3.4.9-4.4 4.4.5 2.6a1 1 0 0 1-1.7.9l-4.8-4.8a1 1 0 0 1 .9-1.7l2.6.5 4.4-4.4.9-3.4a1 1 0 0 1 1.7-.4l3 3 3.2-1.6a1 1 0 0 1 1-.1z"/></svg>',
   doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h6M9 8h2"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',

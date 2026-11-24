@@ -68,7 +68,7 @@ const COMMANDS = [
   { id: 'cmd:settings', kind: 'command', name: '환경설정 열기', subtitle: '일반, 노치, 검색, 모듈 탭', keywords: '설정 환경설정 테마 색 단축키' },
   { id: 'cmd:new-sticky', kind: 'command', name: '새 스티커 메모', subtitle: '바탕화면에 메모 한 장', keywords: '스티커 메모 새로 만들기', macOnly: true },
   { id: 'cmd:pick-color', kind: 'command', name: '화면에서 색 고르기', subtitle: '클릭한 점의 색을 복사', keywords: '스포이드 색 추출', macOnly: true },
-  { id: 'cmd:drag-ocr', kind: 'command', name: '화면 영역 글자 추출', subtitle: '드래그한 부분을 OCR 로', keywords: '드래그 ocr 캡처 글자', macOnly: true },
+  { id: 'cmd:drag-ocr', kind: 'command', name: '화면 글자 읽기', subtitle: '화면에서 드래그한 부분의 글자만 뽑기', keywords: '드래그 ocr 캡처 글자 추출 읽기', macOnly: true },
 ];
 
 /** 시스템 명령 — 위험한 것은 실행 전에 화면이 한 번 더 묻는다. (v1.14.0) */
@@ -78,7 +78,7 @@ const SYSTEM_COMMANDS = [
   { id: 'screensaver', name: '화면 보호기', subtitle: '화면 보호기를 바로 켭니다', keywords: 'screensaver 화면보호기 스크린세이버', risky: false },
   { id: 'darkmode', name: '다크 모드와 라이트 모드 전환', subtitle: '지금 모드의 반대로 바꿉니다', keywords: 'dark mode light 다크 라이트 모드 전환 테마', risky: false },
   { id: 'hiddenfiles', name: '숨김 파일 표시 전환', subtitle: 'Finder 의 숨김 파일 보기 켜고 끄기', keywords: 'hidden files 숨김 파일 표시', risky: false },
-  { id: 'emptytrash', name: '휴지통 비우기', subtitle: '되돌릴 수 없습니다 — 한 번 더 확인합니다', keywords: 'empty trash 휴지통 비우기 삭제', risky: true },
+  { id: 'emptytrash', name: '휴지통 비우기', subtitle: '되돌릴 수 없습니다. 한 번 더 확인합니다', keywords: 'empty trash 휴지통 비우기 삭제', risky: true },
   { id: 'restart', name: '재시동', subtitle: 'Mac 을 다시 시작합니다', keywords: 'restart 재시동 다시시작 리부트', risky: true },
   { id: 'shutdown', name: '시스템 종료', subtitle: 'Mac 을 끕니다', keywords: 'shutdown 종료 전원끄기', risky: true },
   { id: 'logout', name: '로그아웃', subtitle: '지금 사용자를 로그아웃합니다', keywords: 'logout 로그아웃 계정전환', risky: true },
@@ -253,7 +253,7 @@ function timerItems(query) {
       id: 'timer:start',
       kind: 'timer',
       name: `타이머 ${formatClock(parsed.seconds)} 시작`,
-      subtitle: `${describeSeconds(parsed.seconds)} — 노치 알약과 메인 창이 함께 봅니다`,
+      subtitle: `${describeSeconds(parsed.seconds)} 타이머. 노치 알약과 메인 창이 함께 봅니다`,
       glyph: '⏱',
       meta: '타이머, Enter 로 시작',
       seconds: parsed.seconds,
@@ -277,7 +277,7 @@ function timerItems(query) {
       id: 'timer:status',
       kind: 'timer',
       name: `지금 ${formatClock(remainingSeconds(state))}`,
-      subtitle: state.status === 'running' ? '줄어드는 중 — Enter 로 타이머 열기' : (state.status === 'done' ? '끝났습니다' : '일시정지'),
+      subtitle: state.status === 'running' ? '줄어드는 중. Enter 를 누르면 타이머가 열립니다' : (state.status === 'done' ? '끝났습니다' : '일시정지'),
       glyph: '⏱',
       meta: '타이머',
       open: true,
@@ -289,7 +289,7 @@ function timerItems(query) {
       id: `timer:preset:${minutes}`,
       kind: 'timer',
       name: `${minutes}분 타이머 시작`,
-      subtitle: `${minutes}:00 부터 — Enter 로 바로`,
+      subtitle: `${minutes}:00 부터. Enter 를 누르면 바로 열립니다`,
       glyph: '⏱',
       meta: '타이머',
       seconds: minutes * 60,
@@ -410,7 +410,7 @@ function render() {
     li.innerHTML = `
       <span class="palette-row-icon">${iconFor(item)}</span>
       <span class="palette-row-text">
-        <b>${escapeHtml(confirming ? `${item.name} — 정말 실행하려면 Enter` : item.name)}</b>
+        <b>${escapeHtml(confirming ? `${item.name}, 정말 실행하려면 Enter` : item.name)}</b>
         <span>${escapeHtml(item.subtitle || '')}</span>
       </span>
       <span class="palette-row-meta">${item.kind === 'command' ? '명령' : escapeHtml(item.meta || '')}${item.enabled === false ? ', 중지됨' : ''}</span>
@@ -455,7 +455,7 @@ function activate(item) {
       pendingConfirm = null;
       render();
     }, 4000);
-    flash('한 번 더 Enter 를 누르면 실행합니다 — Esc 로 취소');
+    flash('한 번 더 Enter 를 누르면 실행합니다. Esc 로 그만둘 수 있습니다');
     render();
     return;
   }
@@ -488,7 +488,7 @@ async function run(item) {
     const text = item.kind === 'calc' ? item.copyText : item.body;
     try {
       await copyText(text);
-      flash(item.kind === 'calc' ? `${item.name} — 복사했습니다` : '스니펫을 복사했습니다', 900);
+      flash(item.kind === 'calc' ? `${item.name} 복사했습니다` : '스니펫을 복사했습니다', 900);
       setTimeout(hidePalette, 550);
     } catch (error) {
       console.error('[TIP search]', error);
@@ -514,7 +514,7 @@ async function run(item) {
       else if (item.id === 'cmd:new-sticky') await invoke('sticky_create', {});
       else if (item.id === 'cmd:pick-color') await invoke('pick_screen_color');
       else if (item.id === 'cmd:drag-ocr') {
-        await invoke('open_tool', { id: 'drag-ocr', title: '화면 드래그 OCR' });
+        await invoke('open_tool', { id: 'drag-ocr', title: '화면 글자 읽기' });
       } else await invoke('open_main', { module: null, settings: false });
     } else if (item.kind === 'app') {
       await invoke('open_local_app', { path: item.path });
@@ -555,7 +555,7 @@ function scheduleFiles(query) {
     // v1.15.1 — 파일 검색을 처음 쓸 때 무엇을 검색하는지 한 번만 알린다.
     if (filesNoticePending()) {
       markFilesNoticeShown();
-      flash('홈 폴더 파일 이름을 검색합니다 — 찾은 경로만 열 수 있습니다', 2600);
+      flash('홈 폴더 파일 이름을 검색합니다. 찾은 경로만 열 수 있습니다', 2600);
     }
     try {
       const hits = await invoke('search_local_files', { query: q });

@@ -190,7 +190,7 @@ const module = {
           <div class="ct-badges" id="ct-badges"></div>
           <div class="ct-preview" id="ct-preview">
             <div class="ct-prev-big">큰 텍스트 24px</div>
-            <div class="ct-prev-small">본문 텍스트 14px — 이 배경에서 이 글자가 읽히는지 확인하세요.</div>
+            <div class="ct-prev-small">본문 텍스트 14px. 이 배경에서 이 글자가 읽히는지 확인하세요.</div>
           </div>
         </section>
       </div>`;

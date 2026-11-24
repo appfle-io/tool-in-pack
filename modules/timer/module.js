@@ -68,7 +68,7 @@ const module = {
         </div>
 
         <div class="tm-hint">
-          <b>어디서든</b> — 전역 검색(Option+Space)에서 <code>타이머 7분</code>, <code>타이머 1분 30초</code>,
+          <b>어디서든</b>: 전역 검색(⌥Space)에서 <code>타이머 7분</code>, <code>타이머 1분 30초</code>,
           <code>timer 90s</code> 처럼 치면 바로 시작됩니다. 노치 알약에도 남은 시간이 보입니다.
         </div>
       </div>`;
@@ -109,8 +109,8 @@ const module = {
       barEl.setAttribute('aria-valuenow', String(Math.round(percent)));
       barEl.className = `tm-bar${state.status === 'done' ? ' is-done' : ''}${state.status === 'paused' ? ' is-paused' : ''}`;
 
-      if (state.status === 'running') stateEl.textContent = `${describeSeconds(total)} 타이머 — 줄어드는 중`;
-      else if (state.status === 'paused') stateEl.textContent = `일시정지 — ${formatClock(left)} 남음`;
+      if (state.status === 'running') stateEl.textContent = `${describeSeconds(total)} 타이머, 줄어드는 중`;
+      else if (state.status === 'paused') stateEl.textContent = `일시정지. ${formatClock(left)} 남음`;
       else if (state.status === 'done') stateEl.textContent = '끝났습니다. 초기화하거나 새로 시작하세요.';
       else stateEl.textContent = '시간을 정해 시작하세요';
 
@@ -130,7 +130,7 @@ const module = {
       }
       const seconds = customSeconds();
       if (!seconds) {
-        toast('먼저 시간을 정해 주세요 — 분이나 초를 1 이상으로');
+        toast('먼저 시간을 정해 주세요. 분이나 초를 1 이상으로 넣어 주세요.');
         minEl.focus();
         return;
       }

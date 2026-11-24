@@ -1,6 +1,6 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.15.3';
+const CACHE_VERSION = 'tip-v1.15.4';
 const APP_SHELL = [
   './',
   './index.html',

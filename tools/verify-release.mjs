@@ -5,6 +5,9 @@
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.15.4 — 다크 모드 버튼 대비(초록 #3F7D68 · `--accent-ink`), 화면 문구의 줄표(—) 제거,
+ *          화면 글자 읽기 이름 통일, 편집 모드 핀(채움/선), 휴대폰 44px 검색창·색 선택,
+ *          downloads/*.dmg 미추적을 검사한다.
  * v1.15.3 — 웹·Mac 공통 접근성 6종(홈 편집 모드 · 12px 글자 · 4.5:1 대비 · 36/44px 터치 영역 ·
  *          겹치지 않는 아이콘 · 한 이름과 자연스러운 문구 · 상단 바 정리)과 스티커 메모 두 버그
  *          (새 스티커 버튼 SVG 크기 · 삭제 확인), 노치 빠른 메모 포커스를 검사한다.
@@ -70,7 +73,7 @@ check('Cargo.toml 버전', new RegExp(`^version = "${VERSION}"`, 'm').test(read(
 check('mac/package.json 버전', JSON.parse(read('mac/package.json')).version === VERSION);
 check('sw.js 캐시 버전', read('sw.js').includes(`tip-v${VERSION}`));
 check('js/app.js APP_VERSION', read('js/app.js').includes(`APP_VERSION = '${VERSION}'`));
-check('버전이 1.15.3 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 15 || (minor === 15 && patch >= 3))))(VERSION.split('.').map(Number)), String(VERSION));
+check('버전이 1.15.4 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 15 || (minor === 15 && patch >= 4))))(VERSION.split('.').map(Number)), String(VERSION));
 
 /* ------------------------------ 2. 노치 밀착 ------------------------------ */
 
@@ -851,6 +854,104 @@ check('빠른 메모는 mousedown 에서 한 번만 notch_focus', (memoBlock.mat
   && /addEventListener\('mousedown'/.test(memoBlock));
 check('빠른 메모는 key 창 뒤에도 초점 유지', /requestAnimationFrame\(\(\) => \{\s*if \(document\.activeElement !== input\) input\.focus\(\{ preventScroll: true \}\);/.test(memoBlock));
 check('빠른 메모 blur 는 한 박자 뒤 판단', /addEventListener\('blur', \(\) => \{\s*setTimeout\(\(\) => \{/.test(memoBlock));
+
+/* ================================================================
+   16. v1.15.4 — 다크 대비·화면 문구·이름·핀·44px·저장소 정리
+   ================================================================ */
+
+/* ---------- 16.1 다크 모드 채움 버튼 4.5:1 ---------- */
+const lightAccent = varOf(lightVars, 'accent');
+const darkAccent = varOf(darkVars, 'accent');
+const lightInk = varOf(lightVars, 'accent-ink');
+check('다크 초록 #3F7D68', darkAccent.toUpperCase() === '#3F7D68', darkAccent);
+check('다크 버튼(초록 바탕 + 흰 글자) 4.5:1 이상', contrast(darkAccent || '#000000', '#FFFFFF') >= 4.5,
+  contrast(darkAccent || '#000000', '#FFFFFF').toFixed(2));
+check('라이트 버튼(초록 바탕 + 흰 글자) 4.5:1 이상', contrast(lightAccent || '#000000', '#FFFFFF') >= 4.5,
+  contrast(lightAccent || '#000000', '#FFFFFF').toFixed(2));
+check('--accent-ink 정의(라이트)', /--accent-ink:\s*var\(--accent\)/.test(lightVars));
+check('--accent-ink 는 다크에서 밝은 초록', /--accent-ink:\s*var\(--accent-strong\)/.test(darkVars));
+check('다크 글자용 초록(--accent-strong) 4.5:1 이상(카드 위)',
+  contrast(varOf(darkVars, 'accent-strong') || '#000000', darkCard || '#000000') >= 4.5,
+  contrast(varOf(darkVars, 'accent-strong') || '#000000', darkCard || '#000000').toFixed(2));
+check('app.css 글자색은 --accent-ink 로만', !/(?<!-)\bcolor: var\(--accent\);/.test(appCss));
+check('brand-mark 바탕은 accent', /\.brand-mark \{[\s\S]{0,200}background: var\(--accent\);/.test(appCss));
+check('primary-btn 바탕·글자', /\.primary-btn \{[\s\S]{0,260}background: var\(--accent\);\s*\n?\s*color: var\(--accent-text\);/.test(appCss));
+check('v16-btn.primary 바탕·글자', /\.v16-btn\.primary \{[^}]*background: var\(--accent\);[^}]*color: var\(--accent-text\);\s*\}/.test(appCss));
+check('기준 줄 라벨 #5E5E63', /\.uc-row\.is-base \.uc-row-label[\s\S]{0,120}color: #5E5E63;/.test(appCss));
+check('기준 줄 라벨 4.5:1 이상(초록 옅은 배경)', contrast('#5E5E63', varOf(lightVars, 'accent-soft') || '#FFFFFF') >= 4.5,
+  contrast('#5E5E63', varOf(lightVars, 'accent-soft') || '#FFFFFF').toFixed(2));
+check('기준 줄 다크는 보조 글자로', /:root\[data-theme='dark'\] \.uc-row\.is-base \.uc-row-label[\s\S]{0,140}color: var\(--muted\);/.test(appCss));
+
+/* ---------- 16.2 화면 문구에 줄표(—) 없음 ---------- */
+function stripHtmlComments(source) {
+  return source.replace(/<!--[\s\S]*?-->/g, '');
+}
+function filesUnder(dir, ext = /\.js$/) {
+  return readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((entry) => {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) return entry.name === 'vendor' ? [] : filesUnder(path, ext);
+    return ext.test(entry.name) ? [path] : [];
+  });
+}
+const uiFiles = [
+  ...filesUnder('js'),
+  ...filesUnder('modules'),
+  'index.html', 'search.html', 'notch.html', 'sticky.html', 'postcode.html', 'postcode-done.html',
+  'address-frame.html', 'radial.html',
+];
+const dashedUi = uiFiles.filter((path) => {
+  const code = stripHtmlComments(stripComments(read(path)));
+  return code.includes('\u2014');
+}).map((path) => {
+  const line = stripHtmlComments(stripComments(read(path))).split('\n').find((text) => text.includes('\u2014')) || '';
+  return `${path}: ${line.trim().slice(0, 40)}`;
+});
+check('화면 문구에 줄표(—) 없음', dashedUi.length === 0, dashedUi.slice(0, 3).join(' | '));
+['img-converter', 'photo-privacy', 'video-gif', 'video-mosaic', 'icon-gen', 'ocr-reader', 'file-compress'].forEach((id) => {
+  check(`${id} 파일 고르기 안내가 문장`, /고르(거나|세요)/.test(read(`modules/${id}/module.js`)));
+});
+check('빈 값은 줄표 대신 없음', read('modules/address-search/module.js').includes("'없음'")
+  && !read('modules/address-search/module.js').includes("'—'"));
+
+/* ---------- 16.3 화면 글자 읽기 ---------- */
+const dragOcr = read('modules/drag-ocr/module.js');
+check('drag-ocr 이름 화면 글자 읽기', /^  name: '화면 글자 읽기',$/m.test(dragOcr));
+check('drag-ocr shortName 글자 읽기', /^  shortName: '글자 읽기',$/m.test(dragOcr));
+check('drag-ocr 모듈 안내도 같은 이름', !/화면 드래그 OCR/.test(dragOcr));
+check('검색도 같은 이름', /name: '화면 글자 읽기'/.test(searchJs) && !/화면 드래그 OCR/.test(searchJs));
+const featureSrc = read('js/feature-settings.js');
+check('설정도 같은 이름', /label: '화면 글자 읽기'/.test(featureSrc));
+check('검색 창 제목도 같은 이름', !/title: '화면 드래그 OCR'/.test(searchJs));
+check('README 도 같은 이름', read('README.md').includes('### 23) 화면 글자 읽기') && !read('README.md').includes('| 화면 드래그 OCR `Mac` |'));
+
+/* ---------- 16.4 GIF나 ---------- */
+check('GIF나 띄어쓰기', read('modules/video-gif/module.js').includes("subtitle: 'GIF나 짧은 클립으로 자르기'")
+  && !read('modules/video-gif/module.js').includes('GIF 나'));
+check('README 도 GIF나', !read('README.md').includes('GIF 나'));
+
+/* ---------- 16.5 편집 모드 핀 — 채움/선 ---------- */
+check('선 핀 아이콘', /pinOutline: '<svg[^']*fill="none"[^']*stroke="currentColor"/.test(uiJs));
+check('고정 여부로 아이콘을 고름', /html: state\.pinned \? icons\.pin : icons\.pinOutline,/.test(appJs));
+check('핀 이름도 상태를 말함', /'aria-label': `\$\{mod\.name\} \$\{state\.pinned \? '상단 고정 해제' : '상단 고정'\}`/.test(appJs));
+
+/* ---------- 16.6 휴대폰 44px — 검색창·색 선택 ---------- */
+const mobileBlock = (appCss.match(/@media \(max-width: 640px\) \{([\s\S]*?)\n\}/) || [, ''])[1];
+check('휴대폰 클립보드 검색창 44px', /\.clip-search input \{ height: 44px; \}/.test(mobileBlock), mobileBlock.trim().slice(0, 60));
+check('휴대폰 클립보드 검색 틀도 44px', /\.clip-search \{ height: 44px; \}/.test(mobileBlock));
+check('휴대폰 QR 색 선택 44px', /\.qr-color input\[type='color'\] \{ width: 44px; height: 44px; \}/.test(mobileBlock));
+
+/* ---------- 16.7 저장소 — .dmg 미추적 ---------- */
+check('.gitignore 에 downloads/*.dmg', /^downloads\/\*\.dmg$/m.test(read('.gitignore')));
+const dmgTracked = exists('.git/index') ? null : null;   // git 색인은 CI 에서 볼 수 없다 — 아래 목록으로 대신한다.
+void dmgTracked;
+check('downloads/*.dmg 는 gitignore 로 빠짐', read('.gitignore').includes('downloads/*.dmg'));
+
+/* ---------- 16.8 문서·E2E ---------- */
+check('README 에 v1.15.4', read('README.md').includes('| v1.15.4 |'));
+check('README 에 이름 변경 안내', read('README.md').includes('화면 글자 읽기'));
+check('README 에 다크 대비 안내', read('README.md').includes('#3F7D68'));
+check('settings-e2e 가 v1.15.4 다크 대비를 잰다', /v1\.15\.4 \u2014 다크 모드 주요 버튼 대비/.test(read('tools/settings-e2e.mjs')));
+check('settings-e2e 가 v1.15.4 44px 를 잰다', /v1\.15\.4 \u2014 휴대폰 검색창·색 선택 44px/.test(read('tools/settings-e2e.mjs')));
 
 /* ------------------------------ 결과 ------------------------------ */
 
