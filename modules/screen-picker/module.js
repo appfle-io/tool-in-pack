@@ -78,7 +78,7 @@ const module = {
   category: 'utility',
   version: '1.14.0',
   subtitle: '화면의 색을 클릭해 집기',
-  description: '화면 어디든 클릭해 색을 집고 HEX·RGB·HSL 로 복사합니다. 최근 색 12개를 기억합니다.',
+  description: '화면 어디든 클릭해 색을 집고 HEX, RGB, HSL 로 복사합니다. 최근 색 12개를 기억합니다.',
   icon: ICON,
   badge: 'Mac',
   macOnly: true,
@@ -104,7 +104,7 @@ const module = {
             <button class="pick-value" type="button" data-format="hsl"><b id="pick-hsl">hsl(0, 0%, 0%)</b><span>HSL</span></button>
           </div>
           <div class="v16-actions">
-            <button class="v16-btn" type="button" id="pick-contrast">색상 · 대비 체크로 보내기</button>
+            <button class="v16-btn" type="button" id="pick-contrast">색상 대비 체크로 보내기</button>
           </div>
         </div>
         <div class="v16-block-head"><span>최근 색</span><button class="v16-mini" type="button" id="pick-clear">지우기</button></div>

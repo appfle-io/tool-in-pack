@@ -21,7 +21,7 @@ const module = {
   kind: 'tool',
   category: 'utility',
   version: '1.15.0',
-  subtitle: '분·초를 정해 세는 타이머',
+  subtitle: '분과 초를 정해 세는 타이머',
   description: '원하는 시간을 직접 넣거나 프리셋으로 시작합니다. 노치 알약과 메인 창이 같은 타이머를 보여 주고, 끝나면 알림과 소리로 알립니다.',
   icon: ICON,
   defaultEnabled: true,
@@ -64,7 +64,7 @@ const module = {
             </label>
             <button class="v16-btn primary" type="button" id="tm-custom">이 시간으로 시작</button>
           </div>
-          <p class="v16-note">분은 0~1440, 초는 0~59. 노치·메인 창·전역 검색이 같은 타이머를 씁니다.</p>
+          <p class="v16-note">분은 0~1440, 초는 0~59. 노치와 메인 창, 전역 검색이 같은 타이머를 씁니다.</p>
         </div>
 
         <div class="tm-hint">

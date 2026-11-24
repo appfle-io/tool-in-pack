@@ -8,6 +8,7 @@
 
 import { getAccent } from '../../js/store.js';
 import { getFeatureValue as getSetting } from '../../js/feature-settings.js';
+import { confirmDialog } from '../../js/ui.js';
 
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h8l6 6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg>`;
 
@@ -39,12 +40,12 @@ function when(ms) {
 const module = {
   id: 'sticky-notes',
   name: '스티커 메모',
-  shortName: '스티커',
+  shortName: '스티커 메모',
   kind: 'tool',
   category: 'utility',
   version: '1.14.0',
   subtitle: '바탕화면에 붙여 두는 메모',
-  description: '여러 개를 동시에 띄워 두고 위치·크기·색을 그대로 기억합니다. 내용은 이 기기에만 저장됩니다.',
+  description: '여러 개를 동시에 띄워 두고 위치와 크기, 색을 그대로 기억합니다.',
   icon: ICON,
   badge: 'Mac',
   macOnly: true,
@@ -59,7 +60,7 @@ const module = {
     root.innerHTML = `
       <div class="v16 sticky-mod">
         <div class="v16-actions">
-          <button class="v16-btn primary" type="button" id="st-new">${ICON} 새 스티커</button>
+          <button class="v16-btn primary" type="button" id="st-new"><span class="v16-btn-icon" aria-hidden="true">${ICON}</span>새 스티커</button>
           <button class="v16-btn" type="button" id="st-all">모두 열기</button>
         </div>
         <p class="v16-note" id="st-note">스티커는 바탕화면에 따로 떠 있습니다. 창을 닫아도 내용은 남고, 앱을 다시 켜면 열려 있던 스티커가 그대로 돌아옵니다.</p>
@@ -93,7 +94,8 @@ const module = {
       text.type = 'button';
       text.className = 'sticky-row-text';
       const first = String(note.text || '').trim().split('\n')[0];
-      text.innerHTML = `<b>${escapeHtml(first || '(빈 스티커)')}</b><span>${note.open ? '열려 있음' : '닫힘'} · ${when(note.updated || note.created)}</span>`;
+      const stamp = when(note.updated || note.created);
+      text.innerHTML = `<b>${escapeHtml(first || '(빈 스티커)')}</b><span>${note.open ? '열려 있음' : '닫힘'}${stamp ? `, ${stamp}` : ''}</span>`;
       text.title = note.open ? '스티커 앞으로 가져오기' : '스티커 다시 열기';
       text.addEventListener('click', async () => {
         try {
@@ -112,7 +114,13 @@ const module = {
       del.textContent = '×';
       del.setAttribute('aria-label', '스티커 지우기');
       del.addEventListener('click', async () => {
-        if (!window.confirm('이 스티커를 지울까요? 되돌릴 수 없습니다.')) return;
+        // WKWebView 는 window.confirm 을 띄우지 않는다 — 인앱 2단계 확인(v1.15.3).
+        const ok = await confirmDialog({
+          title: '스티커 지우기',
+          message: '이 스티커를 지울까요? 되돌릴 수 없습니다.',
+          okText: '지우기',
+        });
+        if (!ok) return;
         try {
           await C.invoke('sticky_delete', { id: note.id });
           toast('스티커를 지웠습니다');

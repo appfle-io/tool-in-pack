@@ -38,7 +38,7 @@ const module = {
   kind: 'tool',
   category: 'dev',
   version: '1.0.0',
-  subtitle: '매치 하이라이트 · 캡처 그룹',
+  subtitle: '일치 표시와 캡처 그룹',
   description: '정규식을 입력하면 일치하는 부분을 실시간으로 표시하고, 매치 수와 캡처 그룹을 보여 줍니다.',
   icon: ICON,
   defaultEnabled: true,
@@ -189,7 +189,7 @@ const module = {
 
       showSummary('ok', global
         ? `매치 ${found.length.toLocaleString()}개${truncated ? ` (${MAX_MATCHES}개까지만 표시)` : ''}`
-        : `첫 매치 1개 · g를 켜면 전체를 찾습니다 (전체 ${found.length.toLocaleString()}개)`);
+        : `첫 매치 1개, g를 켜면 전체를 찾습니다 (전체 ${found.length.toLocaleString()}개)`);
 
       matchesEl.innerHTML = shown.map((item, order) => {
         const groups = item.groups.map((group, index) =>

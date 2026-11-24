@@ -142,13 +142,13 @@ function pdfErrorHint(error) {
 
 const module = {
   id: 'pdf-tools',
-  name: 'PDF 합치기 · 페이지 추출',
+  name: 'PDF 합치기',
   shortName: 'PDF 합치기',
   kind: 'tool',
   category: 'document',
   version: '1.0.0',
-  subtitle: 'PDF 병합 · 원하는 페이지만 뽑기',
-  description: '여러 PDF를 순서대로 합치거나, 한 PDF에서 원하는 페이지만 새 파일로 추출합니다. 업로드 없이 기기 안에서 처리합니다.',
+  subtitle: '병합과 페이지 추출',
+  description: '여러 PDF 를 순서대로 합치거나 한 PDF 에서 원하는 페이지만 새 파일로 뽑습니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -179,7 +179,7 @@ const module = {
           <div class="dr-empty" id="pt-m-empty">
             <div class="dz-icon">${ICON}</div>
             <button class="primary-btn" type="button" id="pt-m-browse">${icons.upload} PDF 선택</button>
-            <p>PDF 2개 이상 · 파일을 끌어다 놓아도 됩니다</p>
+            <p>PDF 2개 이상, 파일을 끌어다 놓아도 됩니다</p>
           </div>
           <input type="file" id="pt-m-input" class="sr-only" accept="${ACCEPT}" multiple>
           <div id="pt-m-body" hidden>
@@ -198,7 +198,7 @@ const module = {
           <div class="dr-empty" id="pt-x-empty">
             <div class="dz-icon">${ICON}</div>
             <button class="primary-btn" type="button" id="pt-x-browse">${icons.upload} PDF 선택</button>
-            <p>PDF 1개 · 총 페이지를 읽고 원하는 페이지만 뽑습니다</p>
+            <p>PDF 1개, 총 페이지를 읽고 원하는 페이지만 뽑습니다</p>
           </div>
           <input type="file" id="pt-x-input" class="sr-only" accept="${ACCEPT}">
           <div id="pt-x-body" hidden>
@@ -322,7 +322,7 @@ const module = {
 
         const meta = entry.error
           ? entry.error
-          : `${entry.pages === null ? '페이지 확인 중…' : `${entry.pages}페이지`} · ${formatBytes(entry.file.size)}`;
+          : `${entry.pages === null ? '페이지 확인 중…' : `${entry.pages}페이지`}, ${formatBytes(entry.file.size)}`;
 
         row.innerHTML = `
           <span class="pt-order">${index + 1}</span>
@@ -410,7 +410,7 @@ const module = {
         <button class="primary-btn" type="button">저장</button>`;
       card.querySelector('.f-name').textContent = name;
       card.querySelector('.f-meta').textContent =
-        `${pages}페이지 · ${formatBytes(bytes.length)}${note ? ` · ${note}` : ''}`;
+        `${pages}페이지, ${formatBytes(bytes.length)}${note ? `, ${note}` : ''}`;
       card.querySelector('button').addEventListener('click', () => download(bytes, name), { signal });
       container.innerHTML = '';
       container.append(card);
@@ -470,7 +470,7 @@ const module = {
       xRange.value = '';
       xName.textContent = file.name;
       xName.title = file.name;
-      xMeta.textContent = `${formatBytes(file.size)} · 페이지 확인 중…`;
+      xMeta.textContent = `${formatBytes(file.size)}, 페이지 확인 중…`;
       xEmpty.hidden = true;
       xBody.hidden = false;
       xChips.innerHTML = '';
@@ -481,7 +481,7 @@ const module = {
         const { doc } = await openDoc(file);
         xFile = file;
         xTotal = doc.getPageCount();
-        xMeta.textContent = `${xTotal}페이지 · ${formatBytes(file.size)}`;
+        xMeta.textContent = `${xTotal}페이지, ${formatBytes(file.size)}`;
         if (!xTotal) throw new Error('페이지가 없는 PDF입니다.');
         xRange.value = `1-${xTotal}`;
         xPages = new Set(Array.from({ length: xTotal }, (_, i) => i + 1));
@@ -490,7 +490,7 @@ const module = {
         xRunBtn.disabled = false;
       } catch (error) {
         console.error('[TIP pdf-tools]', error);
-        xMeta.textContent = `${formatBytes(file.size)} · 읽지 못함`;
+        xMeta.textContent = `${formatBytes(file.size)}, 읽지 못함`;
         xRunBtn.disabled = true;
         xCount.textContent = '0페이지 선택';
         msgEl.append(noticeBox('bad', 'PDF를 열지 못했습니다', pdfErrorHint(error)));

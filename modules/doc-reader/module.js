@@ -42,8 +42,8 @@ const module = {
   kind: 'reader',
   category: 'document',
   version: '1.0.0',
-  subtitle: 'PDF · HWP · HWPX',
-  description: 'PDF, 한글(HWP·HWPX) 문서를 기기 안에서 바로 읽습니다. 업로드 없음, 외부 전송 없음.',
+  subtitle: 'PDF, HWP, HWPX',
+  description: 'PDF 와 한글(HWP, HWPX) 문서를 바로 엽니다.',
   icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h4"/></svg>`,
   defaultEnabled: true,
   defaultPinned: true,
@@ -59,7 +59,7 @@ const module = {
         <div class="dr-empty" id="dr-empty">
           <div class="dz-icon">${icons.doc}</div>
           <button class="primary-btn" type="button" id="dr-browse">${icons.upload} 파일 열기</button>
-          <p>PDF · HWP · HWPX — 이 기기 안에서만 처리됩니다</p>
+          <p>PDF, HWP, HWPX 파일을 열 수 있습니다</p>
         </div>
         <input type="file" id="dr-input" class="sr-only" accept="${ACCEPT}">
         <div id="dr-result"></div>
@@ -102,7 +102,7 @@ const module = {
       const ext = extLabel(file.name).toLowerCase();
       if (!['pdf', 'hwp', 'hwpx'].includes(ext)) {
         result.innerHTML = '';
-        result.append(noticeBox('bad', '열 수 없는 형식', `".${ext}" 파일은 지원하지 않습니다. PDF · HWP · HWPX 파일을 넣어 주세요.`));
+        result.append(noticeBox('bad', '열 수 없는 형식', `".${ext}" 파일은 지원하지 않습니다. PDF, HWP, HWPX 파일을 넣어 주세요.`));
         return;
       }
       try {

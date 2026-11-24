@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 /**
- * TIP v1.15.2 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
+ * TIP v1.15.3 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
  *
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.15.3 — 웹·Mac 공통 접근성 6종(홈 편집 모드 · 12px 글자 · 4.5:1 대비 · 36/44px 터치 영역 ·
+ *          겹치지 않는 아이콘 · 한 이름과 자연스러운 문구 · 상단 바 정리)과 스티커 메모 두 버그
+ *          (새 스티커 버튼 SVG 크기 · 삭제 확인), 노치 빠른 메모 포커스를 검사한다.
+ *          또 macOS WKWebView 에서 동작하지 않는 window.confirm/alert/prompt 를 금지한다.
  * v1.15.2 — 앱 커맨드 창별 제한(AppManifest) · 우편번호 창 저장소 분리(incognito) · CSP http 프레임
  *          제거 · .app 실행 경로 제한과, 노치 펼친 패널 UI/UX 9종(한 줄 접기·높이 맞힘·타이머 직접
  *          입력·모듈 화살표·회색 막대 제거·배경 불투명도)을 검사한다.
@@ -42,7 +46,7 @@
  *  13. 홈 카드 — '실행' 글자 버튼 대신 > 아이콘
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -66,7 +70,7 @@ check('Cargo.toml 버전', new RegExp(`^version = "${VERSION}"`, 'm').test(read(
 check('mac/package.json 버전', JSON.parse(read('mac/package.json')).version === VERSION);
 check('sw.js 캐시 버전', read('sw.js').includes(`tip-v${VERSION}`));
 check('js/app.js APP_VERSION', read('js/app.js').includes(`APP_VERSION = '${VERSION}'`));
-check('버전이 1.15.2 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 15 || (minor === 15 && patch >= 2))))(VERSION.split('.').map(Number)), String(VERSION));
+check('버전이 1.15.3 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 15 || (minor === 15 && patch >= 3))))(VERSION.split('.').map(Number)), String(VERSION));
 
 /* ------------------------------ 2. 노치 밀착 ------------------------------ */
 
@@ -157,7 +161,7 @@ const CATS = [
   ['media', '미디어'],
   ['dev', '개발'],
   ['utility', '유틸리티'],
-  ['online', '조회 · 연동'],
+  ['online', '온라인'],
 ];
 CATS.forEach(([id, label]) => {
   check(`CATEGORIES ${id}`, registry.includes(`{ id: '${id}', label: '${label}' }`));
@@ -456,7 +460,7 @@ check('탭 설명 문구', /TAB_NOTES = \{/.test(appJs) && /노치 아일랜드�
 check('탭 안내에서 다른 탭 안내 문장 제거(v1.15.1)', !/탭에 있습니다/.test(appJs));
 check('웹 안내에 Mac 전용 항목 없음(v1.15.1)', /generalWeb:/.test(appJs) && !/generalWeb: '[^']*메뉴 막대/.test(appJs));
 check('모듈 화면 ⚙', /screen-gear/.test(appJs) && /openSheet\('modules', mod\.id\)/.test(appJs));
-check('문의 버튼', read('index.html').includes('id="inquiry-btn"') && appJs.includes('appfle.io@gmail.com'));
+check('문의는 환경설정 안으로', !read('index.html').includes('inquiry-btn') && /function dataSection\(/.test(appJs) && appJs.includes('appfle.io@gmail.com'));
 check('mailto 허용', /mailto:/.test(lib) && lib.includes('appfle.io@gmail.com'));
 check('주소 프레임 100% 크기', read('address-frame.html').includes('#addr-frame-embed {') && /width: 100%;\s*\n\s*height: 100%;/.test(read('address-frame.html')));
 check('우편번호 embed 100%', /postcode\.embed\(embedEl, \{ q: '' \}\)/.test(read('js/address-frame.js')) && /width: '100%'/.test(read('js/address-frame.js')));
@@ -603,7 +607,7 @@ check('시트 본문만 스크롤', /\.sheet-body \{[\s\S]{0,200}overflow-y: aut
 check('탭 줄 sticky', /\.sheet\.is-fixed \.sheet-tabs \{[\s\S]{0,120}position: sticky/.test(sheetCss));
 check('app.js 가 is-fixed 를 붙인다', /class: `sheet\$\{TAURI \? ' is-fixed' : ''\}`/.test(appJs));
 check('시트 본문 컨테이너', /class: 'sheet-body'/.test(appJs));
-check('메뉴 막대·퀵바 한 묶음', /text: '메뉴 막대 · 퀵바'/.test(appJs) && /function menuBarQuickbarSection/.test(appJs));
+check('메뉴 막대·퀵바 한 묶음', /text: '메뉴 막대와 퀵바'/.test(appJs) && /function menuBarQuickbarSection/.test(appJs));
 check('일반 탭에서 메뉴 막대 묶음 제거', !/parts\.push\(menuBarSection\(\)\)/.test(appJs));
 check('메뉴 막대·퀵바에 투명도·순서', /quickbarOpacityRow\(\),\s*\n\s*orderRow,/.test(appJs));
 check('모듈 탭 검색 칸', /class: 'pt-input sheet-module-search'/.test(appJs) && /moduleQuery = search\.value/.test(appJs));
@@ -708,8 +712,145 @@ check('모듈 실행 양끝 화살표', /data-launcher="prev"/.test(notchJs) && 
 check('모듈 실행 양끝 페이드', /is-fade-start/.test(notchCssV2) && /is-fade-end/.test(notchCssV2) && /mask-image/.test(notchCssV2));
 check('잘린 이름은 shortName', /mod\.shortName \|\| mod\.name/.test(notchJs));
 check('새 스티커는 제목 옆 +', /id="launcher-new"/.test(notchJs) && !/launcher-tile launcher-new/.test(notchJs));
-check('README 에 v1.15.2', read('README.md').includes('| v1.15.2 |'));
-check('settings-e2e 가 v1.15.2 UI 를 본다', /v1\.15\.2 \u2014 펼친 패널 600px 이하/.test(read('tools/settings-e2e.mjs')));
+check('README 에 v1.15.3', read('README.md').includes('| v1.15.3 |'));
+check('settings-e2e 가 v1.15.3 UI 를 본다', /v1\.15\.3 \u2014 홈 편집 모드/.test(read('tools/settings-e2e.mjs')));
+
+
+/* ================================================================
+   15. v1.15.3 — 웹·Mac 공통 UI 접근성·문구와 스티커·노치 메모 버그
+   ================================================================ */
+
+const appCss = read('css/app.css');
+const indexHtml = read('index.html');
+const uiJs = read('js/ui.js');
+const searchHtml = read('search.html');
+
+/** 소스에서 주석을 지운다 — 주석에 적힌 낱말(window.confirm 안내 등)을 코드로 세지 않게. */
+function stripComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+/** sRGB 상대 휘도·대비비 (WCAG 2.1). */
+function luminance(hex) {
+  const n = hex.replace('#', '');
+  const full = n.length === 3 ? n.split('').map((c) => c + c).join('') : n;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255);
+  const lin = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+function contrast(a, b) {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/* ---------- 15.1 홈 편집 모드 ---------- */
+check('상단 편집 버튼', /id="edit-btn"[^>]*aria-pressed="false"[^>]*hidden/.test(indexHtml));
+check('홈 편집 상태 변수', /let homeEditing = false;/.test(appJs));
+check('편집 모드에서만 순서 핸들', /if \(sortable && homeEditing\) \{/.test(appJs));
+check('편집 중 카드 클릭은 실행하지 않음', /const open = \(\) => \{\s*if \(homeEditing\) return;/.test(appJs));
+check('편집 버튼이 홈에서만 보임', /function syncEditButton\(\)/.test(appJs) && /editBtn\.hidden = !!hash;/.test(appJs));
+check('편집 밖에서는 고정·켜기 숨김', /\.home-sections:not\(\.is-editing\) \.module-controls \.switch,[\s\S]{0,120}\.pin-btn \{ display: none; \}/.test(appCss));
+check('편집 모드 버튼 44px 이상', /\.home-sections\.is-editing \.module-controls \.switch,[\s\S]{0,160}min-width: 44px;\s*min-height: 44px;/.test(appCss));
+
+/* ---------- 15.2 글자 크기·대비 ---------- */
+const smallFonts = [...appCss.matchAll(/font-size:\s*([\d.]+)px/g)]
+  .map((m) => Number(m[1]))
+  .filter((size) => size < 12);
+check('app.css 에 12px 미만 글자 없음', smallFonts.length === 0, smallFonts.join(', '));
+
+const lightVars = (appCss.match(/:root \{([\s\S]*?)\n\}/) || [, ''])[1];
+const darkVars = (appCss.match(/:root\[data-theme='dark'\] \{([\s\S]*?)\n\}/) || [, ''])[1];
+const varOf = (block, name) => ((block.match(new RegExp(`--${name}:\\s*(#[0-9A-Fa-f]{3,6})`)) || [])[1] || '');
+const lightCard = varOf(lightVars, 'card');
+const darkCard = varOf(darkVars, 'card');
+const lightMuted2 = varOf(lightVars, 'muted-2');
+const darkMuted2 = varOf(darkVars, 'muted-2');
+check('라이트 보조 글자 #6C6C70', lightMuted2.toUpperCase() === '#6C6C70', lightMuted2);
+check('라이트 보조 글자 대비 4.5:1 이상', contrast(lightMuted2 || '#000000', lightCard || '#FFFFFF') >= 4.5,
+  contrast(lightMuted2 || '#000000', lightCard || '#FFFFFF').toFixed(2));
+check('다크 보조 글자 대비 4.5:1 이상', contrast(darkMuted2 || '#000000', darkCard || '#000000') >= 4.5,
+  contrast(darkMuted2 || '#000000', darkCard || '#000000').toFixed(2));
+check('라이트 본문 보조글자 대비 4.5:1 이상', contrast(varOf(lightVars, 'muted') || '#000000', lightCard || '#FFFFFF') >= 4.5);
+check('다크 본문 보조글자 대비 4.5:1 이상', contrast(varOf(darkVars, 'muted') || '#000000', darkCard || '#000000') >= 4.5);
+
+/* ---------- 15.3 터치 영역 ---------- */
+check('버튼 최소 36px', /\.app-body button \{\s*min-width: 36px;\s*min-height: 36px;/.test(appCss));
+check('휴대폰 버튼 최소 44px', /@media \(max-width: 640px\) \{\s*\.app-body button \{ min-width: 44px; min-height: 44px; \}/.test(appCss));
+
+/* ---------- 15.4 아이콘 ---------- */
+const imgIcon = (read('modules/img-converter/module.js').match(/icon: `([^`]+)`/) || [, ''])[1];
+const photoIcon = (read('modules/photo-privacy/module.js').match(/const ICON = `([^`]+)`/) || [, ''])[1];
+check('이미지 컨버터·사진 모자이크 아이콘이 다르다', !!imgIcon && !!photoIcon && imgIcon !== photoIcon);
+check('사진 모자이크 아이콘은 산 모양이 아니다', !!photoIcon && !/M21 1[0-9]?l-4/.test(photoIcon) && photoIcon.includes('13'), photoIcon.slice(0, 80));
+
+/* ---------- 15.5 문구 ---------- */
+const moduleFiles = [...registry.matchAll(/^import\s+\w+\s+from\s+'\.\/([^/]+)\/module\.js';/gm)].map((m) => m[1]);
+const names = [];
+const dotted = [];
+const jargon = [];
+moduleFiles.forEach((id) => {
+  const src = read(`modules/${id}/module.js`);
+  const name = (src.match(/^\s{2}name: '([^']+)',/m) || [])[1] || '';
+  const subtitle = (src.match(/^\s{2}subtitle: '([^']+)',/m) || [])[1] || '';
+  const description = (src.match(/^\s{2}description: '([^']+)'/m) || [])[1] || '';
+  names.push(name);
+  if (!name || name.includes('·')) dotted.push(`${id}:${name}`);
+  if (subtitle.includes('·') || description.includes('·')) dotted.push(`${id} 설명`);
+  if (subtitle.includes('mdfind') || description.includes('mdfind')) jargon.push(`${id}:mdfind`);
+  if (subtitle.includes('GFM') || description.includes('GFM')) jargon.push(`${id}:GFM`);
+  if (subtitle.includes('EXIF') || description.includes('EXIF')) jargon.push(`${id}:EXIF`);
+});
+check('모든 모듈에 이름이 있다', names.every(Boolean));
+check('모듈 이름에 · 없음', dotted.length === 0, dotted.join(', '));
+check('모든 모듈 이름이 다르다', new Set(names).size === names.length, names.join(' '));
+check('모듈 부제·설명에서 어려운 용어 제거', jargon.length === 0, jargon.join(', '));
+check('홈·검색·설정이 같은 이름(mod.name)', !/mod\.shortName \|\| mod\.name/.test(stripComments(appJs))
+  && !/mod\.shortName \|\| mod\.name/.test(stripComments(read('js/search.js'))));
+check('분류 이름에 · 없음', !/label: '[^']*·/.test(registry));
+check('"기기 안에서만" 안내는 설정 한 곳', (stripComments(appJs).match(/기기 안에서만/g) || []).length === 1
+  && !moduleFiles.some((id) => stripComments(read(`modules/${id}/module.js`)).includes('기기 안에서만')));
+check('네트워크 모듈에만 인터넷 안내', ['address-search', 'parcel-tracker', 'currency-calc']
+  .every((id) => read(`modules/${id}/module.js`).includes('인터넷')));
+
+/* ---------- 15.6 상단 바 ---------- */
+const topbar = (indexHtml.match(/<header class="topbar">[\s\S]*?<\/header>/) || [''])[0];
+check('상단 바 TOOL-IN-PACK 부제 제거', !topbar.includes('TOOL-IN-PACK'));
+check('상단 바에 문의 버튼 없음', !topbar.includes('inquiry-btn'));
+check('문의는 환경설정 안에', /function dataSection\(\)/.test(appJs) && /text: '메일 보내기'/.test(appJs));
+
+/* ---------- 15.7 스티커 메모 두 버그 ---------- */
+check('새 스티커 버튼 아이콘 크기', /\.v16-btn > \.v16-btn-icon svg \{ width: 15px; height: 15px; flex: none; \}/.test(appCss)
+  && read('modules/sticky-notes/module.js').includes('v16-btn-icon'));
+check('인앱 확인창 헬퍼', /export function confirmDialog\(/.test(uiJs) && /\.confirm-overlay \{/.test(appCss));
+const noNativeDialogs = ['js', 'modules'].every((dir) => {
+  const walk = (d) => readdirSync(join(ROOT, d), { withFileTypes: true }).flatMap((entry) => {
+    const path = join(d, entry.name);
+    if (entry.isDirectory()) return walk(path);
+    if (!entry.name.endsWith('.js')) return [];
+    const code = stripComments(read(path));
+    return /window\.(confirm|alert|prompt)\s*\(/.test(code) ? [path] : [];
+  });
+  return walk(dir).length === 0;
+});
+check('WKWebView 비호환 window.confirm/alert/prompt 없음', noNativeDialogs);
+check('스티커 삭제가 인앱 확인을 거친다', /const ok = await confirmDialog\(\{[\s\S]{0,200}if \(!ok\) return;/.test(read('modules/sticky-notes/module.js'))
+  && /confirmDialog\(\{[\s\S]{0,600}sticky_delete/.test(read('js/sticky.js')));
+check('스니펫·이름 변경도 인앱 확인', read('modules/snippets/module.js').includes('confirmDialog')
+  && read('modules/bulk-rename/module.js').includes('confirmDialog'));
+
+/* ---------- 15.8 노치 빠른 메모 포커스 ---------- */
+const notchRsV3 = read('mac/src-tauri/src/notch.rs');
+check('make_key 가 첫 응답자를 빼앗지 않는다', !/makeFirstResponder/.test(stripComments(notchRsV3)));
+check('make_key 는 이미 key 면 그대로', /if panel\.isKeyWindow\(\) \{/.test(notchRsV3));
+check('notch_focus 는 make_key 만', /fn notch_focus\(app: AppHandle\) \{[\s\S]{0,260}notch::make_key\(&win\)/.test(lib)
+  && !/fn notch_focus\(app: AppHandle\) \{[\s\S]{0,260}set_focus\(\)/.test(lib));
+const memoBlock = (notchJs.match(/function memoCard\(\)[\s\S]*?\n\}/) || [''])[0];
+check('빠른 메모는 mousedown 에서 한 번만 notch_focus', (memoBlock.match(/notch_focus/g) || []).length === 1
+  && /addEventListener\('mousedown'/.test(memoBlock));
+check('빠른 메모는 key 창 뒤에도 초점 유지', /requestAnimationFrame\(\(\) => \{\s*if \(document\.activeElement !== input\) input\.focus\(\{ preventScroll: true \}\);/.test(memoBlock));
+check('빠른 메모 blur 는 한 박자 뒤 판단', /addEventListener\('blur', \(\) => \{\s*setTimeout\(\(\) => \{/.test(memoBlock));
 
 /* ------------------------------ 결과 ------------------------------ */
 

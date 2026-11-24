@@ -83,8 +83,8 @@ const module = {
   kind: 'tool',
   category: 'utility',
   version: '1.0.0',
-  subtitle: 'OCR · 한국어 · 영어',
-  description: '이미지 속 글자를 한국어·영어로 읽어 편집·복사·TXT 저장합니다. 인식은 기기 안에서만 합니다.',
+  subtitle: '한국어와 영어 글자 인식',
+  description: '이미지 속 글자를 한국어와 영어로 읽어 고치고 복사하거나 TXT 로 저장합니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -110,7 +110,7 @@ const module = {
         <div class="dr-empty" id="ocr-empty">
           <div class="dz-icon">${ICON}</div>
           <button class="primary-btn" type="button" id="ocr-browse">${icons.upload} 이미지 선택</button>
-          <p>PNG · JPG · WebP · BMP — 글자가 또렷할수록 잘 읽습니다</p>
+          <p>PNG, JPG, WebP, BMP — 글자가 또렷할수록 잘 읽습니다</p>
         </div>
         <input type="file" id="ocr-input" class="sr-only" accept="image/*">
 
@@ -212,7 +212,7 @@ const module = {
     function updateCount() {
       const value = textEl.value;
       const bytes = new TextEncoder().encode(value).length;
-      countEl.textContent = `${value.length.toLocaleString()}자 · ${formatBytes(bytes)}`;
+      countEl.textContent = `${value.length.toLocaleString()}자, ${formatBytes(bytes)}`;
     }
 
     /**
@@ -295,7 +295,7 @@ const module = {
           setError('글자를 찾지 못했습니다. 이미지가 흐리거나 글자가 너무 작으면 인식되지 않을 수 있습니다.');
         } else {
           const confidence = Math.round(data.confidence || 0);
-          setProgress(1, `완료 · 평균 신뢰도 ${confidence}%`);
+          setProgress(1, `완료, 평균 신뢰도 ${confidence}%`);
         }
       } catch (error) {
         console.error('[TIP ocr-reader]', error);

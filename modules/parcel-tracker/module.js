@@ -190,8 +190,8 @@ function mount(root, ctx) {
   /* ------------------------------ 조회 ------------------------------ */
 
   function windowTitle(item) {
-    const name = item.nickname ? `${item.nickname} · ` : '';
-    return `배송 조회 · ${name}${item.invoice}`;
+    const name = item.nickname ? `${item.nickname}, ` : '';
+    return `배송 조회, ${name}${item.invoice}`;
   }
 
   function openTracking(item) {
@@ -238,7 +238,7 @@ function mount(root, ctx) {
       return;
     }
     if (invoice.length < 6) {
-      showError('송장번호가 너무 짧습니다. 택배사 앱·문자에 있는 번호를 그대로 넣어 주세요.');
+      showError('송장번호가 너무 짧습니다. 택배사 앱이나 문자에 있는 번호를 그대로 넣어 주세요.');
       invoiceInput.focus();
       return;
     }
@@ -360,8 +360,8 @@ function mount(root, ctx) {
 const module = {
   id: 'parcel-tracker',
   name: '배송 조회',
-  subtitle: '송장번호 보관 · 네이버 배송조회 바로 열기',
-  description: '택배사·송장번호·별명을 저장해 두고 네이버 배송조회를 한 번에 엽니다(Mac 앱은 앱 안 창).',
+  subtitle: '송장번호를 저장하고 배송 조회 열기',
+  description: '택배사와 송장번호, 별명을 저장해 두고 네이버 배송 조회를 한 번에 엽니다. 조회할 때만 인터넷을 씁니다(Mac 앱은 앱 안 창).',
   icon: PARCEL_ICON,
   version: '1.13.0',
   category: 'online',

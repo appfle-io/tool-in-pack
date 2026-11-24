@@ -5,8 +5,10 @@
  * 위치·크기는 Rust 가 창 이벤트로 직접 적는다 — 여기서는 내용·색·핀만 다룬다.
  */
 
+import { confirmDialog } from './ui.js';
+
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
-const C = window.__TAURI__.core;
+const C = TAURI ? window.__TAURI__.core : null;
 
 const params = new URLSearchParams(location.search);
 const noteId = params.get('id') || '';
@@ -156,7 +158,16 @@ document.getElementById('delete-btn').addEventListener('click', async () => {
   if (!TAURI) return;
   const firstLine = (textarea.value || '').trim().split('\n')[0].slice(0, 30);
   const label = firstLine ? `"${firstLine}"` : '이 스티커';
-  if (!window.confirm(`${label}를 지울까요? 되돌릴 수 없습니다.`)) return;
+  // WKWebView 는 window.confirm 을 띄우지 않는다 — 인앱 2단계 확인(v1.15.3).
+  const ok = await confirmDialog({
+    title: '스티커 지우기',
+    message: `${label}를 지울까요? 되돌릴 수 없습니다.`,
+    okText: '지우기',
+  });
+  if (!ok) {
+    textarea.focus({ preventScroll: true });
+    return;
+  }
   clearTimeout(saveTimer);
   C.invoke('sticky_delete', { id: noteId }).catch(() => {});
 });

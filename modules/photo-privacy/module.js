@@ -7,7 +7,7 @@
 import { formatBytes, icons } from '../../js/ui.js';
 import { parseMetadata, describeMetadata } from './exif.js';
 
-const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 16l-4.2-4.2L7 21"/><path d="M15.5 20h4.5"/></svg>`;
+const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="16" height="13" rx="2.5"/><circle cx="7.5" cy="8" r="1.5"/><path d="M18.5 12.5l3.2 1.2v3.6c0 2.2-2 3.9-3.2 4.3-1.2-.4-3.2-2.1-3.2-4.3v-3.6z"/></svg>`;
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif';
 const HEIC_RE = /\.hei[cf]$/i;
@@ -140,13 +140,13 @@ function blurArea(ctx, canvas, rect, radius) {
 
 const module = {
   id: 'photo-privacy',
-  name: '모자이크 · 위치정보 제거',
+  name: '사진 모자이크',
   shortName: '사진 모자이크',
   kind: 'tool',
   category: 'media',
   version: '1.0.0',
-  subtitle: '사진 가리기 + EXIF/GPS 삭제',
-  description: '사진의 EXIF·GPS를 확인하고, 모자이크/블러로 가린 뒤 메타데이터를 지워 저장합니다.',
+  subtitle: '사진 가리기와 촬영 정보 지우기',
+  description: '사진에 남은 촬영 기기와 시간, 위치 정보를 살펴보고 모자이크나 흐리게 처리로 가린 뒤 그 정보까지 지워 저장합니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -176,7 +176,7 @@ const module = {
         <div class="dr-empty" id="pp-empty">
           <div class="dz-icon">${ICON}</div>
           <button class="primary-btn" type="button" id="pp-browse">${icons.upload} 사진 선택</button>
-          <p>JPG · PNG · WebP · HEIC — 끌어다 놓아도 됩니다</p>
+          <p>JPG, PNG, WebP, HEIC — 끌어다 놓아도 됩니다</p>
         </div>
         <input type="file" id="pp-input" class="sr-only" accept="${ACCEPT}">
         <div id="pp-main" hidden>
@@ -339,7 +339,7 @@ const module = {
         ...meta.items,
       ];
       if (meta.formats && meta.formats.length) {
-        rows.push({ label: '메타데이터', value: meta.formats.join(' · ') });
+        rows.push({ label: '정보 형식', value: meta.formats.join(', ') });
       }
 
       const list = document.createElement('div');
@@ -357,10 +357,10 @@ const module = {
       const foot = document.createElement('p');
       if (!meta.count) {
         foot.className = 'pp-exif-note';
-        foot.textContent = '이 사진에는 EXIF / 위치정보가 없습니다. 저장은 항상 캔버스 재인코딩이라 결과물도 깨끗합니다.';
+        foot.textContent = '이 사진에는 촬영 정보나 위치 정보가 없습니다. 저장할 때 다시 한 번 인코딩하므로 결과물도 깨끗합니다.';
       } else if (meta.gps) {
         foot.className = 'pp-exif-note warn';
-        foot.textContent = `위치정보(GPS)가 들어 있습니다 — 저장하면 완전히 제거됩니다. (${summary.text})`;
+        foot.textContent = `위치 정보가 들어 있습니다 — 저장하면 완전히 지워집니다. (${summary.text})`;
       } else {
         foot.className = 'pp-exif-note';
         foot.textContent = `${summary.text} — 저장하면 모두 제거됩니다.`;
@@ -615,25 +615,25 @@ const module = {
         const table = document.createElement('div');
         table.className = 'pp-meta-status-grid';
         table.innerHTML = `
-          <div class="pp-meta-row"><span>저장 전</span><b>EXIF ${before.count}항목 · ${before.gps ? 'GPS 포함' : '위치정보 없음'}</b></div>
-          <div class="pp-meta-row after"><span>저장 후</span><b>EXIF ${after.count}항목 · ${after.gps ? 'GPS 포함' : '위치정보 없음'}</b></div>
+          <div class="pp-meta-row"><span>저장 전</span><b>촬영 정보 ${before.count}개, ${before.gps ? '위치 정보 포함' : '위치 정보 없음'}</b></div>
+          <div class="pp-meta-row after"><span>저장 후</span><b>촬영 정보 ${after.count}개, ${after.gps ? '위치 정보 포함' : '위치 정보 없음'}</b></div>
           <div class="pp-meta-row file"><span>파일</span><b></b></div>`;
-        table.querySelector('.pp-meta-row.file b').textContent = `${name} · ${formatBytes(outBytes.length)}`;
+        table.querySelector('.pp-meta-row.file b').textContent = `${name}, ${formatBytes(outBytes.length)}`;
         statusEl.append(table);
 
         const verdict = document.createElement('p');
         const clean = after.count === 0 && !after.gps;
         verdict.className = `pp-verdict${clean ? ' good' : ' bad'}`;
         verdict.textContent = clean
-          ? '✓ 저장한 파일을 다시 검사했습니다 — 메타데이터 0건 (EXIF · GPS 제거 완료)'
-          : '⚠ 저장한 파일에 메타데이터가 남아 있습니다. 다시 시도해 주세요.';
+          ? '저장한 파일을 다시 검사했습니다. 촬영 정보와 위치 정보가 하나도 남지 않았습니다.'
+          : '저장한 파일에 촬영 정보가 남아 있습니다. 다시 시도해 주세요.';
         statusEl.append(verdict);
       } catch (error) {
         console.error('[TIP photo-privacy]', error);
         statusEl.textContent = `저장하지 못했습니다: ${(error && error.message) || error}`;
       } finally {
         saveBtn.disabled = false;
-        saveBtn.textContent = '저장 (메타데이터 제거)';
+        saveBtn.textContent = '저장 (촬영 정보 지우기)';
       }
     }
 
@@ -658,7 +658,7 @@ const module = {
         const asImage = /\.(jpe?g|png|webp|heic|heif|gif|avif)$/i.test(picked.name) || /^image\//.test(picked.type);
         if (!asImage) {
           msgEl.innerHTML = '';
-          msgEl.append(note('이미지가 아닙니다', 'JPG · PNG · WebP · HEIC 사진을 끌어다 놓아 주세요.'));
+          msgEl.append(note('이미지가 아닙니다', 'JPG, PNG, WebP, HEIC 사진을 끌어다 놓아 주세요.'));
           return;
         }
         loadFile(picked);

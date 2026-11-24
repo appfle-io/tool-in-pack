@@ -52,7 +52,7 @@ function mount(root, ctx) {
 
       <div class="addr-pane" data-pane="kr">
         <p class="addr-note">
-          <b>한글 · 영문 · 우편번호</b>를 한 번에 찾습니다. 검색은 <b>다음(카카오) 우편번호 서비스</b>에서 하며,
+          <b>한글 주소와 영문 주소, 우편번호</b>를 한 번에 찾습니다. 검색은 <b>다음(카카오) 우편번호 서비스</b>에서 하며,
           입력한 검색어는 그 서비스로만 전송됩니다.
         </p>
         <div class="addr-actions">
@@ -69,11 +69,11 @@ function mount(root, ctx) {
 
       <div class="addr-pane" data-pane="world" hidden>
         <form id="addr-world-form" class="addr-form" autocomplete="off">
-          <input id="addr-world-input" type="search" placeholder="도시·거리·건물 이름 (한글 또는 English)" aria-label="해외 주소 검색어">
+          <input id="addr-world-input" type="search" placeholder="도시, 거리, 건물 이름 (한글 또는 English)" aria-label="해외 주소 검색어">
           <button class="primary-btn ghost" type="submit" id="addr-world-submit">검색</button>
         </form>
         <p class="addr-note">
-          <b>OpenStreetMap</b> 검색 결과입니다. 주소·영문 이름·좌표를 복사할 수 있습니다.
+          <b>OpenStreetMap</b> 검색 결과입니다. 주소와 영문 이름, 좌표를 복사할 수 있습니다.
           검색어는 OpenStreetMap 으로만 전송되며, 한 번에 한 번씩만 조회합니다.
         </p>
         <p id="addr-world-status" class="addr-status" role="status"></p>
@@ -83,7 +83,7 @@ function mount(root, ctx) {
       <div class="addr-pane" data-pane="en" hidden>
         <p class="addr-note">
           한국어 주소를 붙여넣으면 <b>해외직구용 영문 주소</b>로 바꿉니다.
-          변환은 이 기기 안에서만(국어의 로마자 표기법 규칙) 하고, 어디로도 보내지 않습니다.
+          변환은 국어의 로마자 표기법 규칙을 따르며 네트워크를 쓰지 않습니다.
         </p>
         <label class="addr-en-label" for="addr-en-input">한국어 주소</label>
         <textarea id="addr-en-input" class="v16-ta" rows="3" spellcheck="false"
@@ -559,10 +559,10 @@ export default {
   id: 'address-search',
   name: '주소 검색',
   shortName: '주소',
-  subtitle: '한글·영문 주소와 우편번호 찾기',
-  description: '한국 주소는 다음 우편번호 서비스로 도로명·지번·영문·우편번호를, 해외 주소는 OpenStreetMap 으로 찾습니다.',
+  subtitle: '한글과 영문 주소, 우편번호 찾기',
+  description: '한국 주소는 다음 우편번호 서비스에서 도로명, 지번, 영문, 우편번호로 찾고 해외 주소는 OpenStreetMap 에서 찾습니다. 주소를 찾을 때만 인터넷을 씁니다.',
   icon: ICON,
-  version: '1.15.2',
+  version: '1.15.3',
   category: 'online',
   defaultEnabled: true,
   defaultPinned: false,

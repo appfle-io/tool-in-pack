@@ -119,13 +119,13 @@ function canvasToBlob(canvas, type, quality) {
 
 const module = {
   id: 'file-compress',
-  name: '파일 압축 · ZIP',
+  name: '파일 압축',
   shortName: '파일 압축',
   kind: 'tool',
   category: 'utility',
   version: '1.0.0',
-  subtitle: '이미지·PDF 용량 줄이고 ZIP으로',
-  description: '이미지와 PDF 용량을 줄이고, 여러 파일을 ZIP으로 묶거나 ZIP을 풀어 저장합니다. 기기 안에서만 처리합니다.',
+  subtitle: '이미지와 PDF 용량 줄이기, ZIP 묶기',
+  description: '이미지와 PDF 용량을 줄이고 여러 파일을 ZIP 으로 묶거나 풀어서 저장합니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -170,7 +170,7 @@ const module = {
           <div class="dr-empty fc-drop" id="fc-img-drop">
             <div class="dz-icon">${DROP_ICON}</div>
             <button class="primary-btn" type="button" id="fc-img-browse">${icons.upload} 이미지 선택</button>
-            <p>JPG · PNG · WebP · GIF · HEIC — 끌어다 놓아도 됩니다</p>
+            <p>JPG, PNG, WebP, GIF, HEIC — 끌어다 놓아도 됩니다</p>
           </div>
           <input type="file" id="fc-img-input" class="sr-only" accept="image/*" multiple>
 
@@ -204,7 +204,7 @@ const module = {
           <div class="dr-empty fc-drop" id="fc-pdf-drop">
             <div class="dz-icon">${DROP_ICON}</div>
             <button class="primary-btn" type="button" id="fc-pdf-browse">${icons.upload} PDF 선택</button>
-            <p>스캔·사진 PDF는 크게 줄고, 글자 PDF는 덜 줄어듭니다</p>
+            <p>스캔한 사진 PDF 는 크게 줄고 글자 PDF 는 덜 줄어듭니다</p>
           </div>
           <input type="file" id="fc-pdf-input" class="sr-only" accept="application/pdf,.pdf">
 
@@ -398,8 +398,8 @@ const module = {
               item.blob
                 ? item.keptOriginal
                   ? ' → <b>원본 유지</b> (재압축하면 더 커짐)'
-                  : ` → ${formatBytes(item.blob.size)} · <b class="${percentClass(percent)}">${reductionText(percent)}</b>`
-                : item.error ? ' · 실패' : ''
+                  : ` → ${formatBytes(item.blob.size)}, <b class="${percentClass(percent)}">${reductionText(percent)}</b>`
+                : item.error ? ', 실패' : ''
             }</div>
           </div>
           ${item.blob ? `<button class="ic-seg" type="button" data-save="${index}">저장</button>` : ''}
@@ -699,7 +699,7 @@ const module = {
             '이미 그림으로 된 PDF이거나 화질이 원본보다 높습니다. 화질을 낮춰 다시 시도하세요.'));
         } else {
           pdfSummary.append(noticeBox('info', '글자 선택은 안 됩니다',
-            '페이지를 그림으로 다시 그려 합쳤기 때문에 글자를 복사·검색할 수 없습니다. 용량을 우선한 방식입니다.'));
+            '페이지를 그림으로 다시 그려 합쳤기 때문에 글자를 복사하거나 검색할 수 없습니다. 용량을 우선한 방식입니다.'));
         }
         pdfSave.hidden = false;
         toast('PDF 용량을 줄였습니다');
@@ -823,7 +823,7 @@ const module = {
         zipFile = file;
         root.querySelector('#fc-unzip-file').hidden = false;
         root.querySelector('#fc-unzip-name').textContent = file.name;
-        root.querySelector('#fc-unzip-meta').textContent = `${zipEntries.length}개 파일 · ${formatBytes(file.size)}`;
+        root.querySelector('#fc-unzip-meta').textContent = `${zipEntries.length}개 파일, ${formatBytes(file.size)}`;
         renderZipEntries();
         if (!zipEntries.length) noticeBox('info', '빈 ZIP', '안에 저장된 파일이 없습니다.');
       } catch (error) {

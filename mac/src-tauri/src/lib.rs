@@ -602,10 +602,12 @@ fn hover_tick(app: &AppHandle) {
 
 /// 노치 창을 key window 로 만든다 — 빠른 메모(textarea)를 클릭했을 때 바로 타이핑되게.
 /// borderless NSPanel 은 스스로 key window 가 되지 못해 입력이 들어가지 않았다(v1.12.2).
+///
+/// v1.15.3 — win.set_focus() 를 함께 부르면 앱 활성화와 key 창 전환이 겹쳐 커서가 한 번
+/// 사라졌다. make_key 하나만 부르고, 이미 key window 면 그 안에서 그대로 돌아온다.
 #[tauri::command]
 fn notch_focus(app: AppHandle) {
     let Some(win) = app.get_webview_window(NOTCH) else { return };
-    let _ = win.set_focus();
     if !notch::make_key(&win) {
         eprintln!("[TIP] 노치 창을 키 창으로 만들지 못했습니다");
     }

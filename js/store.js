@@ -270,7 +270,7 @@ export function setQuickbarOpacity(percent) {
 const NOTCH_KEY = 'tip.notch.v1';
 
 export const NOTCH_WIDGETS = [
-  { id: 'media', label: '미디어', hint: '지금 재생 중인 곡과 재생·이전·다음' },
+  { id: 'media', label: '미디어', hint: '지금 재생 중인 곡과 재생, 이전, 다음' },
   { id: 'calendar', label: '캘린더', hint: '오늘 다가오는 일정' },
   { id: 'shelf', label: '임시 보관함', hint: '끌어다 놓은 파일 보관과 바로 변환' },
   { id: 'timer', label: '타이머', hint: '한 번에 도는 미니 타이머' },

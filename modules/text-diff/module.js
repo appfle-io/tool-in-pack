@@ -82,12 +82,12 @@ function diffLines(a, b) {
 
 const module = {
   id: 'text-diff',
-  name: '텍스트 비교 · 정리',
+  name: '텍스트 비교',
   kind: 'tool',
   category: 'dev',
   version: '1.0.0',
-  subtitle: '줄 단위 비교 · 글자수 통계',
-  description: '두 글을 줄 단위로 비교하고, 글자·단어·바이트 수를 세고, 빈 줄·중복 줄을 한 번에 정리합니다.',
+  subtitle: '줄 단위 비교와 글자수 세기',
+  description: '두 글을 줄 단위로 비교하고 글자수와 단어수, 바이트 수를 세며 빈 줄과 중복 줄을 한 번에 정리합니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -123,10 +123,10 @@ const module = {
           </div>
         </section>
 
-        <section class="v16-panel" id="td-p-clean" role="tabpanel" aria-label="정리·통계" hidden>
+        <section class="v16-panel" id="td-p-clean" role="tabpanel" aria-label="정리와 통계" hidden>
           <div class="v16-field">
             <label class="v16-label" for="td-clean">텍스트</label>
-            <textarea class="v16-ta" id="td-clean" rows="8" spellcheck="false" placeholder="붙여 넣으면 글자수·단어수·바이트 수를 셉니다"></textarea>
+            <textarea class="v16-ta" id="td-clean" rows="8" spellcheck="false" placeholder="붙여 넣으면 글자수와 단어수, 바이트 수를 셉니다"></textarea>
           </div>
           <div class="v16-stats" id="td-counts"></div>
           <div class="v16-actions">
@@ -145,7 +145,7 @@ const module = {
     /* ------------------------------- tabs ------------------------------- */
 
     const tabBar = root.querySelector('#td-tabs');
-    const TABS = [{ id: 'diff', label: '비교' }, { id: 'clean', label: '정리 · 통계' }];
+    const TABS = [{ id: 'diff', label: '비교' }, { id: 'clean', label: '정리와 통계' }];
     const panels = new Map(TABS.map((tab) => [tab.id, root.querySelector(`#td-p-${tab.id}`)]));
 
     function selectTab(id) {

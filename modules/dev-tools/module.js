@@ -10,7 +10,7 @@ const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 
 const TABS = [
   { id: 'json', label: 'JSON' },
-  { id: 'codec', label: 'Base64 · URL' },
+  { id: 'codec', label: 'Base64, URL' },
   { id: 'jwt', label: 'JWT' },
   { id: 'time', label: '타임스탬프' },
   { id: 'uuid', label: 'UUID' },
@@ -79,11 +79,11 @@ function jsonPositionNote(text, message) {
 }
 
 function describeJson(value) {
-  if (Array.isArray(value)) return `배열 · 항목 ${value.length.toLocaleString()}개`;
+  if (Array.isArray(value)) return `배열, 항목 ${value.length.toLocaleString()}개`;
   if (value === null) return 'null';
-  if (typeof value === 'object') return `객체 · 키 ${Object.keys(value).length.toLocaleString()}개`;
-  if (typeof value === 'string') return `문자열 · ${value.length.toLocaleString()}자`;
-  return `${typeof value} · ${String(value)}`;
+  if (typeof value === 'object') return `객체, 키 ${Object.keys(value).length.toLocaleString()}개`;
+  if (typeof value === 'string') return `문자열, ${value.length.toLocaleString()}자`;
+  return `${typeof value}, ${String(value)}`;
 }
 
 function bytesOf(text) {
@@ -130,8 +130,8 @@ const module = {
   kind: 'tool',
   category: 'dev',
   version: '1.0.0',
-  subtitle: 'JSON · Base64 · JWT · 시각 · UUID',
-  description: 'JSON 정렬·압축·검증, Base64/URL 인코딩, JWT 디코드, 타임스탬프 변환, UUID 생성을 한 화면에서.',
+  subtitle: 'JSON, Base64, JWT, 시각, UUID',
+  description: 'JSON 을 정리하거나 검사하고, Base64 와 URL 인코딩, JWT 풀기, 타임스탬프 변환, UUID 만들기를 한 화면에서 합니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -163,15 +163,15 @@ const module = {
           <div class="v16-field">
             <label class="v16-label" for="dv-json-out">결과</label>
             <textarea class="v16-ta" id="dv-json-out" rows="9" spellcheck="false" readonly
-                      placeholder="정렬·압축한 결과가 여기에 나옵니다"></textarea>
+                      placeholder="정렬하거나 압축한 결과가 여기에 나옵니다"></textarea>
           </div>
         </section>
 
-        <section class="v16-panel" id="dv-p-codec" role="tabpanel" aria-label="Base64 · URL" hidden>
+        <section class="v16-panel" id="dv-p-codec" role="tabpanel" aria-label="Base64, URL" hidden>
           <div class="v16-field">
             <label class="v16-label" for="dv-codec-in">입력 (UTF-8)</label>
             <textarea class="v16-ta" id="dv-codec-in" rows="5" spellcheck="false"
-                      placeholder="한글·이모지도 깨지지 않게 변환합니다"></textarea>
+                      placeholder="한글이나 이모지도 깨지지 않게 변환합니다"></textarea>
           </div>
           <div class="v16-actions">
             <button class="v16-btn" type="button" id="dv-codec-b64e">Base64 인코딩</button>
@@ -215,7 +215,7 @@ const module = {
           <div class="v16-kv" id="dv-ts-rows"></div>
 
           <div class="v16-field v16-sep">
-            <label class="v16-label" for="dv-ts-date">날짜 · 시각 → 타임스탬프 (한국 시간 기준)</label>
+            <label class="v16-label" for="dv-ts-date">날짜, 시각 → 타임스탬프 (한국 시간 기준)</label>
             <div class="v16-actions">
               <input class="pt-input v16-input" type="datetime-local" id="dv-ts-date">
               <button class="v16-btn" type="button" id="dv-ts-from-date">변환</button>
@@ -300,7 +300,7 @@ const module = {
           ? JSON.stringify(value)
           : JSON.stringify(value, null, mode === 'indent4' ? 4 : 2);
         jsonOut.value = result;
-        setJsonStatus('ok', `${describeJson(value)} · ${result.length.toLocaleString()}자 · ${formatBytes(bytesOf(result))}`);
+        setJsonStatus('ok', `${describeJson(value)}, ${result.length.toLocaleString()}자, ${formatBytes(bytesOf(result))}`);
       } catch (error) {
         jsonOut.value = '';
         setJsonStatus('bad', `JSON 문법 오류 — ${jsonPositionNote(text, error.message)}`);
@@ -318,7 +318,7 @@ const module = {
       }
       try {
         const value = JSON.parse(text);
-        setJsonStatus('ok', `유효한 JSON — ${describeJson(value)} · ${formatBytes(bytesOf(text))}`);
+        setJsonStatus('ok', `유효한 JSON 입니다. ${describeJson(value)}, ${formatBytes(bytesOf(text))}`);
       } catch (error) {
         setJsonStatus('bad', `JSON 문법 오류 — ${jsonPositionNote(text, error.message)}`);
       }
@@ -406,7 +406,7 @@ const module = {
       let tail = '';
       if (name === 'exp') {
         const diff = ms - Date.now();
-        tail = diff >= 0 ? ` · 만료까지 ${humanDuration(diff)}` : ` · 만료됨 (${humanDuration(-diff)} 전)`;
+        tail = diff >= 0 ? `, 만료까지 ${humanDuration(diff)}` : `, 만료됨 (${humanDuration(-diff)} 전)`;
       }
       return `<div class="v16-kv-row"><span class="v16-k">${name.toUpperCase()}</span>
         <span class="v16-v mono">${kstString(ms)} KST${tail}</span></div>`;
@@ -462,7 +462,7 @@ const module = {
         <div class="v16-block">
           <div class="v16-block-head"><span>Signature</span></div>
           <div class="v16-out mono">${escapeText(parts[2] || '(없음)')}</div>
-          <p class="v16-note">${signatureLength.toLocaleString()}자 · 서명은 검증하지 않습니다.</p>
+          <p class="v16-note">${signatureLength.toLocaleString()}자, 서명은 검증하지 않습니다.</p>
         </div>`;
 
       jwtOut.querySelectorAll('[data-copy-json]').forEach((button) => {
@@ -521,7 +521,7 @@ const module = {
       if (ms === null) {
         tsStatus.hidden = false;
         tsStatus.className = 'v16-status warn';
-        tsStatus.textContent = '변환할 숫자를 입력하세요 (10자리 초 · 13자리 밀리초).';
+        tsStatus.textContent = '변환할 숫자를 입력하세요 (10자리 초, 13자리 밀리초).';
         tsRows.innerHTML = '';
         return;
       }

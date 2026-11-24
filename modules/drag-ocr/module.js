@@ -21,7 +21,7 @@ const module = {
   category: 'utility',
   version: '1.14.0',
   subtitle: '화면을 끌어 글자만 뽑기',
-  description: '화면의 한 영역을 드래그해 찍고 그 안의 글자를 읽습니다. 인식은 기기 안에서만 합니다.',
+  description: '화면의 한 영역을 끌어 찍고 그 안의 글자를 읽습니다.',
   icon: ICON,
   badge: 'Mac',
   macOnly: true,
@@ -108,7 +108,7 @@ const module = {
 
     const lang = getFeatureValue('ocr.lang', 'kor+eng');
     const langLabel = { 'kor+eng': '한국어 + 영어', kor: '한국어', eng: '영어', jpn: '일본어' }[lang] || lang;
-    noteEl.textContent = `인식 언어: ${langLabel} · 전역 단축키를 걸어 두면 어디서든 한 번에 찍고 글자를 뽑습니다.`;
+    noteEl.textContent = `인식 언어: ${langLabel}, 전역 단축키를 걸어 두면 어디서든 한 번에 찍고 글자를 뽑습니다.`;
 
     return () => controller.abort();
   },

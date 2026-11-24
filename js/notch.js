@@ -286,7 +286,7 @@ function mediaCard() {
       </div>
       <div class="media-text">
         <b id="media-title">재생 중인 곡 없음</b>
-        <span id="media-artist">Apple Music · Spotify</span>
+        <span id="media-artist">Apple Music, Spotify</span>
         <span class="media-progress" id="media-progress" hidden aria-hidden="true">
           <i id="media-progress-fill"></i>
         </span>
@@ -295,7 +295,7 @@ function mediaCard() {
         <button class="media-btn" type="button" data-media="previous" aria-label="이전 곡" title="이전" disabled>
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h2v14H7zM19 5v14l-9-7z"/></svg>
         </button>
-        <button class="media-btn media-play" type="button" data-media="playpause" aria-label="재생·일시정지" title="재생·일시정지" disabled>
+        <button class="media-btn media-play" type="button" data-media="playpause" aria-label="재생 또는 일시정지" title="재생 또는 일시정지" disabled>
           <svg id="media-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         </button>
         <button class="media-btn" type="button" data-media="next" aria-label="다음 곡" title="다음" disabled>
@@ -952,7 +952,7 @@ async function openCalendarForm(date = null) {
     dom.calendar.append(new Option('저장할 수 있는 캘린더가 없습니다', ''));
     dom.calendar.disabled = true;
     dom.save.disabled = true;
-    dom.note.textContent = '캘린더 앱에서 계정을 확인하거나, 이 앱의 캘린더 권한(읽기·쓰기)을 허용해 주세요.';
+    dom.note.textContent = '캘린더 앱에서 계정을 확인하거나, 이 앱의 캘린더 권한(읽기와 쓰기)을 허용해 주세요.';
   } else {
     dom.calendar.disabled = false;
     dom.save.disabled = false;
@@ -1220,8 +1220,8 @@ function shelfCard() {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7.5 8.5 4.5-4.5 4.5 4.5"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
       </span>
       <span class="shelf-drop-text">
-        <b><span class="shelf-mini-label">임시 보관함 · </span>파일을 끌어다 놓거나 클릭하세요</b>
-        <span>잠깐 보관했다가 바로 변환·압축·모자이크</span>
+        <b><span class="shelf-mini-label">임시 보관함</span> 파일을 끌어다 놓거나 클릭하세요</b>
+        <span>잠깐 보관했다가 바로 변환, 압축, 모자이크</span>
       </span>
     </div>
     <!-- v1.12.2 — 드래그가 막히는 환경에서도 담을 수 있게 클릭 선택을 함께 둔다. -->
@@ -1644,14 +1644,28 @@ function memoCard() {
         try { localStorage.setItem('tip.quickMemo.v1', input.value); } catch { /* 저장 못하면 이번만 */ }
       }, 350);
     });
-    input.addEventListener('focus', () => {
-      openHeld();
-      // v1.12.2 — borderless NSPanel 은 스스로 key window 가 되지 못한다. 클릭한 순간
-      // 창을 key window 로 만들어야 키보드 입력이 들어간다.
-      invoke('notch_focus').catch(() => {});
+    input.addEventListener('focus', () => { openHeld(); });
+    // v1.15.3 — borderless NSPanel 은 스스로 key window 가 되지 못해 클릭한 순간 창을 key 로
+    // 만들어야 한다. 예전에는 mousedown 과 focus 두 곳에서 불렀고, Rust 가 첫 응답자를 다시
+    // 잡으면서 방금 들어간 커서가 한 번 깜빡이고 사라졌다. 이제 mousedown 에서 한 번만 부르고,
+    // key 창이 된 다음 입력칸에 초점이 남아 있는지 한 박자 뒤에 확인한다.
+    input.addEventListener('mousedown', () => {
+      invoke('notch_focus')
+        .catch(() => {})
+        .finally(() => {
+          requestAnimationFrame(() => {
+            if (document.activeElement !== input) input.focus({ preventScroll: true });
+          });
+        });
     });
-    input.addEventListener('mousedown', () => { invoke('notch_focus').catch(() => {}); });
-    input.addEventListener('blur', () => { heldOpen = false; scheduleCollapse(); });
+    // key 창으로 바뀌는 짧은 순간의 blur 로 패널이 접히지 않게 한 박자 뒤에 본다.
+    input.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (document.activeElement === input) return;
+        heldOpen = false;
+        scheduleCollapse();
+      }, 220);
+    });
   });
   return card;
 }

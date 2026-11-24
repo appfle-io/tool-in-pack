@@ -83,7 +83,7 @@ const module = {
   kind: 'tool',
   category: 'dev',
   version: '1.0.0',
-  subtitle: 'PNG 7종 · manifest 스니펫',
+  subtitle: 'PNG 7종과 manifest 스니펫',
   description: '이미지 한 장으로 앱 아이콘 크기 7종(16~1024px) PNG와 manifest 스니펫을 ZIP으로 만듭니다.',
   icon: ICON,
   defaultEnabled: true,
@@ -104,7 +104,7 @@ const module = {
         <div class="dr-empty" id="ig-empty">
           <div class="dz-icon">${ICON}</div>
           <button class="primary-btn" type="button" id="ig-browse">${icons.upload} 이미지 선택</button>
-          <p>PNG · JPG · WebP · SVG — 1024px 이상을 권장합니다</p>
+          <p>PNG, JPG, WebP, SVG — 1024px 이상을 권장합니다</p>
         </div>
         <input type="file" id="ig-input" class="sr-only" accept="image/*">
 
@@ -219,13 +219,13 @@ const module = {
       empty.hidden = true;
       main.hidden = false;
       nameEl.textContent = file.name;
-      metaEl.textContent = `${bitmap.width} × ${bitmap.height}px · ${formatBytes(file.size)}`;
+      metaEl.textContent = `${bitmap.width} × ${bitmap.height}px, ${formatBytes(file.size)}`;
       const url = URL.createObjectURL(file);
       thumb.src = url;
       thumb.onload = () => URL.revokeObjectURL(url);
       setStatus('ok', bitmap.width >= 512
         ? '만들 준비가 됐습니다.'
-        : '원본이 작아 512 · 1024px는 확대되어 조금 흐려질 수 있습니다.');
+        : '원본이 작아 512, 1024px는 확대되어 조금 흐려질 수 있습니다.');
     }
 
     function renderManifest() {
@@ -272,7 +272,7 @@ const module = {
 
       renderManifest();
       zipBtn.disabled = false;
-      setStatus('ok', `PNG ${results.length}종을 만들었습니다 · 합계 ${formatBytes(results.reduce((sum, r) => sum + r.blob.size, 0))}`);
+      setStatus('ok', `PNG ${results.length}종을 만들었습니다, 합계 ${formatBytes(results.reduce((sum, r) => sum + r.blob.size, 0))}`);
       runBtn.disabled = false;
       runBtn.textContent = 'PNG 7종 만들기';
     }
@@ -290,7 +290,7 @@ const module = {
         zip.file('manifest-snippet.json', manifestSnippet());
         const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
         download(blob, 'app-icons.zip');
-        setStatus('ok', `app-icons.zip 저장 · PNG ${results.length}개 + manifest-snippet.json · ${formatBytes(blob.size)}`);
+        setStatus('ok', `app-icons.zip 저장, PNG ${results.length}개 + manifest-snippet.json, ${formatBytes(blob.size)}`);
       } catch (error) {
         console.error('[TIP icon-gen]', error);
         setStatus('bad', `ZIP을 만들지 못했습니다 — ${error.message}`);

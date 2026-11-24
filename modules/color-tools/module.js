@@ -106,12 +106,12 @@ async function copyText(text) {
 
 const module = {
   id: 'color-tools',
-  name: '색상 · 대비 체크',
+  name: '색상 대비 체크',
   kind: 'tool',
   category: 'dev',
   version: '1.0.0',
-  subtitle: 'HEX · RGB · HSL · WCAG 대비',
-  description: '색을 HEX·RGB·HSL로 서로 바꾸고, 글자색과 배경색의 WCAG 명도 대비율을 검사합니다.',
+  subtitle: '색 코드 변환과 대비 검사',
+  description: '색을 HEX, RGB, HSL 로 서로 바꾸고 글자색과 배경색이 충분히 구분되는지 대비율로 검사합니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,

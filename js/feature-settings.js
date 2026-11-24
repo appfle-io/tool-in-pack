@@ -16,7 +16,7 @@ export const SYSTEM_COMMANDS = {
   lock: '화면 잠금',
   sleep: '잠자기',
   screensaver: '화면 보호기',
-  darkmode: '다크 · 라이트 모드 전환',
+  darkmode: '다크 모드와 라이트 모드 전환',
   hiddenfiles: '숨김 파일 표시 전환',
   emptytrash: '휴지통 비우기',
   restart: '재시동',
@@ -138,13 +138,13 @@ export function setFeatureValue(key, value) {
 /* ------------------------------ 전역 검색 대상 ------------------------------ */
 
 export const SEARCH_SCOPE_ITEMS = [
-  { id: 'modules', label: 'TIP 모듈', hint: '켜 둔 모듈을 이름·키워드로 찾아 실행' },
-  { id: 'apps', label: '맥 앱 (초성)', hint: '/Applications 의 앱을 이름·초성(ㅋㄹ → 크롬)으로 찾아 실행', mac: true },
+  { id: 'modules', label: 'TIP 모듈', hint: '켜 둔 모듈을 이름이나 키워드로 찾아 실행' },
+  { id: 'apps', label: '맥 앱 (초성)', hint: '/Applications 의 앱을 이름이나 초성(ㅋㄹ → 크롬)으로 찾아 실행', mac: true },
   { id: 'files', label: '로컬 파일 (mdfind)', hint: '홈 폴더의 파일 이름을 Spotlight 색인으로 찾아 열기', mac: true },
   { id: 'calc', label: '즉석 계산기', hint: '수식을 넣으면 결과를 바로 — Enter 로 복사' },
-  { id: 'web', label: '웹 검색', hint: 'g·n 으로 Google·Naver 검색, 또는 결과 아래에서 바로' },
+  { id: 'web', label: '웹 검색', hint: 'g 나 n 으로 Google, Naver 검색. 결과 아래에서 바로 열 수도 있습니다' },
   { id: 'snippets', label: '스니펫', hint: '/별칭 이나 낱말로 자주 쓰는 문구를 찾아 복사' },
-  { id: 'system', label: '시스템 명령', hint: '화면 잠금·잠자기·다크 모드·종료 등 — 위험한 명령은 한 번 더 확인합니다', mac: true },
+  { id: 'system', label: '시스템 명령', hint: '화면 잠금이나 잠자기, 다크 모드, 종료 같은 명령입니다. 위험한 명령은 한 번 더 확인합니다', mac: true },
 ];
 
 const SCOPE_DEFAULTS = { modules: true, apps: true, files: true, calc: true, web: true, snippets: true, system: true };
@@ -345,7 +345,7 @@ export const MODULE_SETTINGS = {
         label: '비밀번호 앱에서 복사한 항목 제외',
         type: 'switch',
         fallback: true,
-        hint: '1Password·Apple 암호 같은 앱이 복사한 값은 기록에 넣지 않습니다(Mac).',
+        hint: '1Password 나 Apple 암호 같은 앱이 복사한 값은 기록에 넣지 않습니다(Mac).',
         apply: (value) => {
           if (TAURI) {
             invoke('set_clipboard_exclude_secret', { enabled: value !== false })

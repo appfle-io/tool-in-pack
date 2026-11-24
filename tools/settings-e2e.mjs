@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TIP v1.15.2 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.15.3 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
@@ -146,6 +146,13 @@ const MOCK = `
     close_postcode_window: null,
     take_postcode_result: null,
     send_email: null,
+    // v1.15.3 — 스티커 메모(목록·삭제 2단계 확인)
+    sticky_list: [{ id: 'st1', text: '테스트 메모', color: 'green', open: false, created: 0, updated: 0 }],
+    sticky_get: { id: 'st1', text: '테스트 메모', color: 'green', open: false, pinned: false, created: 0, updated: 0 },
+    sticky_create: null,
+    sticky_delete: null,
+    sticky_update: null,
+    sticky_open: null,
   };
   window.__TAURI__ = {
     core: {
@@ -276,7 +283,7 @@ check('일반 — 업데이트 토스트', (await toastText()).includes('최신 
 
 await openSettings('notch');
 check('노치 — 탭 설명', (await page.locator('.sheet-tab-note').first().textContent()).includes('노치'));
-check('노치 — 메뉴 막대·퀵바 한 묶음(v1.15.1)', (await page.locator('.sheet-section h3', { hasText: '메뉴 막대 · 퀵바' }).count()) === 1);
+check('노치 — 메뉴 막대·퀵바 한 묶음(v1.15.1)', (await page.locator('.sheet-section h3', { hasText: '메뉴 막대와 퀵바' }).count()) === 1);
 const notchMaster = page.locator('.notch-section .switch').first();
 await notchMaster.click();
 await page.waitForTimeout(120);
@@ -818,6 +825,168 @@ check('v1.15.2 — 권한 설정 버튼', mediaError.perm);
 check('v1.15.2 — 제목·아티스트 자리에 오류 없음', mediaError.titleHidden && mediaError.artistHidden);
 check('v1.15.2 — 오류 때 재생 버튼 비활성', mediaError.disabled);
 
+
+/* -------------------- v1.15.3 홈 편집 모드·글자·터치 영역 -------------------- */
+
+const mobileContext = await browser.newContext({ viewport: { width: 375, height: 812 }, locale: 'ko-KR', colorScheme: 'light' });
+await mobileContext.addInitScript(MOCK);
+const mobile = await mobileContext.newPage();
+mobile.on('pageerror', (error) => consoleErrors.push(`mobile pageerror: ${String(error)}`));
+mobile.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+await mobile.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+await mobile.evaluate(() => localStorage.clear());
+await mobile.reload({ waitUntil: 'networkidle' });
+
+const homeRest = await mobile.evaluate(() => ({
+  cards: document.querySelectorAll('.module-card').length,
+  switches: [...document.querySelectorAll('.module-card .switch')].filter((node) => node.offsetParent !== null).length,
+  pins: [...document.querySelectorAll('.module-card .pin-btn')].filter((node) => node.offsetParent !== null).length,
+  handles: document.querySelectorAll('.drag-handle').length,
+  editVisible: !!document.getElementById('edit-btn')?.offsetParent,
+}));
+check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 27 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
+check('v1.15.3 — 편집 버튼은 홈에만', homeRest.editVisible);
+
+await mobile.click('#edit-btn');
+await mobile.waitForTimeout(200);
+const editState = await mobile.evaluate(() => {
+  const boxes = [...document.querySelectorAll('.home-sections.is-editing .module-card .switch, .home-sections.is-editing .module-card .pin-btn, .home-sections.is-editing .drag-handle')]
+    .filter((node) => node.offsetParent !== null)
+    .map((node) => { const rect = node.getBoundingClientRect(); return [Math.round(rect.width), Math.round(rect.height)]; });
+  return {
+    handles: document.querySelectorAll('.drag-handle').length,
+    count: boxes.length,
+    small: boxes.filter(([w, h]) => w < 44 || h < 44).length,
+    label: document.getElementById('edit-btn').textContent,
+  };
+});
+check('v1.15.3 — 편집 모드에서 순서·고정·켜기 표시', editState.handles > 0 && editState.count > 40, JSON.stringify(editState));
+check('v1.15.3 — 편집 모드 버튼 44px 이상', editState.small === 0, JSON.stringify(editState));
+check('v1.15.3 — 편집 버튼이 완료로', editState.label === '완료', editState.label);
+
+await mobile.locator('.module-card').first().click({ position: { x: 120, y: 18 } });
+await mobile.waitForTimeout(200);
+check('v1.15.3 — 편집 중 카드는 열리지 않음', (await mobile.evaluate(() => location.hash || '')) === '');
+await mobile.click('#edit-btn');
+await mobile.waitForTimeout(150);
+check('v1.15.3 — 편집을 마치면 다시 실행만', await mobile.evaluate(() => [...document.querySelectorAll('.module-card .switch')].every((node) => node.offsetParent === null)));
+
+/* 모듈 화면 전수 — 이름·보조 글자 12px·버튼 44px */
+const MODULE_IDS = [
+  'doc-reader', 'clipboard-history', 'address-search', 'parcel-tracker', 'img-converter', 'pdf-tools',
+  'md-editor', 'photo-privacy', 'qr-gen', 'video-gif', 'video-mosaic', 'dev-tools', 'text-diff',
+  'regex-tester', 'color-tools', 'icon-gen', 'ocr-reader', 'file-compress', 'unit-converter',
+  'currency-calc', 'sticky-notes', 'snippets', 'screen-picker', 'drag-ocr', 'window-snap',
+  'bulk-rename', 'timer',
+];
+const tinyText = [];
+const smallButtons = [];
+const headings = {};
+for (const id of MODULE_IDS) {
+  await mobile.evaluate((mod) => { location.hash = `#/${mod}`; }, id);
+  await mobile.waitForTimeout(120);
+  const report = await mobile.evaluate(() => {
+    const tiny = [...document.querySelectorAll('#view *')]
+      .filter((node) => node.offsetParent !== null && [...node.childNodes].some((child) => child.nodeType === 3 && child.textContent.trim()))
+      .map((node) => ({ text: node.textContent.trim().slice(0, 14), size: parseFloat(getComputedStyle(node).fontSize) }))
+      .filter((item) => item.size < 12);
+    const small = [...document.querySelectorAll('#view button')]
+      .filter((node) => node.offsetParent !== null)
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { label: (node.getAttribute('aria-label') || node.textContent || '').trim().slice(0, 16), w: Math.round(rect.width), h: Math.round(rect.height) };
+      })
+      .filter((box) => box.w < 44 || box.h < 44);
+    return { tiny, small, heading: document.querySelector('#view h1')?.textContent || '' };
+  });
+  headings[id] = report.heading;
+  if (report.tiny.length) tinyText.push(`${id}: ${report.tiny[0].text} ${report.tiny[0].size}px`);
+  if (report.small.length) smallButtons.push(`${id}: ${report.small[0].label} ${report.small[0].w}×${report.small[0].h}`);
+}
+check('v1.15.3 — 모듈 보조 글자 12px 이상', tinyText.length === 0, tinyText.slice(0, 4).join(' | '));
+check('v1.15.3 — 모듈 버튼 휴대폰 44px 이상', smallButtons.length === 0, smallButtons.slice(0, 4).join(' | '));
+
+const cardNames = await mobile.evaluate(async () => {
+  location.hash = '';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  return Object.fromEntries([...document.querySelectorAll('.module-card')]
+    .map((card) => [card.dataset.moduleId, card.querySelector('.module-name')?.textContent || '']));
+});
+const nameMismatch = MODULE_IDS.filter((id) => cardNames[id] && headings[id] && cardNames[id] !== headings[id]);
+check('v1.15.3 — 홈과 모듈 화면 이름이 같다', nameMismatch.length === 0, nameMismatch.map((id) => `${id}: ${cardNames[id]}/${headings[id]}`).join(' | '));
+check('v1.15.3 — 모듈 이름에 · 없음', Object.values(cardNames).every((name) => !name.includes('·')), Object.values(cardNames).filter((name) => name.includes('·')).join(', '));
+check('v1.15.3 — 상단 바 부제 제거', await mobile.evaluate(() => !document.querySelector('.brand-text i')));
+
+/* 스티커 메모 — 새 스티커 버튼 · 삭제 2단계 확인 */
+await mobile.evaluate(() => { location.hash = '#/sticky-notes'; });
+await mobile.waitForTimeout(400);
+const newButton = await mobile.evaluate(() => {
+  const button = document.getElementById('st-new');
+  const svg = button.querySelector('svg');
+  const rect = button.getBoundingClientRect();
+  const svgRect = svg.getBoundingClientRect();
+  return {
+    w: Math.round(rect.width), h: Math.round(rect.height),
+    svgW: Math.round(svgRect.width), svgH: Math.round(svgRect.height),
+    fits: button.scrollWidth <= button.clientWidth + 1,
+  };
+});
+check('v1.15.3 — 새 스티커 버튼이 깨지지 않음', newButton.h >= 44 && newButton.svgW > 0 && newButton.svgW <= 18 && newButton.svgH <= 18 && newButton.w >= 44, JSON.stringify(newButton));
+
+await mobile.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+await mobile.locator('#st-new').click();
+await mobile.waitForTimeout(250);
+const mobileCalls = (command) => mobile.evaluate((cmd) => window.__TIP_CALLS__.filter((call) => call.command === cmd), command);
+const mobileLast = async (command) => { const list = await mobileCalls(command); return list.length ? list[list.length - 1] : null; };
+check('v1.15.3 — 새 스티커는 sticky_create 호출', (await mobileCalls('sticky_create')).length === 1);
+
+const beforeDelete = (await mobileCalls('sticky_delete')).length;
+await mobile.locator('.sticky-row-del').first().click();
+await mobile.waitForTimeout(200);
+check('v1.15.3 — 스티커 지우기는 확인창을 띄운다', await mobile.evaluate(() => !!document.querySelector('.confirm-overlay .confirm-dialog')));
+check('v1.15.3 — 확인 전에는 지우지 않는다', (await mobileCalls('sticky_delete')).length === beforeDelete);
+await mobile.locator('.confirm-cancel').click();
+await mobile.waitForTimeout(150);
+check('v1.15.3 — 취소하면 대화상자가 닫힌다', await mobile.evaluate(() => !document.querySelector('.confirm-overlay')));
+await mobile.locator('.sticky-row-del').first().click();
+await mobile.waitForTimeout(150);
+await mobile.locator('.confirm-ok').click();
+await mobile.waitForTimeout(300);
+const deleteCall = await mobileLast('sticky_delete');
+check('v1.15.3 — 지우기를 누르면 sticky_delete 호출', !!deleteCall && deleteCall.args.id === 'st1', JSON.stringify(deleteCall && deleteCall.args));
+
+/* 스티커 창(sticky.html) — 같은 2단계 확인 */
+const stickyPage = await mobileContext.newPage();
+stickyPage.on('pageerror', (error) => consoleErrors.push(`sticky pageerror: ${String(error)}`));
+await stickyPage.goto(`${BASE}/sticky.html?id=st1`, { waitUntil: 'networkidle' });
+await stickyPage.waitForTimeout(400);
+await stickyPage.click('#delete-btn');
+await stickyPage.waitForTimeout(200);
+check('v1.15.3 — 스티커 창도 확인창', await stickyPage.evaluate(() => !!document.querySelector('.confirm-dialog')));
+await stickyPage.click('.confirm-ok');
+await stickyPage.waitForTimeout(250);
+const windowDelete = await stickyPage.evaluate(() => window.__TIP_CALLS__.filter((call) => call.command === 'sticky_delete').pop());
+check('v1.15.3 — 스티커 창 지우기', !!windowDelete && windowDelete.args.id === 'st1', JSON.stringify(windowDelete && windowDelete.args));
+await stickyPage.close();
+
+/* 노치 빠른 메모 — 클릭 뒤에도 커서(포커스)가 남는다 */
+await emptyPage.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+if (!(await emptyPage.evaluate(() => document.getElementById('panel')?.classList.contains('is-open') || document.body.classList.contains('is-open')))) {
+  await emptyPage.evaluate(() => { document.getElementById('pill').click(); });
+  await emptyPage.waitForTimeout(500);
+}
+await emptyPage.click('#memo-input');
+await emptyPage.waitForTimeout(300);
+const memoFocus = await emptyPage.evaluate(() => ({
+  active: document.activeElement?.id || '',
+  focusCalls: window.__TIP_CALLS__.filter((call) => call.command === 'notch_focus').length,
+  caret: (() => { const input = document.getElementById('memo-input'); return { start: input.selectionStart, end: input.selectionEnd }; })(),
+}));
+check('v1.15.3 — 빠른 메모는 notch_focus 한 번', memoFocus.focusCalls === 1, String(memoFocus.focusCalls));
+check('v1.15.3 — 빠른 메모 포커스 유지', memoFocus.active === 'memo-input', memoFocus.active);
+await emptyPage.keyboard.type('메모');
+check('v1.15.3 — 클릭 뒤 바로 타이핑', (await emptyPage.locator('#memo-input').inputValue()).includes('메모'));
+
 /* ------------------------------ 결과 ------------------------------ */
 
 const errors = consoleErrors.filter((line) => !/favicon|service worker|ERR_FILE/i.test(line));
@@ -827,7 +996,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.15.2 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.15.3 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

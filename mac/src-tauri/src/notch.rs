@@ -23,7 +23,8 @@
 //   2) 키보드 입력 — borderless NSPanel 은 canBecomeKeyWindow 가 NO 라서 클릭해도 key window 가
 //      되지 않고 <textarea> 에 글자가 들어가지 않는다. objc2 런타임으로 NSPanel 서브클래스
 //      (TipNotchPanel)를 등록해 canBecomeKeyWindow = YES 로 바꾸고, notch_focus 커맨드가
-//      makeKeyWindow + 첫 응답자(WKWebView) 지정으로 바로 타이핑되게 한다.
+//      makeKeyWindow 로 바로 타이핑되게 한다.
+//      v1.15.3 — 첫 응답자를 WKWebView 상위 뷰로 강제 지정하던 줄을 뺐다(커서가 사라지던 원인).
 
 /// NSMainMenuWindowLevel(24) + 3 — 메뉴 막대와 상태바 위, 팝업 메뉴 아래.
 #[cfg(target_os = "macos")]
@@ -320,7 +321,12 @@ pub fn cursor_inside(win: &tauri::WebviewWindow, margin: f64) -> Option<bool> {
 }
 
 /// 노치 창을 key window 로 만들어 키보드 입력을 받게 한다(빠른 메모 클릭).
-/// 첫 응답자는 내용 뷰(WKWebView) — 그 안의 textarea 가 바로 타이핑을 받는다.
+///
+/// v1.15.3 — 첫 응답자를 건드리지 않는다. 예전에는 makeKeyWindow 뒤에
+/// `makeFirstResponder(contentView)` 를 불렀는데, contentView 는 WKWebView 자체가 아니라
+/// 그 위의 NSView 라서 방금 <textarea> 에 들어간 키보드 포커스를 빼앗았다(커서가 한 번
+/// 깜빡이고 사라지던 버그). 클릭이 이미 WKWebView 안의 입력칸에 초점을 주므로, 여기서는
+/// 창을 key 로만 만들고 이미 key 면 아무것도 하지 않는다.
 #[cfg(target_os = "macos")]
 pub fn make_key(win: &tauri::WebviewWindow) -> bool {
     use objc2_app_kit::NSPanel;
@@ -332,13 +338,14 @@ pub fn make_key(win: &tauri::WebviewWindow) -> bool {
         return false;
     };
 
-    // SAFETY: 메인 스레드에서 이 창의 NSPanel 포인터로 key window·첫 응답자만 바꾼다.
+    // SAFETY: 메인 스레드에서 이 창의 NSPanel 포인터로 key window 여부만 확인하고 바꾼다.
     unsafe {
         let panel = &*(ptr as *const NSPanel);
-        panel.makeKeyWindow();
-        if let Some(content) = panel.contentView() {
-            panel.makeFirstResponder(Some(&*content));
+        if panel.isKeyWindow() {
+            // 이미 키 창 — 다시 만들면 포커스가 한 번 튄다.
+            return true;
         }
+        panel.makeKeyWindow();
     }
     true
 }

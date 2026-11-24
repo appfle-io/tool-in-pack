@@ -65,7 +65,7 @@ const KEYWORDS = {
 
 const COMMANDS = [
   { id: 'cmd:home', kind: 'command', name: 'TIP 앱 열기', subtitle: '홈 화면으로', keywords: '홈 열기 메인 창 앱' },
-  { id: 'cmd:settings', kind: 'command', name: '환경설정 열기', subtitle: '일반 · 노치 · 검색 · 모듈', keywords: '설정 환경설정 테마 색 단축키' },
+  { id: 'cmd:settings', kind: 'command', name: '환경설정 열기', subtitle: '일반, 노치, 검색, 모듈 탭', keywords: '설정 환경설정 테마 색 단축키' },
   { id: 'cmd:new-sticky', kind: 'command', name: '새 스티커 메모', subtitle: '바탕화면에 메모 한 장', keywords: '스티커 메모 새로 만들기', macOnly: true },
   { id: 'cmd:pick-color', kind: 'command', name: '화면에서 색 고르기', subtitle: '클릭한 점의 색을 복사', keywords: '스포이드 색 추출', macOnly: true },
   { id: 'cmd:drag-ocr', kind: 'command', name: '화면 영역 글자 추출', subtitle: '드래그한 부분을 OCR 로', keywords: '드래그 ocr 캡처 글자', macOnly: true },
@@ -76,7 +76,7 @@ const SYSTEM_COMMANDS = [
   { id: 'lock', name: '화면 잠금', subtitle: '즉시 잠그고 암호를 묻습니다', keywords: 'lock screen 잠금 화면잠금', risky: false },
   { id: 'sleep', name: '잠자기', subtitle: 'Mac 을 잠자기 상태로', keywords: 'sleep 잠자기 절전', risky: false },
   { id: 'screensaver', name: '화면 보호기', subtitle: '화면 보호기를 바로 켭니다', keywords: 'screensaver 화면보호기 스크린세이버', risky: false },
-  { id: 'darkmode', name: '다크 · 라이트 모드 전환', subtitle: '지금 모드의 반대로 바꿉니다', keywords: 'dark mode light 다크 라이트 모드 전환 테마', risky: false },
+  { id: 'darkmode', name: '다크 모드와 라이트 모드 전환', subtitle: '지금 모드의 반대로 바꿉니다', keywords: 'dark mode light 다크 라이트 모드 전환 테마', risky: false },
   { id: 'hiddenfiles', name: '숨김 파일 표시 전환', subtitle: 'Finder 의 숨김 파일 보기 켜고 끄기', keywords: 'hidden files 숨김 파일 표시', risky: false },
   { id: 'emptytrash', name: '휴지통 비우기', subtitle: '되돌릴 수 없습니다 — 한 번 더 확인합니다', keywords: 'empty trash 휴지통 비우기 삭제', risky: true },
   { id: 'restart', name: '재시동', subtitle: 'Mac 을 다시 시작합니다', keywords: 'restart 재시동 다시시작 리부트', risky: true },
@@ -142,7 +142,7 @@ function collectModules() {
     id: `module:${mod.id}`,
     kind: 'module',
     moduleId: mod.id,
-    name: mod.shortName || mod.name,
+    name: mod.name,
     subName: mod.name,
     subtitle: mod.subtitle,
     icon: mod.icon,
@@ -255,7 +255,7 @@ function timerItems(query) {
       name: `타이머 ${formatClock(parsed.seconds)} 시작`,
       subtitle: `${describeSeconds(parsed.seconds)} — 노치 알약과 메인 창이 함께 봅니다`,
       glyph: '⏱',
-      meta: '타이머 · Enter 로 시작',
+      meta: '타이머, Enter 로 시작',
       seconds: parsed.seconds,
       score: 0,
     });
@@ -266,7 +266,7 @@ function timerItems(query) {
     id: 'timer:open',
     kind: 'timer',
     name: '타이머 열기',
-    subtitle: '분·초를 직접 정하고 일시정지·재개',
+    subtitle: '분과 초를 직접 정하고 일시정지와 재개',
     glyph: '⏱',
     meta: '타이머',
     open: true,
@@ -314,7 +314,7 @@ function systemItems(query) {
     name: command.name,
     subtitle: command.subtitle,
     glyph: command.risky ? '⚠' : '⌘',
-    meta: command.risky ? '시스템 · 확인 필요' : '시스템',
+    meta: command.risky ? '시스템, 확인 필요' : '시스템',
     risky: command.risky,
     commandId: command.id,
     score: 0,
@@ -335,7 +335,7 @@ function search(query) {
         name: calc.text,
         subtitle: `${String(query).trim()} = ${calc.text}`,
         glyph: '=',
-        meta: '계산 · Enter 복사',
+        meta: '계산, Enter 복사',
         copyText: String(calc.value),
         score: 0,
       });
@@ -413,7 +413,7 @@ function render() {
         <b>${escapeHtml(confirming ? `${item.name} — 정말 실행하려면 Enter` : item.name)}</b>
         <span>${escapeHtml(item.subtitle || '')}</span>
       </span>
-      <span class="palette-row-meta">${item.kind === 'command' ? '명령' : escapeHtml(item.meta || '')}${item.enabled === false ? ' · 중지됨' : ''}</span>
+      <span class="palette-row-meta">${item.kind === 'command' ? '명령' : escapeHtml(item.meta || '')}${item.enabled === false ? ', 중지됨' : ''}</span>
     `;
     li.addEventListener('click', () => { cursor = index; activate(results[cursor]); });
     li.addEventListener('mousemove', () => {

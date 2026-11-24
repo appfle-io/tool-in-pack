@@ -255,7 +255,7 @@ const module = {
           <div class="n-body">
             <div class="n-title">환율 갱신 시에만 접속합니다</div>
             <div class="n-text">공개 API(open.er-api.com, 실패 시 frankfurter.app)에서 환율표만 받습니다.
-              <b>입력한 금액은 전송하지 않습니다.</b> 그 밖의 계산은 모두 기기 안에서 합니다.</div>
+              <b>입력한 금액은 전송하지 않습니다.</b> 환율표만 인터넷에서 받아 옵니다.</div>
           </div>
         </div>
       </div>`;
@@ -276,7 +276,7 @@ const module = {
     CURRENCIES.forEach((currency) => {
       const option = document.createElement('option');
       option.value = currency.code;
-      option.textContent = `${currency.code} · ${currency.name}`;
+      option.textContent = `${currency.code}, ${currency.name}`;
       fromEl.append(option);
       toEl.append(option.cloneNode(true));
     });
@@ -305,7 +305,7 @@ const module = {
         const when = formatKst(state.cache.rateDate || state.cache.fetchedAt);
         const stale = Date.now() - new Date(state.cache.fetchedAt).getTime() > CACHE_TTL;
         text.innerHTML = `<b>${escapeHtml(when || '시각 미상')} 기준</b>
-          <span>${escapeHtml(state.cache.source)} · ${escapeHtml(agoLabel(state.cache.fetchedAt))} 저장${stale ? ' · 오래된 환율' : ''}</span>`;
+          <span>${escapeHtml(state.cache.source)}, ${escapeHtml(agoLabel(state.cache.fetchedAt))} 저장${stale ? ', 오래된 환율' : ''}</span>`;
       } else {
         text.innerHTML = '<b>내장 참고 환율</b><span>기준일 미갱신 — 네트워크가 되면 갱신하세요</span>';
       }
@@ -334,7 +334,7 @@ const module = {
         || Number.isFinite(state.manual[`${state.to}_${state.from}`]);
       if (!Number.isFinite(rate)) { pairEl.textContent = ''; return; }
       const unit = 1 / rate;
-      pairEl.innerHTML = `1 ${escapeHtml(state.to)} = <b>${formatMoney(unit, state.from)}</b> ${escapeHtml(state.from)}${manual ? ' · 수동' : ''}`;
+      pairEl.innerHTML = `1 ${escapeHtml(state.to)} = <b>${formatMoney(unit, state.from)}</b> ${escapeHtml(state.from)}${manual ? ', 수동' : ''}`;
     }
 
     function renderResult() {

@@ -60,7 +60,7 @@ export const CATEGORIES = [
   { id: 'media', label: '미디어' },
   { id: 'dev', label: '개발' },
   { id: 'utility', label: '유틸리티' },
-  { id: 'online', label: '조회 · 연동' },
+  { id: 'online', label: '온라인' },
 ];
 
 /** category 를 빠뜨렸거나 모르는 값이면 이 분류로 모은다. */

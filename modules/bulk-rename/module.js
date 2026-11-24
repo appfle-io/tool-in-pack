@@ -7,7 +7,7 @@
  * 어떤 파일 이름도 밖으로 나가지 않는다.
  */
 
-import { formatBytes } from '../../js/ui.js';
+import { formatBytes, confirmDialog } from '../../js/ui.js';
 import { getFeatureValue } from '../../js/feature-settings.js';
 
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M4 12h7M4 17h5"/><path d="M15 15l3 3 4-5"/><path d="M14 4h6v3"/></svg>`;
@@ -32,7 +32,7 @@ const module = {
   kind: 'tool',
   category: 'utility',
   version: '1.14.0',
-  subtitle: '찾기·바꾸기 · 일련번호 · ZIP',
+  subtitle: '찾아 바꾸기, 일련번호, ZIP 저장',
   description: '여러 파일 이름을 미리 보며 한 번에 바꿉니다. Mac 앱은 원본 이름을, 웹은 ZIP 사본을 만듭니다.',
   icon: ICON,
   defaultEnabled: true,
@@ -182,7 +182,7 @@ const module = {
       const rows = plan();
       const changed = rows.filter((row) => row.changed && !row.error).length;
       const errors = rows.filter((row) => row.error).length;
-      countEl.textContent = `${entries.length}개 · 바뀌는 이름 ${changed}개`;
+      countEl.textContent = `${entries.length}개, 바뀌는 이름 ${changed}개`;
       tableEl.innerHTML = '';
 
       rows.forEach((row) => {
@@ -295,7 +295,14 @@ const module = {
         toast('바뀌는 이름이 없습니다');
         return;
       }
-      if (!window.confirm(`${rows.length}개 파일의 이름을 실제로 바꿉니다. 계속할까요?`)) return;
+      // WKWebView 는 window.confirm 을 띄우지 않는다 — 인앱 2단계 확인(v1.15.3).
+      const ok = await confirmDialog({
+        title: '파일 이름 바꾸기',
+        message: `${rows.length}개 파일의 이름을 실제로 바꿉니다. 계속할까요?`,
+        okText: '바꾸기',
+        danger: false,
+      });
+      if (!ok) return;
       busy = true;
       applyBtn.disabled = true;
       try {

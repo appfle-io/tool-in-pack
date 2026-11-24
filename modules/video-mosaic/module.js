@@ -73,8 +73,8 @@ const module = {
   kind: 'tool',
   category: 'media',
   version: '1.0.0',
-  subtitle: '영상 속 얼굴·번호 가리기',
-  description: '영상을 틀어 놓고 가릴 곳을 드래그하면 모자이크·블러를 입혀 새 클립으로 저장합니다. 기기 안에서만 처리합니다.',
+  subtitle: '영상 속 얼굴과 번호 가리기',
+  description: '영상을 틀어 놓고 가릴 곳을 끌어 지정하면 모자이크나 흐림을 입혀 새 클립으로 저장합니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -107,7 +107,7 @@ const module = {
         <div class="dr-empty vm-empty" id="vm-empty">
           <div class="dz-icon">${ICON}</div>
           <button class="primary-btn" type="button" id="vm-browse">${icons.upload} 영상 선택</button>
-          <p>MP4 · WebM · MOV — 끌어다 놓아도 됩니다</p>
+          <p>MP4, WebM, MOV — 끌어다 놓아도 됩니다</p>
         </div>
         <input type="file" id="vm-input" class="sr-only" accept="video/*,.mp4,.m4v,.webm,.mov,.ogv">
 
@@ -135,7 +135,7 @@ const module = {
                 </div>
                 <div class="ic-row vm-strength-row">
                   <span class="ic-label">강도</span>
-                  <input type="range" id="vm-strength" min="6" max="48" step="1" value="24" aria-label="모자이크·블러 강도">
+                  <input type="range" id="vm-strength" min="6" max="48" step="1" value="24" aria-label="모자이크와 흐림 강도">
                   <span class="pp-value" id="vm-strength-value">24</span>
                 </div>
                 <div class="ic-actions pp-actions vm-actions">
@@ -321,7 +321,7 @@ const module = {
         timeEl.textContent = `0:00.0 / ${fmtTime(duration || 0)}`;
         ensureCanvasSize();
         paint();
-        infoEl.innerHTML = `<span>${file.name}</span><em>${formatBytes(file.size)} · ${video.videoWidth}×${video.videoHeight} · ${fmtTime(duration || 0)}</em>`;
+        infoEl.innerHTML = `<span>${file.name}</span><em>${formatBytes(file.size)}, ${video.videoWidth}×${video.videoHeight}, ${fmtTime(duration || 0)}</em>`;
         // 첫 프레임이 검게 남지 않도록 아주 조금 앞으로 옮겨 한 장 그린다.
         if (!video.currentTime) {
           video.currentTime = Math.min(0.1, Math.max(0.01, (duration || 1) / 2));
@@ -488,7 +488,7 @@ const module = {
       videoEl.className = 'vm-result-video';
       const meta = document.createElement('p');
       meta.className = 'vm-result-meta';
-      meta.textContent = `${ext.toUpperCase()} · ${formatBytes(blob.size)} · ${canvas.width}×${canvas.height}`;
+      meta.textContent = `${ext.toUpperCase()}, ${formatBytes(blob.size)}, ${canvas.width}×${canvas.height}`;
       const save = document.createElement('button');
       save.type = 'button';
       save.className = 'primary-btn';
@@ -522,13 +522,13 @@ const module = {
       if (typeof MediaRecorder === 'undefined' || typeof canvas.captureStream !== 'function') {
         resultEl.innerHTML = '';
         resultEl.append(noticeBox('bad', '이 브라우저는 영상 저장을 지원하지 않습니다',
-          'Chrome · Edge · 최신 Safari에서 다시 시도하세요.'));
+          'Chrome, Edge, 최신 Safari에서 다시 시도하세요.'));
         return;
       }
       const mime = pickMime();
       if (mime === null) {
         resultEl.innerHTML = '';
-        resultEl.append(noticeBox('bad', 'MediaRecorder를 쓸 수 없습니다', 'Chrome · Edge · 최신 Safari에서 다시 시도하세요.'));
+        resultEl.append(noticeBox('bad', 'MediaRecorder를 쓸 수 없습니다', 'Chrome, Edge, 최신 Safari에서 다시 시도하세요.'));
         return;
       }
 

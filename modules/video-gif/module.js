@@ -63,12 +63,12 @@ function noticeBox(kind, title, body) {
 
 const module = {
   id: 'video-gif',
-  name: '동영상 자르기 · GIF',
+  name: '동영상 자르기',
   kind: 'tool',
   category: 'media',
   version: '1.0.0',
-  subtitle: '구간 잘라 GIF·클립으로',
-  description: '동영상의 원하는 구간을 GIF로 만들거나 클립으로 잘라 저장합니다. 기기 안에서만 처리합니다.',
+  subtitle: 'GIF 나 짧은 클립으로 자르기',
+  description: '동영상의 원하는 구간을 GIF 로 만들거나 짧은 클립으로 잘라 저장합니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -94,7 +94,7 @@ const module = {
         <div class="dr-empty" id="vg-empty">
           <div class="dz-icon">${ICON}</div>
           <button class="primary-btn" type="button" id="vg-browse">${icons.upload} 동영상 선택</button>
-          <p>MP4 · WebM · MOV — 끌어다 놓아도 됩니다</p>
+          <p>MP4, WebM, MOV — 끌어다 놓아도 됩니다</p>
         </div>
         <input type="file" id="vg-input" class="sr-only" accept="${ACCEPT}">
         <div id="vg-main" hidden>
@@ -154,7 +154,7 @@ const module = {
           </div>
 
           <div id="vg-results"></div>
-          <p class="vg-note">iOS Safari는 30초 이내 짧은 클립에서 가장 안정적입니다 · 모든 처리는 기기 안에서.</p>
+          <p class="vg-note">iOS Safari 는 30초 이내의 짧은 클립에서 가장 안정적입니다.</p>
           <div id="vg-msg"></div>
         </div>
       </div>`;
@@ -253,7 +253,7 @@ const module = {
       msgEl.innerHTML = '';
       resultsEl.innerHTML = '';
       if (!/^(video|application)\//.test(picked.type) && !/\.(mp4|m4v|webm|mov|ogv)$/i.test(picked.name)) {
-        msgEl.append(noticeBox('warn', '동영상이 아닙니다', 'MP4 · WebM · MOV 파일을 넣어 주세요.'));
+        msgEl.append(noticeBox('warn', '동영상이 아닙니다', 'MP4, WebM, MOV 파일을 넣어 주세요.'));
         return;
       }
       if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -292,7 +292,7 @@ const module = {
         startValue.textContent = fmtTime(start);
         endValue.textContent = fmtTime(end);
 
-        infoEl.textContent = `${video.videoWidth}×${video.videoHeight} · ${fmtTime(duration)} · ${formatBytes(picked.size)}`;
+        infoEl.textContent = `${video.videoWidth}×${video.videoHeight}, ${fmtTime(duration)}, ${formatBytes(picked.size)}`;
         updateLength();
       } catch (error) {
         console.error('[TIP video-gif]', error);
@@ -328,7 +328,7 @@ const module = {
     function updateLength() {
       const span = Math.max(0, end - start);
       const frames = Math.min(600, Math.max(1, Math.round(span * fps)));
-      lengthEl.textContent = `${fmtTime(span)} · GIF ${frames}프레임`;
+      lengthEl.textContent = `${fmtTime(span)}, GIF ${frames}프레임`;
       const mime = pickMime();
       const hasRecorder = Boolean(mime);
       clipBtn.disabled = busy || !hasRecorder || !duration;
@@ -442,7 +442,7 @@ const module = {
       img.src = URL.createObjectURL(blob);
       card.querySelector('.f-name').textContent = name;
       card.querySelector('.f-meta').textContent =
-        `GIF · ${meta.width}×${meta.height} · ${meta.frames}프레임 · ${meta.fps}fps · ${formatBytes(blob.size)}`;
+        `GIF, ${meta.width}×${meta.height}, ${meta.frames}프레임, ${meta.fps}fps, ${formatBytes(blob.size)}`;
       card.querySelector('button').addEventListener('click', () => download(blob, name), { signal });
       resultsEl.prepend(card);
     }
@@ -557,7 +557,7 @@ const module = {
       el.src = URL.createObjectURL(blob);
       card.querySelector('.f-name').textContent = name;
       card.querySelector('.f-meta').textContent =
-        `${meta.ext.toUpperCase()} · ${fmtTime(meta.span)} · ${meta.withAudio ? '오디오 포함' : '무음'} · ${formatBytes(blob.size)}`;
+        `${meta.ext.toUpperCase()}, ${fmtTime(meta.span)}, ${meta.withAudio ? '오디오 포함' : '무음'}, ${formatBytes(blob.size)}`;
       card.querySelector('button').addEventListener('click', () => download(blob, name), { signal });
       resultsEl.prepend(card);
     }

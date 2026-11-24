@@ -29,7 +29,7 @@ const module = {
   kind: 'tool',
   category: 'utility',
   version: '1.14.0',
-  subtitle: '앞 창을 반쪽·최대·가운데로',
+  subtitle: '앞 창을 반쪽, 최대, 가운데로',
   description: '단축키 한 번으로 지금 쓰는 창을 화면 절반이나 가운데로 옮깁니다. 손쉬운 사용 권한이 필요합니다.',
   icon: ICON,
   badge: 'Mac',
@@ -115,7 +115,7 @@ const module = {
       if (!trusted) {
         setStatus('아직 손쉬운 사용 권한이 없습니다. 버튼을 누르면 macOS 가 물어보거나 시스템 설정으로 안내합니다.', true);
       } else {
-        noteEl.textContent = `앞 창을 옮깁니다 · 단축키 ${actions.length}개를 설정에서 정할 수 있습니다.`;
+        noteEl.textContent = `앞 창을 옮깁니다, 단축키 ${actions.length}개를 설정에서 정할 수 있습니다.`;
       }
     }).catch(() => {});
 

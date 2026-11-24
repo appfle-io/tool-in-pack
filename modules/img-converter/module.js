@@ -152,8 +152,8 @@ const module = {
   kind: 'tool',
   category: 'media',
   version: '1.0.0',
-  subtitle: '이미지 포맷 변환 · 리사이즈',
-  description: '이미지 포맷을 기기 안에서 바로 변환합니다. 업로드 없음, 여러 장 한 번에.',
+  subtitle: '포맷 변환과 크기 조절',
+  description: '이미지 포맷을 바로 바꾸고 크기를 조절합니다. 여러 장을 한 번에 할 수 있습니다.',
   icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-4.5-4.5L6 21"/></svg>`,
   defaultEnabled: true,
   defaultPinned: false,
@@ -170,7 +170,7 @@ const module = {
         <div class="dr-empty" id="ic-empty">
           <div class="dz-icon">${module.icon}</div>
           <button class="primary-btn" type="button" id="ic-browse">${icons.upload} 이미지 선택</button>
-          <p>JPG · PNG · WebP · GIF · BMP · SVG · AVIF · ICO · HEIC — 여러 장 선택 가능</p>
+          <p>JPG, PNG, WebP, GIF, BMP, SVG, AVIF, ICO, HEIC — 여러 장 선택 가능</p>
         </div>
         <input type="file" id="ic-input" class="sr-only" accept="${ACCEPT}" multiple>
         <div id="ic-main" hidden>
@@ -188,7 +188,7 @@ const module = {
             <div class="ic-row">
               <span class="ic-label">너비</span>
               <input type="number" id="ic-width" inputmode="numeric" min="1" placeholder="원본 크기">
-              <span class="ic-hint">px · 비율 유지</span>
+              <span class="ic-hint">px, 비율 유지</span>
             </div>
           </div>
           <div class="ic-actions">

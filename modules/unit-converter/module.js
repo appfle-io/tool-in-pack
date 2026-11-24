@@ -179,8 +179,8 @@ const module = {
   kind: 'tool',
   category: 'utility',
   version: '1.0.0',
-  subtitle: '길이·무게·평·온도 즉시 변환',
-  description: '숫자 하나를 넣으면 같은 종류의 모든 단위로 동시에 바꿔 보여 줍니다. 100% 기기 안에서 계산합니다.',
+  subtitle: '길이, 무게, 평, 온도 바로 변환',
+  description: '숫자 하나를 넣으면 같은 종류의 모든 단위로 동시에 바꿔 보여 줍니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -210,7 +210,7 @@ const module = {
 
         <section class="uc-results" id="uc-results" aria-live="polite"></section>
 
-        <p class="uc-note">값이나 단위를 눌러 복사합니다. 기기 안에서만 계산하며 네트워크를 쓰지 않습니다.</p>
+        <p class="uc-note">값이나 단위를 눌러 복사할 수 있습니다.</p>
       </div>`;
 
     const catsEl = root.querySelector('#uc-cats');

@@ -7,6 +7,7 @@
  */
 
 import { listSnippets, saveSnippet, deleteSnippet, snippetPreview, normalizeAlias } from '../../js/snippets.js';
+import { confirmDialog } from '../../js/ui.js';
 
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h7l4 4v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M13 4v5h5"/><path d="M9 13h6M9 17h4"/></svg>`;
 
@@ -21,7 +22,7 @@ const module = {
   category: 'utility',
   version: '1.14.0',
   subtitle: '자주 쓰는 문구 한 번에 복사',
-  description: '이메일·계좌·주소 같은 문구를 별칭과 함께 저장하고, 전역 검색에서 바로 복사합니다.',
+  description: '이메일이나 계좌, 주소 같은 문구를 별칭과 함께 저장하고 전역 검색에서 바로 복사합니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -36,7 +37,7 @@ const module = {
     root.innerHTML = `
       <div class="v16 snip">
         <div class="v16-block-head"><span>스니펫</span><span class="ocr-count" id="sn-count"></span></div>
-        <input class="pt-input snip-search" id="sn-search" placeholder="이름 · 별칭 · 내용으로 찾기" spellcheck="false" autocomplete="off">
+        <input class="pt-input snip-search" id="sn-search" placeholder="이름, 별칭, 내용으로 찾기" spellcheck="false" autocomplete="off">
         <div class="snip-list" id="sn-list" role="list"></div>
 
         <div class="v16-block-head"><span id="sn-form-title">새 스니펫</span></div>
@@ -127,8 +128,14 @@ const module = {
         del.type = 'button';
         del.className = 'snip-act is-danger';
         del.textContent = '지우기';
-        del.addEventListener('click', () => {
-          if (!window.confirm(`"${item.label || item.alias}" 스니펫을 지울까요?`)) return;
+        del.addEventListener('click', async () => {
+          // WKWebView 는 window.confirm 을 띄우지 않는다 — 인앱 2단계 확인(v1.15.3).
+          const ok = await confirmDialog({
+            title: '스니펫 지우기',
+            message: `"${item.label || item.alias}" 스니펫을 지울까요?`,
+            okText: '지우기',
+          });
+          if (!ok) return;
           deleteSnippet(item.id);
           if (editingId === item.id) resetForm();
           render();

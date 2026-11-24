@@ -48,6 +48,54 @@ export function el(tag, props = {}, ...childArgs) {
   return node;
 }
 
+/**
+ * 인앱 2단계 확인 — 삭제처럼 되돌릴 수 없는 일을 묻는다. (v1.15.3)
+ *
+ * macOS Tauri 의 WKWebView 는 window.confirm() 을 띄우지 않고 곧바로 false 를 돌려준다.
+ * 그래서 스티커 삭제·스니펫 삭제·파일 이름 변경이 늘 취소되던 것을, 우리가 그리는 확인창으로 바꿨다.
+ *   const ok = await confirmDialog({ title: '스티커 지우기', message: '...', okText: '지우기' });
+ * 취소가 기본 초점이라 Enter 만 눌러 지워지지 않고, Esc 로도 닫힌다.
+ */
+export function confirmDialog({ title = '확인', message = '', okText = '지우기', cancelText = '취소', danger = true } = {}) {
+  return new Promise((resolve) => {
+    const overlay = el('div', { class: 'confirm-overlay' });
+    const okBtn = el('button', {
+      class: `confirm-ok${danger ? ' is-danger' : ''}`,
+      type: 'button',
+      text: okText,
+    });
+    const cancelBtn = el('button', { class: 'confirm-cancel', type: 'button', text: cancelText });
+    const dialog = el('div', {
+      class: 'confirm-dialog',
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': title,
+    }, [
+      el('h2', { class: 'confirm-title', text: title }),
+      message ? el('p', { class: 'confirm-message', text: message }) : null,
+      el('div', { class: 'confirm-actions' }, [cancelBtn, okBtn]),
+    ]);
+    overlay.append(dialog);
+
+    const close = (value) => {
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+      resolve(value);
+    };
+    function onKey(event) {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(false); }
+      if (event.key === 'Enter' && document.activeElement === okBtn) { event.preventDefault(); close(true); }
+    }
+
+    okBtn.addEventListener('click', () => close(true));
+    cancelBtn.addEventListener('click', () => close(false));
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) close(false); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.append(overlay);
+    cancelBtn.focus({ preventScroll: true });
+  });
+}
+
 export const icons = {
   sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',

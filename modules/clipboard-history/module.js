@@ -130,7 +130,7 @@ function mount(root, ctx) {
         <div class="clip-title">
           <span class="clip-title-icon" aria-hidden="true">${CLIP_ICON}</span>
           <p class="clip-lead">
-            복사한 텍스트·이미지를 최대 100개까지 기기에만 보관합니다.
+            복사한 텍스트와 이미지를 최대 100개까지 보관합니다.
             <span class="mac-badge" title="Mac 앱 전용 자동 기록">Mac</span>
           </p>
         </div>
@@ -158,7 +158,7 @@ function mount(root, ctx) {
       </div>
 
       <div class="clip-add">
-        <textarea id="clip-input" rows="2" placeholder="${TAURI ? '직접 보관할 텍스트를 붙여넣으세요 (이미지도 붙여넣기 가능)' : '붙여넣기(Cmd/Ctrl+V)로 직접 보관 — 텍스트·이미지'}"></textarea>
+        <textarea id="clip-input" rows="2" placeholder="${TAURI ? '직접 보관할 텍스트를 붙여넣으세요 (이미지도 붙여넣기 가능)' : '붙여넣기(Cmd/Ctrl+V)로 직접 보관하기. 텍스트나 이미지'}"></textarea>
         <div class="clip-add-actions">
           <button id="clip-save" class="primary-btn ghost" type="button">보관</button>
         </div>
@@ -227,7 +227,7 @@ function mount(root, ctx) {
 
       const preview = item.kind === 'image'
         ? `<div class="clip-thumb"><img src="${imageSrc(item)}" alt="보관한 이미지" loading="lazy"></div>
-           <div class="clip-body"><p class="clip-text clip-text-image">이미지 ${item.w && item.h ? `${item.w}×${item.h}` : ''} ${byteSize(item) ? `· ${formatBytes(byteSize(item))}` : ''}</p></div>`
+           <div class="clip-body"><p class="clip-text clip-text-image">이미지 ${item.w && item.h ? `${item.w}×${item.h}` : ''} ${byteSize(item) ? `, ${formatBytes(byteSize(item))}` : ''}</p></div>`
         : `<div class="clip-body"><p class="clip-text">${escapeHtml(String(item.text || '').slice(0, 600))}</p></div>`;
 
       row.innerHTML = `
@@ -497,8 +497,8 @@ export default {
   id: 'clipboard-history',
   name: '클립보드 히스토리',
   shortName: '클립보드',
-  subtitle: '복사한 텍스트·이미지 최대 100개',
-  description: '복사할 때마다 자동으로 모아 두고, 검색·고정·재복사까지 한 곳에서. Mac 앱 전용 자동 기록.',
+  subtitle: '복사한 텍스트와 이미지 최대 100개',
+  description: '복사할 때마다 자동으로 모아 두고 검색하고 고정하고 다시 복사하는 일을 한 곳에서 합니다. 자동 기록은 Mac 앱에서만 됩니다.',
   icon: CLIP_ICON,
   version: '1.12.0',
   category: 'utility',

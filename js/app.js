@@ -30,6 +30,11 @@ const view = document.getElementById('view');
 
 /* ------------------------------ home hub ------------------------------ */
 
+/* v1.15.3 — 홈 편집 모드.
+ * 카드는 기본적으로 '누르면 실행' 하나만 남기고, 순서 핸들·고정·켜기/끄기는
+ * 상단 [편집] 을 눌렀을 때만 보인다. 모드를 나가면 다시 실행만 남는다. */
+let homeEditing = false;
+
 function renderHome() {
   view.innerHTML = '';
 
@@ -42,12 +47,12 @@ function renderHome() {
   const pinned = ordered(enabled.filter(({ state }) => state.pinned), 'pinned');
   const rest = enabled.filter(({ state }) => !state.pinned);
 
-  const sections = el('div', { class: 'home-sections' });
+  const sections = el('div', { class: `home-sections${homeEditing ? ' is-editing' : ''}` });
 
   // 고정된 모듈이 있을 때만 맨 위에 '고정됨' 섹션을 만든다.
   if (pinned.length) sections.append(homeSection('pinned', '고정됨', pinned, true));
 
-  // 나머지는 registry 의 CATEGORIES 순서(문서 → 미디어 → 개발 → 유틸리티 → 조회 · 연동)대로 묶는다.
+  // 나머지는 registry 의 CATEGORIES 순서(문서 → 미디어 → 개발 → 유틸리티 → 온라인)대로 묶는다.
   CATEGORIES.forEach(({ id, label }) => {
     const entries = ordered(rest.filter(({ mod }) => categoryOf(mod) === id), id);
     if (entries.length) sections.append(homeSection(id, label, entries, true));
@@ -57,6 +62,7 @@ function renderHome() {
   if (off.length) sections.append(homeSection('off', '꺼진 모듈', off));
 
   view.append(sections);
+  syncEditButton();
 }
 
 /** 저장된 순서(tip.order.v1)대로 정렬한다. 목록에 없는 모듈은 원래 순서대로 뒤에 붙는다(안정 정렬). */
@@ -89,9 +95,14 @@ function moduleRow(mod, state, { sectionId = null, sortable = false } = {}) {
     'data-module-id': mod.id,
   });
 
-  const open = () => {
+  // 카드 자체는 '누르면 실행'. 편집 중에는 실행하지 않는다(오른쪽 > 로 실행).
+  const launch = () => {
     if (moduleState(mod).enabled) location.hash = `#/${mod.id}`;
-    else toast(`${mod.name}이(가) 사용 중지되어 있습니다. 스위치로 켠 뒤 실행하세요.`);
+    else toast(`${mod.name}이(가) 사용 중지되어 있습니다. 편집에서 스위치를 켠 뒤 실행하세요.`);
+  };
+  const open = () => {
+    if (homeEditing) return;
+    launch();
   };
 
   const toggle = el('button', {
@@ -139,10 +150,10 @@ function moduleRow(mod, state, { sectionId = null, sortable = false } = {}) {
   });
   openBtn.addEventListener('click', (event) => {
     event.stopPropagation();
-    open();
+    launch();
   });
 
-  if (sortable) {
+  if (sortable && homeEditing) {
     row.classList.add('has-drag');
     row.append(dragHandle(row, mod, sectionId));
   }
@@ -151,7 +162,7 @@ function moduleRow(mod, state, { sectionId = null, sortable = false } = {}) {
     el('div', { class: 'module-icon', html: mod.icon }),
     el('div', { class: 'module-title' }, [
       el('h2', {}, [
-        el('span', { class: 'module-name', text: mod.shortName || mod.name }),
+        el('span', { class: 'module-name', text: mod.name }),
         mod.badge ? el('span', { class: 'mac-badge', text: mod.badge, title: 'Mac 앱 전용 기능' }) : null,
       ]),
       el('p', { text: mod.subtitle }),
@@ -186,6 +197,33 @@ function rerenderHome(focus = null) {
   }
 }
 
+/* ------------------------- 홈 편집 버튼 (v1.15.3) ------------------------- */
+
+const editBtn = document.getElementById('edit-btn');
+
+/** 홈에서만 [편집] 을 보인다. 모듈 화면에서는 숨기고, 편집 상태면 '완료' 로 바뀐다. */
+function syncEditButton() {
+  if (!editBtn) return;
+  const hash = (location.hash || '#/').replace(/^#\/?/, '').replace(/\/+$/, '');
+  editBtn.hidden = !!hash;
+  editBtn.textContent = homeEditing ? '완료' : '편집';
+  editBtn.setAttribute('aria-pressed', String(homeEditing));
+  editBtn.setAttribute('aria-label', homeEditing ? '편집 마치기' : '홈 카드 편집');
+}
+
+if (editBtn) {
+  editBtn.addEventListener('click', () => {
+    homeEditing = !homeEditing;
+    renderHome();
+    if (!homeEditing) {
+      toast('편집을 마쳤습니다');
+      return;
+    }
+    toast('편집 모드입니다. 카드를 끌어 순서를 바꾸고, 고정과 켜기를 정하세요', 3200);
+    view.querySelector('.module-card .drag-handle')?.focus({ preventScroll: true });
+  });
+}
+
 /* ------------------------- drag to reorder (v1.8.0) ------------------------ */
 
 let drag = null;
@@ -202,7 +240,7 @@ function dragHandle(row, mod, sectionId) {
     class: 'drag-handle',
     type: 'button',
     'aria-label': `${mod.name} 순서 바꾸기`,
-    title: '끌어서 순서 바꾸기 · 키보드 화살표',
+    title: '끌거나 화살표 키로 순서 바꾸기',
     'data-module-id': mod.id,
     'data-control': 'drag',
     html: icons.grip,
@@ -457,7 +495,7 @@ function renderModule(mod) {
       class: 'icon-ghost-btn screen-gear',
       type: 'button',
       'aria-label': `${mod.name} 설정`,
-      title: '이 모듈의 설정 — 단축키·세부 옵션',
+      title: '이 모듈의 단축키와 세부 옵션 설정',
       html: icons.gear || '',
     });
     gear.addEventListener('click', () => openSheet('modules', mod.id));
@@ -521,13 +559,16 @@ function route() {
     renderHome();
     return;
   }
+  // 모듈 화면으로 가면 편집 모드를 끝낸다.
+  homeEditing = false;
   const mod = getModule(hash);
   if (mod && moduleState(mod).enabled) {
     renderModule(mod);
   } else {
     renderHome();
-    if (mod) toast(`${mod.name}이(가) 사용 중지되어 있습니다. 스위치로 켠 뒤 실행하세요.`);
+    if (mod) toast(`${mod.name}이(가) 사용 중지되어 있습니다. 편집에서 스위치를 켠 뒤 실행하세요.`);
   }
+  syncEditButton();
 }
 
 window.addEventListener('hashchange', route);
@@ -567,7 +608,7 @@ let moduleFilterShortcuts = false; // 모듈 탭 '단축키 있음만' 필터(v1
 const RADIAL_MODE_LABELS = { asc: '오름차순', desc: '내림차순', custom: '사용자 지정' };
 
 const RADIAL_MODE_OPTIONS = [
-  { id: 'asc', label: '오름차순', hint: '모듈 이름 가나다·알파벳 순' },
+  { id: 'asc', label: '오름차순', hint: '모듈 이름을 가나다순이나 알파벳순으로' },
   { id: 'desc', label: '내림차순', hint: '이름 역순' },
   { id: 'custom', label: '사용자 지정', hint: '직접 끌어서 정한 순서' },
 ];
@@ -704,7 +745,7 @@ function quickbarRow(mod, save) {
   row.append(
     handle,
     el('span', { class: 'qb-icon', html: mod.icon || '' }),
-    el('span', { class: 'qb-name', text: mod.shortName || mod.name }),
+    el('span', { class: 'qb-name', text: mod.name }),
     up,
     down,
   );
@@ -776,7 +817,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.15.2';
+const APP_VERSION = '1.15.3';
 
 let updateBusy = false;
 
@@ -827,7 +868,7 @@ function menuBarQuickbarSection() {
   });
 
   return el('div', { class: 'sheet-section mb-section' }, [
-    el('h3', { text: '메뉴 막대 · 퀵바' }),
+    el('h3', { text: '메뉴 막대와 퀵바' }),
     el('p', {
       class: 'mb-note',
       text: '상단 메뉴 막대 아이콘과 반원 퀵바를 쓸지 정하고, 퀵바의 투명도와 모듈 순서를 바꿉니다. 메뉴 막대를 끄면 Dock 아이콘으로만 열 수 있습니다.',
@@ -964,7 +1005,7 @@ function notchSection(rerenderSheet) {
     el('h3', { text: '노치 아일랜드' }),
     el('p', {
       class: 'mb-note',
-      text: '기본은 꺼짐입니다. 켜면 화면 최상단 노치 자리에 붙고, 알약을 클릭하거나 파일을 끌어다 놓으면 펼쳐집니다. 미디어·캘린더·웹캠 거울은 켤 때만 접근 권한을 묻습니다.',
+      text: '기본은 꺼짐입니다. 켜면 화면 최상단 노치 자리에 붙고, 알약을 클릭하거나 파일을 끌어다 놓으면 펼쳐집니다. 미디어, 캘린더, 웹캠 거울은 켤 때만 접근 권한을 묻습니다.',
     }),
     el('div', { class: 'mb-row' }, [
       el('span', { class: 'mb-label', text: '노치 아일랜드 사용' }),
@@ -988,7 +1029,7 @@ const PRIVACY_ITEMS = [
   {
     kind: 'automation',
     label: '자동화 (음악)',
-    hint: 'Apple Music·Spotify 재생 정보를 읽고 재생을 바꿀 때 필요합니다. 캘린더는 v1.12.4 부터 아래 캘린더 권한만 씁니다.',
+    hint: 'Apple Music 이나 Spotify 의 재생 정보를 읽고 재생을 바꿀 때 필요합니다. 캘린더는 아래 캘린더 권한만 씁니다.',
   },
   {
     kind: 'calendars',
@@ -1033,7 +1074,7 @@ function permissionSection() {
     el('h3', { text: 'macOS 권한 설정' }),
     el('p', {
       class: 'mb-note',
-      text: 'macOS 가 개인정보 보호로 막는 기능이 있습니다. 버튼을 누르면 시스템 설정의 해당 항목이 바로 열립니다. 음악·캘린더가 동작하지 않으면 먼저 자동화를 확인하세요.',
+      text: 'macOS 가 개인정보 보호로 막는 기능이 있습니다. 버튼을 누르면 시스템 설정의 해당 항목이 바로 열립니다. 음악이나 캘린더가 동작하지 않으면 먼저 자동화를 확인하세요.',
     }),
     ...rows,
   ]);
@@ -1424,10 +1465,10 @@ const SHEET_TABS = [
 ];
 
 const TAB_NOTES = {
-  general: '테마·기본 색·시작과 앱 업데이트입니다.',
-  generalWeb: '테마와 기본 색, 그리고 앱 업데이트입니다.',
-  notch: '노치 아일랜드와 메뉴 막대 · 반원 퀵바입니다.',
-  search: '전역 검색(⌥Space)의 단축키·검색 대상·시스템 명령입니다.',
+  general: '테마와 기본 색, 시작, 앱 업데이트를 정합니다.',
+  generalWeb: '테마와 기본 색, 앱 업데이트, 문의입니다.',
+  notch: '노치 아일랜드와 메뉴 막대, 반원 퀵바를 정합니다.',
+  search: '전역 검색(⌥Space)의 단축키와 검색 대상, 시스템 명령을 정합니다.',
   modules: '모듈별 전역 단축키와 세부 옵션입니다.',
   quickbar: '메뉴 막대 퀵바(반원)에 모듈이 놓이는 순서입니다.',
 };
@@ -1529,6 +1570,7 @@ function generalTab(render) {
   }
 
   parts.push(updateSection());
+  parts.push(dataSection());
 
   if (hasSectionOrder()) {
     parts.push(el('div', { class: 'sheet-section' }, [
@@ -1709,7 +1751,7 @@ const SYSTEM_COMMAND_ROWS = [
   { id: 'lock', label: '화면 잠금', risky: false },
   { id: 'sleep', label: '잠자기', risky: false },
   { id: 'screensaver', label: '화면 보호기', risky: false },
-  { id: 'darkmode', label: '다크 · 라이트 모드 전환', risky: false },
+  { id: 'darkmode', label: '다크 모드와 라이트 모드 전환', risky: false },
   { id: 'hiddenfiles', label: '숨김 파일 표시 전환', risky: false },
   { id: 'emptytrash', label: '휴지통 비우기', risky: true },
   { id: 'restart', label: '재시동', risky: true },
@@ -1743,7 +1785,7 @@ function systemCommandSection(render) {
     el('h3', { text: '시스템 명령' }),
     el('p', {
       class: 'mb-note',
-      text: '검색창에서 잠금·잠자기·다크 모드 같은 macOS 명령을 실행합니다. 휴지통 비우기·재시동·종료·로그아웃은 기본으로 꺼 두었고, 켜도 실행할 때 macOS 확인창을 한 번 더 보여 줍니다.',
+      text: '검색창에서 화면 잠금이나 잠자기, 다크 모드 같은 macOS 명령을 실행합니다. 휴지통 비우기와 재시동, 종료, 로그아웃은 기본으로 꺼 두었고, 켜도 실행할 때 macOS 확인창을 한 번 더 보여 줍니다.',
     }),
     ...rows,
   ]);
@@ -1758,7 +1800,7 @@ function modulesTab(render) {
   const search = el('input', {
     class: 'pt-input sheet-module-search',
     type: 'search',
-    placeholder: '모듈 이름·기능으로 찾기',
+    placeholder: '모듈 이름이나 기능으로 찾기',
     autocomplete: 'off',
     'aria-label': '모듈 찾기',
   });
@@ -1786,7 +1828,7 @@ function modulesTab(render) {
       // 단축키가 있는 모듈을 위로 — 같은 무리 안에서는 이름 순서.
       .sort((a, b) => {
         if (!!a.keys.length !== !!b.keys.length) return a.keys.length ? -1 : 1;
-        return String(a.mod.shortName || a.mod.name).localeCompare(String(b.mod.shortName || b.mod.name), 'ko');
+        return String(a.mod.name).localeCompare(String(b.mod.name), 'ko');
       });
 
     list.replaceChildren();
@@ -1800,13 +1842,13 @@ function modulesTab(render) {
         ? el('kbd', {
           class: 'shortcut-chip module-shortcut',
           text: `${prettyShortcut(keys[0])}${keys.length > 1 ? ` +${keys.length - 1}` : ''}`,
-          title: keys.map((key) => prettyShortcut(key)).join(' · '),
+          title: keys.map((key) => prettyShortcut(key)).join(', '),
         })
         : null;
       const row = el('button', { class: 'sheet-module-row', type: 'button' }, [
         el('span', { class: 'sheet-module-icon', html: mod.icon || '' }),
         el('span', { class: 'sheet-module-text' }, [
-          el('b', { text: mod.shortName || mod.name }),
+          el('b', { text: mod.name }),
           el('span', { text: mod.subtitle || '' }),
         ]),
         badge,
@@ -1898,7 +1940,7 @@ function shortcutPrefixSection(render) {
 function actionLabel(actionKey) {
   for (const mod of listModules()) {
     const found = actionsFor(mod.id).find((action) => action.key === actionKey);
-    if (found) return `${mod.shortName || mod.name} · ${found.label}`;
+    if (found) return `${mod.name} ${found.label}`;
   }
   return actionKey;
 }
@@ -1920,7 +1962,7 @@ function moduleTab(moduleId, render) {
   });
 
   const parts = [
-    el('p', { class: 'sheet-tab-note', text: `${mod.name} 하나에만 적용됩니다 — 전역 단축키와 세부 옵션.` }),
+    el('p', { class: 'sheet-tab-note', text: `이 화면의 설정은 ${mod.name} 하나에만 적용됩니다.` }),
   ];
 
   const actions = actionsFor(moduleId);
@@ -1975,7 +2017,7 @@ function moduleTab(moduleId, render) {
   return {
     head: el('div', { class: 'sheet-head sheet-head-sub' }, [
       back,
-      el('h2', { text: mod.shortName || mod.name }),
+      el('h2', { text: mod.name }),
       el('button', {
         class: 'icon-btn',
         type: 'button',
@@ -2212,7 +2254,8 @@ settingsBtn.addEventListener('click', () => {
   else openSheet();
 });
 
-/* ------------------------------ 문의하기 (v1.14.0) ------------------------------ */
+/* ------------------------------ 문의하기 (v1.14.0 → v1.15.3) ------------------------------ */
+// 상단 바의 메일 버튼을 없애고 환경설정 안으로 옮겼다. 데이터 처리 안내도 여기 한 곳에만 적는다.
 
 const MAIL_TO = 'appfle.io@gmail.com';
 
@@ -2221,30 +2264,48 @@ function inquiryUrl() {
   return `mailto:${MAIL_TO}?subject=${encodeURIComponent(subject)}`;
 }
 
-const inquiryBtn = document.getElementById('inquiry-btn');
-if (inquiryBtn) {
-  inquiryBtn.addEventListener('click', async () => {
-    // Mac 앱은 Rust 가 mailto 를 열어 기본 메일 앱을 확실히 띄운다.
-    if (TAURI) {
-      try {
-        await invokeTauri('open_external_url', { url: inquiryUrl() });
-        return;
-      } catch (error) {
-        console.warn('[TIP inquiry]', error);
-      }
-    } else {
-      location.href = inquiryUrl();
-      return;
-    }
-    // 메일 앱이 없으면 주소를 복사해 준다.
+/** 문의 메일 — Mac 앱은 Rust 가 기본 메일 앱을 확실히 띄운다. */
+async function openInquiry() {
+  if (TAURI) {
     try {
-      if (TAURI) await invokeTauri('copy_text', { text: MAIL_TO });
-      else await navigator.clipboard.writeText(MAIL_TO);
-      toast(`메일 앱을 열지 못해 주소를 복사했습니다 — ${MAIL_TO}`, 3600);
-    } catch {
-      toast(`문의 주소: ${MAIL_TO}`, 4000);
+      await invokeTauri('open_external_url', { url: inquiryUrl() });
+      return;
+    } catch (error) {
+      console.warn('[TIP inquiry]', error);
     }
-  });
+  } else {
+    location.href = inquiryUrl();
+    return;
+  }
+  // 메일 앱이 없으면 주소를 복사해 준다.
+  try {
+    if (TAURI) await invokeTauri('copy_text', { text: MAIL_TO });
+    else await navigator.clipboard.writeText(MAIL_TO);
+    toast(`메일 앱을 열지 못해 주소를 복사했습니다 — ${MAIL_TO}`, 3600);
+  } catch {
+    toast(`문의 주소: ${MAIL_TO}`, 4000);
+  }
+}
+
+/** 일반 탭 맨 아래 — 데이터 처리 안내(이 문장이 앱에서 유일한 '기기 안' 안내다)와 문의. */
+function dataSection() {
+  const btn = el('button', { class: 'primary-btn ghost inquiry-btn', type: 'button', text: '메일 보내기' });
+  btn.addEventListener('click', () => { openInquiry(); });
+
+  return el('div', { class: 'sheet-section mb-section data-section' }, [
+    el('h3', { text: '데이터와 문의' }),
+    el('p', {
+      class: 'mb-note',
+      text: '파일과 글자는 기기 안에서만 처리하고 어디로도 보내지 않습니다. 환율, 주소, 배송 조회만 인터넷을 씁니다.',
+    }),
+    el('div', { class: 'mb-row' }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: '문의하기' }),
+        el('i', { class: 'notch-hint', text: MAIL_TO }),
+      ]),
+      btn,
+    ]),
+  ]);
 }
 
 window.addEventListener('keydown', (event) => {

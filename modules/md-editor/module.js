@@ -18,12 +18,12 @@ const SAMPLE = `# 마크다운 편집기
 
 | 항목 | 값 |
 | --- | --- |
-| 처리 | 기기 안에서만 |
-| 저장 | .md · .html |
+| 처리 | 이 기기 안 |
+| 저장 | .md, .html |
 
 ## 할 일
 
-- [x] 표·체크박스 확인
+- [x] 표와 체크박스 확인
 - [ ] 코드 블록 확인
 
 \`\`\`js
@@ -91,8 +91,8 @@ const module = {
   kind: 'tool',
   category: 'document',
   version: '1.0.0',
-  subtitle: '쓰면 바로 그려지는 GFM 편집기',
-  description: '마크다운을 쓰면서 표·체크박스·코드까지 즉시 미리 보고, .md · .html로 저장하거나 인쇄합니다.',
+  subtitle: '표와 체크박스까지 바로 그려집니다',
+  description: '마크다운을 쓰면서 표, 체크박스, 코드까지 바로 미리 보고 .md 나 .html 로 저장하거나 인쇄합니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -227,7 +227,7 @@ const module = {
       const chars = value.replace(/\s/g, '').length;
       const lines = value === '' ? 0 : value.split('\n').length;
       const words = value.trim() ? value.trim().split(/\s+/).length : 0;
-      statsEl.textContent = `${chars.toLocaleString('ko-KR')}자 · ${words.toLocaleString('ko-KR')}단어 · ${lines.toLocaleString('ko-KR')}줄`;
+      statsEl.textContent = `${chars.toLocaleString('ko-KR')}자, ${words.toLocaleString('ko-KR')}단어, ${lines.toLocaleString('ko-KR')}줄`;
     }
 
     function persist() {
