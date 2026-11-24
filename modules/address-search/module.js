@@ -14,6 +14,8 @@
  * 입력한 검색어는 TIP 서버로 가지 않는다 — TIP 에는 서버가 없다.
  */
 
+import { romanizeAddress } from './romanize.js';
+
 const DAUM_FRAME = './address-frame.html';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
 
@@ -41,6 +43,7 @@ function mount(root, ctx) {
       <div class="addr-tabs" role="tablist" aria-label="주소 종류">
         <button class="addr-tab is-on" type="button" role="tab" aria-selected="true" data-tab="kr">한국 주소</button>
         <button class="addr-tab" type="button" role="tab" aria-selected="false" data-tab="world">해외 주소</button>
+        <button class="addr-tab" type="button" role="tab" aria-selected="false" data-tab="en">영문 변환</button>
       </div>
 
       <div class="addr-pane" data-pane="kr">
@@ -72,6 +75,21 @@ function mount(root, ctx) {
         <p id="addr-world-status" class="addr-status" role="status"></p>
         <div id="addr-world-list" class="addr-world-list"></div>
       </div>
+
+      <div class="addr-pane" data-pane="en" hidden>
+        <p class="addr-note">
+          한국어 주소를 붙여넣으면 <b>해외직구용 영문 주소</b>로 바꿉니다.
+          변환은 이 기기 안에서만(국어의 로마자 표기법 규칙) 하고, 어디로도 보내지 않습니다.
+        </p>
+        <label class="addr-en-label" for="addr-en-input">한국어 주소</label>
+        <textarea id="addr-en-input" class="v16-ta" rows="3" spellcheck="false"
+                  placeholder="예: 경기도 용인시 기흥구 동백중앙로 16번길 3-1 301호"></textarea>
+        <div class="v16-actions">
+          <button class="v16-btn primary" type="button" id="addr-en-run">영문 주소 만들기</button>
+          <button class="v16-btn" type="button" id="addr-en-clear">비우기</button>
+        </div>
+        <div id="addr-en-result" class="addr-en-result" hidden></div>
+      </div>
     </section>
   `;
 
@@ -101,10 +119,24 @@ function mount(root, ctx) {
   tabs.forEach((tab) => tab.addEventListener('click', () => selectTab(tab.dataset.tab), { signal }));
 
   async function copy(text, label) {
+    const value = String(text || '').trim();
+    if (!value) return;
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(value);
       ctx.toast(`${label}을(를) 복사했습니다`);
+      return;
     } catch (error) {
+      // Mac 앱(WKWebView)에서는 클립보드 권한이 막힐 수 있다 — Rust 가 대신 넣는다.
+      const tauri = window.__TAURI__;
+      if (tauri && tauri.core) {
+        try {
+          await tauri.core.invoke('copy_text', { text: value });
+          ctx.toast(`${label}을(를) 복사했습니다`);
+          return;
+        } catch (fallbackError) {
+          console.error('[TIP address-search] 복사하지 못했습니다', fallbackError);
+        }
+      }
       console.error('[TIP address-search] 복사하지 못했습니다', error);
       ctx.toast('복사하지 못했습니다');
     }
@@ -123,6 +155,11 @@ function mount(root, ctx) {
   function createKoreanFrame() {
     const frame = document.createElement('iframe');
     frame.className = 'addr-frame';
+    // v1.14.0 — 프레임이 모듈 폭을 꽉 채우게 한다(예전에는 높이가 어긋나 작게 보였다).
+    frame.style.width = '100%';
+    frame.style.height = '480px';
+    frame.style.display = 'block';
+    frame.style.border = '0';
     frame.title = '우편번호 검색';
     frame.setAttribute('referrerpolicy', 'no-referrer');
     // v1.13.0 — sandbox 를 걷어낸다. v1.12.4 의 `sandbox="allow-scripts …"`(불투명 출처 null)는
@@ -162,6 +199,33 @@ function mount(root, ctx) {
     return rows.filter((row) => row.value);
   }
 
+/** 공식 영문 도로명 주소를 해외 배송지 항목으로 나눈다.
+ *  카카오가 주는 영문 주소는 '번지, 도로명, 구, 시' 순서라 마지막이 도시다. */
+  function englishParts(english, zonecode, koreanRoad) {
+    let line = '';
+    let city = '';
+    let state = '';
+    let zip = String(zonecode || '').trim();
+
+    if (english) {
+      const parts = english.split(',').map((part) => part.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        city = parts[parts.length - 1];
+        line = parts.slice(0, -1).join(', ');
+      } else {
+        line = english.trim();
+      }
+    }
+    if (!line && koreanRoad) {
+      const local = romanizeAddress(koreanRoad);
+      line = local.line;
+      city = city || local.city;
+      state = local.state;
+      zip = zip || local.zip;
+    }
+    return { line, city, state, zip, full: [line, city, state].filter(Boolean).join(', ') + (zip ? ` ${zip}` : '') };
+  }
+
   function showKorean(data) {
     lastKorean = {
       road: data.roadAddress || data.autoRoadAddress || '',
@@ -169,6 +233,7 @@ function mount(root, ctx) {
       english: data.roadAddressEnglish || data.jibunAddressEnglish || '',
       zonecode: data.zonecode || '',
     };
+    const shipping = englishParts(lastKorean.english, lastKorean.zonecode, lastKorean.road);
     const rows = koreanRows(data);
     const block = [
       lastKorean.road || lastKorean.jibun,
@@ -195,7 +260,28 @@ function mount(root, ctx) {
           </div>
         `).join('')}
       </dl>
-      <p class="addr-note addr-result-note">영문 주소는 도로명 기준입니다. 우편번호는 5자리입니다.</p>
+      <div class="addr-ship">
+        <div class="addr-ship-head">
+          <b>해외직구용 영문 주소</b>
+          <button class="addr-chip" type="button" data-copy="${escapeHtml(shipping.full)}" data-label="영문 주소 전체">전체 복사</button>
+        </div>
+        <p class="addr-ship-full">${escapeHtml(shipping.full)}</p>
+        <div class="addr-ship-fields">
+          <button class="addr-ship-field" type="button" data-copy="${escapeHtml(shipping.line)}" data-label="Address Line">
+            <span>Address Line</span><b>${escapeHtml(shipping.line || '—')}</b>
+          </button>
+          <button class="addr-ship-field" type="button" data-copy="${escapeHtml(shipping.city)}" data-label="City">
+            <span>City</span><b>${escapeHtml(shipping.city || '—')}</b>
+          </button>
+          <button class="addr-ship-field" type="button" data-copy="${escapeHtml(shipping.state)}" data-label="State / Province">
+            <span>State / Province</span><b>${escapeHtml(shipping.state || '—')}</b>
+          </button>
+          <button class="addr-ship-field" type="button" data-copy="${escapeHtml(shipping.zip)}" data-label="Zip Code">
+            <span>Zip Code</span><b>${escapeHtml(shipping.zip || '—')}</b>
+          </button>
+        </div>
+      </div>
+      <p class="addr-note addr-result-note">영문 주소는 도로명 기준입니다. 우편번호는 5자리이며, 항목을 누르면 그 값만 복사됩니다.</p>
     `;
     krResult.scrollIntoView({ block: 'nearest' });
   }
@@ -310,6 +396,69 @@ function mount(root, ctx) {
   worldForm.addEventListener('submit', (event) => {
     event.preventDefault();
     searchWorld(worldInput.value);
+  }, { signal });
+
+  /* ------------------------------ 영문 변환 ------------------------------ */
+
+  const enInput = root.querySelector('#addr-en-input');
+  const enResult = root.querySelector('#addr-en-result');
+  const enRun = root.querySelector('#addr-en-run');
+
+  function renderEnglish(result) {
+    if (!result || !result.korean) {
+      enResult.hidden = true;
+      return;
+    }
+    const fields = [
+      ['Address Line', result.line],
+      ['City', result.city],
+      ['State / Province', result.state],
+      ['Zip Code', result.zip],
+    ];
+    enResult.hidden = false;
+    enResult.innerHTML = `
+      <div class="addr-ship-head">
+        <b>영문 주소</b>
+        <button class="addr-chip" type="button" data-copy="${escapeHtml(result.full)}" data-label="영문 주소 전체">전체 복사</button>
+      </div>
+      <p class="addr-ship-full">${escapeHtml(result.full || '—')}</p>
+      <div class="addr-ship-fields">
+        ${fields.map(([label, value]) => `
+          <button class="addr-ship-field" type="button" data-copy="${escapeHtml(value || '')}" data-label="${escapeHtml(label)}">
+            <span>${escapeHtml(label)}</span><b>${escapeHtml(value || '—')}</b>
+          </button>
+        `).join('')}
+      </div>
+      <p class="addr-note addr-result-note">
+        도로명 주소는 도로 고유 표기가 따로 있습니다 — 배송지에는 주소 검색 결과의 공식 영문 주소를 쓰고,
+        이 변환은 붙여넣은 주소를 빠르게 옮길 때 쓰세요.
+      </p>
+    `;
+  }
+
+  enRun.addEventListener('click', () => {
+    const text = enInput.value;
+    if (!text.trim()) {
+      ctx.toast('한국어 주소를 붙여넣어 주세요');
+      enResult.hidden = true;
+      return;
+    }
+    const result = romanizeAddress(text);
+    renderEnglish(result);
+    ctx.toast('영문 주소를 만들었습니다');
+  }, { signal });
+
+  enInput.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault();
+      enRun.click();
+    }
+  }, { signal });
+
+  root.querySelector('#addr-en-clear').addEventListener('click', () => {
+    enInput.value = '';
+    enResult.hidden = true;
+    enInput.focus();
   }, { signal });
 
   /* ------------------------------ 시작 ------------------------------ */

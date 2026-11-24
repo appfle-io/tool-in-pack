@@ -1,0 +1,259 @@
+/* TIP · 기능별 설정 저장 + 전역 단축키 (v1.14.0)
+ *
+ * 세 가지를 이 파일 하나에 모은다.
+ *  1) 기능 옵션 값 (tip.featureValues.v1) — 스티커 기본 색, 스포이드 형식, OCR 언어 등
+ *  2) 기능별 전역 단축키 (tip.shortcuts.v1) — 기능 id → accelerator 문자열
+ *  3) 전역 검색 대상 스위치 (tip.searchScope.v1) — 모듈·앱·파일·계산기·웹·스니펫
+ *
+ * 단축키의 진짜 주인은 이 저장소이고, Mac 앱이 켜질 때 set_module_shortcuts 로 Rust 에 밀어 준다
+ * (Rust 는 등록만 하고 저장하지 않는다 — 화면을 지우면 단축키도 함께 사라진다).
+ */
+
+const VALUES_KEY = 'tip.featureValues.v1';
+
+/** 시스템 명령 9종 — 설정과 검색이 함께 쓴다. */
+export const SYSTEM_COMMANDS = {
+  lock: '화면 잠금',
+  sleep: '잠자기',
+  screensaver: '화면 보호기',
+  darkmode: '다크 · 라이트 모드 전환',
+  hiddenfiles: '숨김 파일 표시 전환',
+  emptytrash: '휴지통 비우기',
+  restart: '재시동',
+  shutdown: '시스템 종료',
+  logout: '로그아웃',
+};
+const SHORTCUTS_KEY = 'tip.shortcuts.v1';
+const SCOPE_KEY = 'tip.searchScope.v1';
+
+const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
+
+function invoke(command, args) {
+  return window.__TAURI__.core.invoke(command, args || {});
+}
+
+function readJson(key, fallback) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch { /* 저장하지 못하면 이번 실행에만 적용된다 */ }
+}
+
+/* ------------------------------ 기능 옵션 ------------------------------ */
+
+/** 화면이 고르는 값 — 모듈이 getFeatureValue 로 읽는다. */
+export function getFeatureValue(key, fallback) {
+  const values = readJson(VALUES_KEY, {});
+  return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : fallback;
+}
+
+export function setFeatureValue(key, value) {
+  const values = { ...readJson(VALUES_KEY, {}), [key]: value };
+  writeJson(VALUES_KEY, values);
+  return value;
+}
+
+/* ------------------------------ 전역 검색 대상 ------------------------------ */
+
+export const SEARCH_SCOPE_ITEMS = [
+  { id: 'modules', label: 'TIP 모듈', hint: '켜 둔 모듈을 이름·키워드로 찾아 실행' },
+  { id: 'apps', label: '맥 앱 (초성)', hint: '/Applications 의 앱을 이름·초성(ㅋㄹ → 크롬)으로 찾아 실행', mac: true },
+  { id: 'files', label: '로컬 파일 (mdfind)', hint: '홈 폴더의 파일 이름을 Spotlight 색인으로 찾아 열기', mac: true },
+  { id: 'calc', label: '즉석 계산기', hint: '수식을 넣으면 결과를 바로 — Enter 로 복사' },
+  { id: 'web', label: '웹 검색', hint: 'g·n 으로 Google·Naver 검색, 또는 결과 아래에서 바로' },
+  { id: 'snippets', label: '스니펫', hint: '/별칭 이나 낱말로 자주 쓰는 문구를 찾아 복사' },
+  { id: 'system', label: '시스템 명령', hint: '화면 잠금·잠자기·다크 모드·종료 등 — 위험한 명령은 한 번 더 확인합니다', mac: true },
+];
+
+const SCOPE_DEFAULTS = { modules: true, apps: true, files: true, calc: true, web: true, snippets: true, system: true };
+
+export function getSearchScope() {
+  const saved = readJson(SCOPE_KEY, {});
+  const scope = {};
+  SEARCH_SCOPE_ITEMS.forEach(({ id }) => {
+    scope[id] = typeof saved[id] === 'boolean' ? saved[id] : SCOPE_DEFAULTS[id];
+  });
+  return scope;
+}
+
+export function setSearchScope(id, on) {
+  const next = { ...getSearchScope(), [id]: !!on };
+  writeJson(SCOPE_KEY, next);
+  return next;
+}
+
+export function searchScopeEnabled(id) {
+  return getSearchScope()[id] !== false;
+}
+
+/* --------------------------- 시스템 명령 켜기/끄기 --------------------------- */
+// 검색창(js/search.js)과 설정(app.js)이 같은 값을 본다.
+
+const SYSTEM_KEY = 'tip.systemCommands.v1';
+
+export function getSystemCommandEnabled() {
+  let saved = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SYSTEM_KEY) || 'null');
+    if (parsed && typeof parsed === 'object') saved = parsed;
+  } catch { saved = {}; }
+  const next = {};
+  Object.keys(SYSTEM_COMMANDS).forEach((id) => {
+    next[id] = typeof saved[id] === 'boolean' ? saved[id] : true;
+  });
+  return next;
+}
+
+export function setSystemCommandEnabled(id, on) {
+  const next = { ...getSystemCommandEnabled(), [id]: !!on };
+  try {
+    localStorage.setItem(SYSTEM_KEY, JSON.stringify(next));
+  } catch { /* 저장하지 못하면 이번에만 */ }
+  return next;
+}
+
+/* ------------------------------ 전역 단축키 ------------------------------ */
+
+/** 기능 id → 단축키. 값이 없으면 그 기능은 단축키가 없다. */
+export function getShortcuts() {
+  return readJson(SHORTCUTS_KEY, {});
+}
+
+export function getShortcut(actionKey) {
+  return getShortcuts()[actionKey] || '';
+}
+
+export function setShortcut(actionKey, accelerator) {
+  const next = { ...getShortcuts() };
+  const value = String(accelerator || '').trim();
+  if (value) next[actionKey] = value;
+  else delete next[actionKey];
+  writeJson(SHORTCUTS_KEY, next);
+  return next;
+}
+
+export function clearShortcut(actionKey) {
+  return setShortcut(actionKey, '');
+}
+
+/** 같은 단축키를 이미 쓰는 기능 — 충돌을 미리 알려 준다. */
+export function shortcutOwner(accelerator, exceptKey) {
+  const target = String(accelerator || '').trim();
+  if (!target) return null;
+  const entries = Object.entries(getShortcuts());
+  const found = entries.find(([key, value]) => key !== exceptKey && value === target);
+  return found ? found[0] : null;
+}
+
+/** 저장된 단축키를 Rust 에 통째로 등록한다. 실패한 항목 목록을 돌려준다. */
+export async function syncShortcuts() {
+  if (!TAURI) return [];
+  const items = Object.entries(getShortcuts()).filter(([, value]) => !!String(value || '').trim());
+  try {
+    const failures = await invoke('set_module_shortcuts', { items });
+    return Array.isArray(failures) ? failures : [];
+  } catch (error) {
+    console.warn('[TIP] 단축키를 등록하지 못했습니다', error);
+    return [];
+  }
+}
+
+/* ------------------------- 모듈별 설정 차례 · 항목 ------------------------- */
+
+/**
+ * 모듈 id → 그 모듈의 설정 차례.
+ *  value  : 기능 옵션(스위치·고르기·색)
+ *  action : 단축키를 걸 수 있는 동작
+ */
+export const MODULE_SETTINGS = {
+  'sticky-notes': {
+    values: [
+      {
+        key: 'sticky.color',
+        label: '새 스티커 기본 색',
+        type: 'color',
+        fallback: 'auto',
+        hint: 'auto 는 환경설정의 기본 색을 따라갑니다.',
+        options: [
+          ['auto', '기본 색 따르기'], ['yellow', '노랑'], ['green', '딥그린'],
+          ['blue', '파랑'], ['pink', '분홍'], ['purple', '보라'], ['dark', '다크그레이'],
+        ],
+      },
+    ],
+    actions: [{ key: 'sticky:new', label: '새 스티커 열기', hint: '어디서든 새 스티커를 띄웁니다' }],
+  },
+  'screen-picker': {
+    values: [
+      {
+        key: 'picker.format',
+        label: '복사할 색 형식',
+        type: 'select',
+        fallback: 'hex',
+        options: [['hex', 'HEX (#2E5E4E)'], ['rgb', 'RGB (rgb(46, 94, 78))'], ['hsl', 'HSL (hsl(160, 34%, 27%))']],
+      },
+      { key: 'picker.autoCopy', label: '고른 색 자동 복사', type: 'switch', fallback: true },
+    ],
+    actions: [
+      { key: 'screen-picker', label: '화면에서 색 고르기', hint: '단축키를 누르고 화면의 한 점을 클릭' },
+    ],
+  },
+  'drag-ocr': {
+    values: [
+      {
+        key: 'ocr.lang',
+        label: '글자 인식 언어',
+        type: 'select',
+        fallback: 'kor+eng',
+        options: [['kor+eng', '한국어 + 영어'], ['kor', '한국어'], ['eng', '영어'], ['jpn', '일본어']],
+      },
+      { key: 'ocr.autoCopy', label: '추출한 글자 자동 복사', type: 'switch', fallback: true },
+    ],
+    actions: [{ key: 'drag-ocr', label: '화면 영역 글자 추출', hint: '단축키를 누르고 화면을 드래그' }],
+  },
+  'window-snap': {
+    values: [],
+    actions: [
+      { key: 'snap:left', label: '왼쪽 절반', recommended: 'Control+Alt+ArrowLeft' },
+      { key: 'snap:right', label: '오른쪽 절반', recommended: 'Control+Alt+ArrowRight' },
+      { key: 'snap:top', label: '위쪽 절반', recommended: 'Control+Alt+ArrowUp' },
+      { key: 'snap:bottom', label: '아래쪽 절반', recommended: 'Control+Alt+ArrowDown' },
+      { key: 'snap:max', label: '최대화', recommended: 'Control+Alt+Enter' },
+      { key: 'snap:center', label: '가운데 70%', recommended: 'Control+Alt+KeyC' },
+    ],
+  },
+  'bulk-rename': {
+    values: [
+      {
+        key: 'rename.pad',
+        label: '일련번호 자릿수',
+        type: 'select',
+        fallback: '3',
+        options: [['2', '2자리 (01)'], ['3', '3자리 (001)'], ['4', '4자리 (0001)']],
+      },
+    ],
+    actions: [],
+  },
+  snippets: {
+    values: [],
+    actions: [],
+  },
+};
+
+/** 설정 차례가 없는 모듈도 '모듈 열기' 단축키는 걸 수 있다. */
+export function actionsFor(moduleId) {
+  const custom = MODULE_SETTINGS[moduleId]?.actions;
+  if (custom && custom.length) return custom;
+  return [{ key: moduleId, label: '모듈 열기' }];
+}
+
+export function valuesFor(moduleId) {
+  return MODULE_SETTINGS[moduleId]?.values || [];
+}

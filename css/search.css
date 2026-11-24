@@ -179,3 +179,37 @@ html, body {
     radial-gradient(900px 320px at 50% -10%, rgba(74, 142, 119, 0.24), transparent 70%),
     linear-gradient(180deg, #1a1d1c 0%, #101211 100%);
 }
+
+/* v1.14.0 — 묶음 제목(앱·파일·계산·웹), 위험 명령, 상태 줄 */
+.palette-group {
+  list-style: none;
+  padding: 7px 10px 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.45;
+}
+
+.palette-row.is-risky .palette-row-icon { color: #E0A43A; }
+.palette-row.is-risky.is-active { background: #B4552B; }
+.palette-row.is-confirm { background: #B4552B; color: #fff; }
+.palette-row.is-confirm .palette-row-text b { font-weight: 700; }
+.palette-row.is-confirm .palette-row-meta { opacity: 0.9; }
+
+.palette-status {
+  margin: 0;
+  padding: 0 14px;
+  max-height: 0;
+  overflow: hidden;
+  font-size: 11px;
+  opacity: 0;
+  transition: max-height 0.14s ease, opacity 0.14s ease, padding 0.14s ease;
+}
+.palette-status.show {
+  max-height: 40px;
+  padding: 0 14px 8px;
+  opacity: 0.8;
+}
+
+.palette-list { max-height: 372px; }

@@ -24,9 +24,15 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+mod apps;
+mod autostart;
+mod capture;
 mod clip;
+mod files;
 mod media;
 mod notch;
+mod sticky;
+mod system;
 
 const QUICKBAR: &str = "quickbar";
 const TOOL: &str = "tool";
@@ -51,8 +57,9 @@ const NOTCH_OPEN_W: f64 = 452.0;
 const NOTCH_OPEN_H: f64 = 600.0;
 
 // 전역 빠른 실행 검색 — 화면 가운데 위쪽의 작은 팔레트.
+// v1.14.0 — 계산기·웹 검색·파일·앱·스니펫까지 담느라 440 → 520 으로 조금 높였다.
 const SEARCH_W: f64 = 640.0;
-const SEARCH_H: f64 = 440.0;
+const SEARCH_H: f64 = 520.0;
 
 // 배송 조회 — 네이버 배송조회를 앱 안에서 여는 컴팩트 창(일반 창이라 사용자가 닫·크기 조절).
 // v1.13.0 — 네이버의 PC 웹 레이아웃이 480px 창에 가로로 넘쳐, 모바일 판(m.search.naver.com)을
@@ -63,6 +70,10 @@ const PARCEL_H: f64 = 740.0;
 const PARCEL_USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) \
      AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 const DEFAULT_SEARCH_SHORTCUT: &str = "Alt+Space";
+/// 전역 단축키 표에서 검색을 가리키는 키.
+const SEARCH_KEY: &str = "search";
+/// 열어도 되는 웹 주소 — 전역 검색의 웹 검색 두 곳과 문의 메일만.
+const WEB_ALLOWED_HOSTS: [&str; 4] = ["www.google.com", "google.com", "search.naver.com", "m.search.naver.com"];
 
 const RELEASES_LATEST: &str = "https://api.github.com/repos/appfle-io/tool-in-pack/releases/latest";
 
@@ -86,6 +97,13 @@ static HOVER_OUTSIDE_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
 
 /// 지금 등록된 전역 빠른 실행 단축키.
 static SEARCH_SHORTCUT: Mutex<Option<String>> = Mutex::new(None);
+
+/// 전역 단축키 표 — (키, accelerator). 키는 "search" 또는 기능 id(모듈 id·"snap:left" 등).
+/// 값의 진짜 주인은 화면(localStorage)이고, 앱이 켜질 때 set_module_shortcuts 로 밀어 준다.
+/// v1.14.0 — 검색 단축키 하나만 있던 것을 기능별 단축키까지 함께 등록하는 표로 넓혔다.
+static SHORTCUT_TABLE: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+/// 표를 실제 단축키로 풀어 둔 것 — 눌렸을 때 어느 기능인지 찾는 데 쓴다.
+static SHORTCUT_ACTIVE: Mutex<Vec<(String, tauri_plugin_global_shortcut::Shortcut)>> = Mutex::new(Vec::new());
 
 /// check_app_update 가 찾은 자동 업데이트 대상 — 설치 커맨드는 이 값만 쓴다(v1.12.4).
 /// 프런트가 임의의 주소를 넘겨 임의 파일을 설치하지 못하게 하기 위해서다.
@@ -459,13 +477,16 @@ fn notch_focus(app: AppHandle) {
 }
 
 /// macOS 시스템 설정의 '개인정보 보호 및 보안' 해당 항목을 연다(v1.12.3).
-/// 허용한 세 가지만 연다 — 문자열을 그대로 주소로 쓰지 않는다.
+/// 허용한 다섯 가지만 연다 — 문자열을 그대로 주소로 쓰지 않는다.
 #[tauri::command]
 fn open_privacy_settings(kind: String) -> Result<(), String> {
     let pane = match kind.as_str() {
         "automation" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
         "calendars" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
         "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+        // v1.14.0 — 창 분할(손쉬운 사용)과 화면 도구(화면 기록)
+        "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        "screen-recording" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
         _ => return Err("알 수 없는 권한 항목입니다".into()),
     };
     std::process::Command::new("open")
@@ -473,6 +494,98 @@ fn open_privacy_settings(kind: String) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("시스템 설정을 열지 못했습니다: {error}"))
+}
+
+/// 클립보드에 글자를 넣는다 — 계산기 결과·스니펫·색상 코드 복사.
+#[tauri::command]
+fn copy_text(text: String) -> Result<(), String> {
+    let mut board = arboard::Clipboard::new().map_err(|error| format!("클립보드를 열지 못했습니다: {error}"))?;
+    board.set_text(text).map_err(|error| format!("복사하지 못했습니다: {error}"))
+}
+
+/// 바깥 주소를 기본 앱으로 연다 — 웹 검색(http·https 허용 목록)과 문의 메일(mailto)만.
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let value = url.trim();
+    if value.is_empty() {
+        return Err("주소가 비어 있습니다".into());
+    }
+
+    if let Some(rest) = value.strip_prefix("mailto:") {
+        let address = rest.split(['?', '&', '#']).next().unwrap_or("").trim();
+        if address != "appfle.io@gmail.com" {
+            return Err("TIP 문의 주소만 열 수 있습니다".into());
+        }
+    } else {
+        let parsed: tauri::Url = value.parse().map_err(|_| "주소를 읽지 못했습니다".to_string())?;
+        if parsed.scheme() != "https" {
+            return Err("https 주소만 열 수 있습니다".into());
+        }
+        let host = parsed.host_str().unwrap_or_default();
+        if !WEB_ALLOWED_HOSTS.contains(&host) {
+            return Err("허용된 검색 주소만 열 수 있습니다".into());
+        }
+    }
+
+    std::process::Command::new("open")
+        .arg(value)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("주소를 열지 못했습니다: {error}"))
+}
+
+/// 화면에 짧은 안내를 띄운다 — 메인 창이 듣는다(js/app.js).
+fn emit_toast(app: &AppHandle, message: &str) {
+    let _ = app.emit("tip://toast", message.to_string());
+}
+
+/// 전역 단축키가 눌렸을 때 — 표에서 키를 찾아 그 기능을 바로 실행한다(v1.14.0).
+fn shortcut_pressed(app: &AppHandle, shortcut: &tauri_plugin_global_shortcut::Shortcut) {
+    let key = SHORTCUT_ACTIVE
+        .lock()
+        .ok()
+        .and_then(|list| {
+            list.iter()
+                .find(|(_, value)| value == shortcut)
+                .map(|(key, _)| key.clone())
+        });
+    let Some(key) = key else { return };
+
+    match key.as_str() {
+        SEARCH_KEY => toggle_search(app),
+        "sticky:new" => {
+            if let Err(error) = sticky::create_new(app, None, None) {
+                emit_toast(app, &error);
+            }
+        }
+        "screen-picker" => {
+            if let Err(error) = capture::pick_screen_color(app.clone()) {
+                emit_toast(app, &error);
+            }
+        }
+        "drag-ocr" => match capture::capture_for_shortcut(app) {
+            Ok(()) => {
+                let _ = open_tool(app.clone(), "ocr-reader".to_string(), Some("화면 텍스트 추출".to_string()));
+            }
+            Err(error) => emit_toast(app, &error),
+        },
+        other if other.starts_with("snap:") => {
+            let preset = other.trim_start_matches("snap:").to_string();
+            let handle = app.clone();
+            // AX 호출은 메인 스레드로 넘어가 기다리므로, 단축키 스레드를 잡지 않게 따로 돌린다.
+            std::thread::spawn(move || {
+                if let Err(error) = capture::snap_blocking(&handle, &preset) {
+                    let text = error.trim_start_matches("[permission]").trim().to_string();
+                    emit_toast(&handle, &text);
+                }
+            });
+        }
+        id => {
+            if let Err(error) = open_tool(app.clone(), id.to_string(), None) {
+                emit_toast(app, &error);
+            }
+        }
+    }
 }
 
 /// 임시 보관함 — 드롭한 파일 하나를 읽어 바이트로 돌려준다.
@@ -626,24 +739,80 @@ fn hide_search(app: AppHandle) {
     }
 }
 
-/// 전역 단축키를 새 값으로 바꾼다. 실패하면 기본값으로 되돌린다.
-fn apply_search_shortcut(app: &AppHandle, accelerator: &str) -> Result<(), String> {
+/* ------------------------- 전역 단축키 표 (v1.14.0) ------------------------- */
+//
+// v1.12.0 은 검색 단축키 하나만 등록했다. v1.14.0 부터는 검색 + 기능별(모듈·창 분할 등)
+// 단축키를 한 표에 모아 함께 등록한다. 표를 고칠 때는 통째로 다시 등록한다(등록·해제는 macOS
+// 메인 스레드에서 일어나고, 겹친 단축키는 등록에 실패하므로 그 실패를 화면에 그대로 돌려준다).
+
+/// 표를 실제 단축키로 등록한다. 실패한 항목은 "키|accelerator|이유" 문자열로 돌려준다.
+fn sync_shortcuts(app: &AppHandle) -> Vec<String> {
+    let table: Vec<(String, String)> = SHORTCUT_TABLE.lock().map(|slot| slot.clone()).unwrap_or_default();
     let shortcuts = app.global_shortcut();
     let _ = shortcuts.unregister_all();
-    match shortcuts.register(accelerator) {
-        Ok(()) => {
-            *SEARCH_SHORTCUT.lock().unwrap() = Some(accelerator.to_string());
-            Ok(())
-        }
-        Err(error) => {
-            let fallback = shortcuts.register(DEFAULT_SEARCH_SHORTCUT);
-            *SEARCH_SHORTCUT.lock().unwrap() = Some(DEFAULT_SEARCH_SHORTCUT.to_string());
-            if fallback.is_err() {
-                return Err(format!("단축키를 등록하지 못했습니다: {error}"));
+
+    let mut active: Vec<(String, tauri_plugin_global_shortcut::Shortcut)> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
+
+    for (key, accelerator) in &table {
+        let parsed = match accelerator.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                failures.push(format!("{key}|{accelerator}|{error}"));
+                continue;
             }
-            Err(format!("{accelerator} 를 등록하지 못해 기본값으로 되돌렸습니다"))
+        };
+        match shortcuts.register(parsed) {
+            Ok(()) => active.push((key.clone(), parsed)),
+            Err(error) => failures.push(format!("{key}|{accelerator}|{error}")),
         }
     }
+    if let Ok(mut slot) = SHORTCUT_ACTIVE.lock() {
+        *slot = active;
+    }
+    failures
+}
+
+/// 검색 단축키를 표에 넣는다(이전 값은 지운다).
+fn set_search_binding(accelerator: &str) {
+    if let Ok(mut table) = SHORTCUT_TABLE.lock() {
+        table.retain(|(key, _)| key != SEARCH_KEY);
+        table.insert(0, (SEARCH_KEY.to_string(), accelerator.to_string()));
+    }
+    if let Ok(mut slot) = SEARCH_SHORTCUT.lock() {
+        *slot = Some(accelerator.to_string());
+    }
+}
+
+/// 지금 표에 적힌 기능 단축키 — 화면이 읽어 간다.
+fn action_table() -> Vec<(String, String)> {
+    SHORTCUT_TABLE
+        .lock()
+        .map(|table| {
+            table
+                .iter()
+                .filter(|(key, _)| key != SEARCH_KEY)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 전역 단축키를 새 값으로 바꾼다. 실패하면 기본값으로 되돌린다.
+fn apply_search_shortcut(app: &AppHandle, accelerator: &str) -> Result<(), String> {
+    let previous = SEARCH_SHORTCUT.lock().ok().and_then(|slot| slot.clone());
+    set_search_binding(accelerator);
+    let failures = sync_shortcuts(app);
+    let mine = failures.iter().find(|line| line.starts_with(&format!("{SEARCH_KEY}|"))).cloned();
+    if let Some(failure) = mine {
+        let reason = failure.rsplit('|').next().unwrap_or("").to_string();
+        // 되돌린다 — 처음 값(없으면 기본값)으로.
+        let fallback = previous.unwrap_or_else(|| DEFAULT_SEARCH_SHORTCUT.to_string());
+        set_search_binding(&fallback);
+        let _ = sync_shortcuts(app);
+        return Err(format!("{accelerator} 를 등록하지 못했습니다 ({reason}). {fallback} 로 두었습니다"));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -662,6 +831,49 @@ fn get_search_shortcut() -> String {
         .unwrap()
         .clone()
         .unwrap_or_else(|| DEFAULT_SEARCH_SHORTCUT.to_string())
+}
+
+/// 기능(모듈·창 분할) 단축키를 통째로 새로 등록한다. 표의 주인은 화면(localStorage)이다.
+/// 돌려주는 값은 등록하지 못한 항목 목록 — 화면이 토스트로 알린다.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShortcutFailure {
+    key: String,
+    accelerator: String,
+    reason: String,
+}
+
+#[tauri::command]
+fn set_module_shortcuts(app: AppHandle, items: Vec<(String, String)>) -> Vec<ShortcutFailure> {
+    if let Ok(mut table) = SHORTCUT_TABLE.lock() {
+        table.retain(|(key, _)| key == SEARCH_KEY);
+        for (key, accelerator) in items {
+            let key = key.trim().to_string();
+            let accelerator = accelerator.trim().to_string();
+            if key.is_empty() || accelerator.is_empty() || key == SEARCH_KEY {
+                continue;
+            }
+            table.push((key, accelerator));
+        }
+    }
+    sync_shortcuts(&app)
+        .into_iter()
+        .filter_map(|line| {
+            let mut parts = line.split('|');
+            let key = parts.next()?.to_string();
+            let accelerator = parts.next().unwrap_or("").to_string();
+            let reason = parts.next().unwrap_or("").to_string();
+            if key == SEARCH_KEY {
+                return None;
+            }
+            Some(ShortcutFailure { key, accelerator, reason })
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn get_module_shortcuts() -> Vec<(String, String)> {
+    action_table()
 }
 
 /* ------------------------------- 메인 창 ------------------------------- */
@@ -727,6 +939,32 @@ fn set_tray_visible(app: AppHandle, visible: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// 창에 Finder 파일을 끌어다 놓으면 그 경로를 허용 목록에 담고 화면에 알린다(v1.14.0).
+/// 파일 일괄 이름 변경 같은 기능이 실제 디스크 경로를 받는 통로다.
+fn attach_file_drop(win: &WebviewWindow) {
+    let handle = win.clone();
+    win.on_window_event(move |event| {
+        let WindowEvent::DragDrop(drag) = event else { return };
+        match drag {
+            tauri::DragDropEvent::Enter { .. } => {
+                let _ = handle.emit("tip://files-drag", true);
+            }
+            tauri::DragDropEvent::Drop { paths, .. } => {
+                files::allow_paths(&paths);
+                let list: Vec<String> = paths
+                    .iter()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect();
+                let _ = handle.emit("tip://files-drop", list);
+            }
+            tauri::DragDropEvent::Leave => {
+                let _ = handle.emit("tip://files-drag", false);
+            }
+            _ => {}
+        }
+    });
+}
+
 #[tauri::command]
 fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), String> {
     let label = title.unwrap_or_else(|| "TIP".to_string());
@@ -757,6 +995,7 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
     .map_err(|error| error.to_string())?;
 
     place_under_tray(&app, &win, TOOL_W, TOOL_H, 6.0);
+    attach_file_drop(&win);
     let _ = win.show();
     let _ = win.set_focus();
 
@@ -1256,9 +1495,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
-                        toggle_search(app);
+                        // v1.14.0 — 검색뿐 아니라 기능별 단축키도 이 표에서 찾아 실행한다.
+                        shortcut_pressed(app, shortcut);
                     }
                 })
                 .build(),
@@ -1295,17 +1535,50 @@ pub fn run() {
             open_search,
             hide_search,
             set_search_shortcut,
-            get_search_shortcut
+            get_search_shortcut,
+            set_module_shortcuts,
+            get_module_shortcuts,
+            copy_text,
+            open_external_url,
+            apps::list_installed_apps,
+            apps::open_local_app,
+            apps::search_local_files,
+            apps::open_local_file,
+            capture::pick_screen_color,
+            capture::capture_region,
+            capture::read_capture,
+            capture::take_pending_shot,
+            capture::snap_active_window,
+            capture::accessibility_trusted,
+            system::run_system_command,
+            files::rename_files,
+            autostart::get_autostart,
+            autostart::set_autostart,
+            sticky::sticky_list,
+            sticky::sticky_get,
+            sticky::sticky_create,
+            sticky::sticky_update,
+            sticky::sticky_set_pin,
+            sticky::sticky_close,
+            sticky::sticky_delete,
+            sticky::sticky_open,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
 
             // v1.12.0 — 클립보드 히스토리 감시(기기 안에서만)와 기본 전역 단축키.
             clip::start(handle.clone());
-            let _ = apply_search_shortcut(&handle, DEFAULT_SEARCH_SHORTCUT);
+            // v1.14.0 — 검색 단축키는 표의 기본값으로 두고, 기능 단축키는 화면이 켜지면서 밀어 준다.
+            set_search_binding(DEFAULT_SEARCH_SHORTCUT);
+            let _ = sync_shortcuts(&handle);
+
+            // 열려 있던 스티커 메모를 그 자리·그 크기로 되살린다.
+            sticky::restore(&handle);
 
             // 메인 창 X — 앱을 끄지 않고 숨긴다. 메뉴 막대·Dock 에서 다시 연다.
             if let Some(main) = app.get_webview_window("main") {
+                // v1.14.0 — 메인 창으로도 파일을 끌어다 놓을 수 있게 한다(파일 이름 변경 등).
+                attach_file_drop(&main);
                 let main_handle = main.clone();
                 main.on_window_event(move |event| {
                     if let WindowEvent::CloseRequested { api, .. } = event {
@@ -1327,6 +1600,11 @@ pub fn run() {
                 MenuItem::with_id(&handle, "open_notch", "노치 아일랜드", true, None::<&str>)?;
             let open_search_item =
                 MenuItem::with_id(&handle, "open_search_menu", "빠른 실행 검색…", true, None::<&str>)?;
+            // v1.14.0 — 바탕화면 스티커와 화면 스포이드를 메뉴 막대에서도 바로.
+            let new_sticky_item =
+                MenuItem::with_id(&handle, "new_sticky", "새 스티커 메모", true, None::<&str>)?;
+            let pick_color_item =
+                MenuItem::with_id(&handle, "pick_color", "화면에서 색 고르기", true, None::<&str>)?;
             let open_settings_item =
                 MenuItem::with_id(&handle, "open_settings", "환경설정…", true, None::<&str>)?;
             let quit_item =
@@ -1336,6 +1614,10 @@ pub fn run() {
                 .item(&open_quickbar_item)
                 .item(&open_notch_item)
                 .item(&open_search_item)
+                .separator()
+                .item(&new_sticky_item)
+                .item(&pick_color_item)
+                .separator()
                 .item(&open_settings_item)
                 .separator()
                 .item(&quit_item)
@@ -1385,6 +1667,16 @@ pub fn run() {
                     "open_quickbar" => show_quickbar(app),
                     "open_notch" => show_notch(app),
                     "open_search_menu" => show_search(app),
+                    "new_sticky" => {
+                        if let Err(error) = sticky::create_new(app, None, None) {
+                            emit_toast(app, &error);
+                        }
+                    }
+                    "pick_color" => {
+                        if let Err(error) = capture::pick_screen_color(app.clone()) {
+                            emit_toast(app, &error);
+                        }
+                    }
                     "open_settings" => {
                         let _ = show_main(app, None, true);
                     }

@@ -1,0 +1,171 @@
+/* TIP · 독립 스티커 메모 창 (v1.14.0, Mac 앱 전용)
+   Windows 스티커 노트처럼 창 하나가 메모 하나. 창은 테두리가 없고(decorations=false),
+   이 CSS 가 모서리·그림자·색을 맡는다. 색은 <main data-color> 로 바뀐다. */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sticky-body {
+  display: block;
+  padding: 6px;
+}
+
+/* 색 판 — 기본은 딥그린 계열(브랜드 색 #2E5E4E 의 아주 옅은 톤). */
+.sticky {
+  --paper: #F3F7F0;
+  --paper-line: rgba(46, 94, 78, 0.16);
+  --ink: #1F2A25;
+  --ink-muted: rgba(31, 42, 37, 0.45);
+  --bar: rgba(46, 94, 78, 0.10);
+  --bar-hover: rgba(46, 94, 78, 0.18);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--paper-line);
+  background: var(--paper);
+  color: var(--ink);
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+
+.sticky[data-color='yellow'] {
+  --paper: #FFF8D6; --paper-line: rgba(150, 120, 20, 0.18); --ink: #3B3110;
+  --bar: rgba(150, 120, 20, 0.10); --bar-hover: rgba(150, 120, 20, 0.18);
+}
+.sticky[data-color='blue'] {
+  --paper: #E8F1FC; --paper-line: rgba(30, 80, 150, 0.18); --ink: #16233A;
+  --bar: rgba(30, 80, 150, 0.09); --bar-hover: rgba(30, 80, 150, 0.17);
+}
+.sticky[data-color='pink'] {
+  --paper: #FCE9EF; --paper-line: rgba(160, 40, 80, 0.16); --ink: #3E1B26;
+  --bar: rgba(160, 40, 80, 0.08); --bar-hover: rgba(160, 40, 80, 0.16);
+}
+.sticky[data-color='purple'] {
+  --paper: #EFE9FC; --paper-line: rgba(90, 50, 160, 0.16); --ink: #251A3E;
+  --bar: rgba(90, 50, 160, 0.08); --bar-hover: rgba(90, 50, 160, 0.16);
+}
+.sticky[data-color='dark'] {
+  --paper: #26262B; --paper-line: #3A3A42; --ink: #F2F2F5;
+  --ink-muted: rgba(242, 242, 245, 0.5);
+  --bar: rgba(255, 255, 255, 0.06); --bar-hover: rgba(255, 255, 255, 0.14);
+}
+
+.sticky-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 5px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--paper-line);
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* 드래그 손잡이 — 남는 가운데 빈 칸 전체가 창을 끈다. */
+.sticky-drag { flex: 1; align-self: stretch; }
+
+.sticky-tools { display: flex; align-items: center; gap: 1px; }
+
+.sticky-tool {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  opacity: 0.62;
+  cursor: pointer;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+.sticky-tool svg { width: 14px; height: 14px; }
+.sticky-tool:hover { opacity: 1; background: var(--bar-hover); }
+.sticky-tool:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; opacity: 1; }
+.sticky-tool[aria-pressed='true'] { opacity: 1; background: var(--bar-hover); }
+.sticky-danger { opacity: 0; }
+.sticky:hover .sticky-danger { opacity: 0.5; }
+.sticky-danger:hover { opacity: 1; color: #C0392B; }
+
+.sticky-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--ink-muted);
+  background: var(--paper);
+  box-shadow: inset 0 0 0 3px var(--bar-hover);
+}
+
+.sticky-palette {
+  display: flex;
+  gap: 6px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--paper-line);
+  background: var(--paper);
+}
+.sticky-palette[hidden] { display: none; }
+
+.sticky-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  cursor: pointer;
+  padding: 0;
+}
+.sticky-swatch[data-color='yellow'] { background: #FFF3A3; }
+.sticky-swatch[data-color='green'] { background: #D8E9E1; }
+.sticky-swatch[data-color='blue'] { background: #D6E6FB; }
+.sticky-swatch[data-color='pink'] { background: #FBD9E3; }
+.sticky-swatch[data-color='purple'] { background: #E4DAFB; }
+.sticky-swatch[data-color='dark'] { background: #34343B; }
+.sticky-swatch:hover { transform: scale(1.08); }
+.sticky-swatch[aria-pressed='true'] { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+.sticky-text {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 11px 12px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.62;
+  letter-spacing: -0.01em;
+  resize: none;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.sticky-text::placeholder { color: var(--ink-muted); }
+
+.sticky-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 7px;
+  font-size: 9.5px;
+  color: var(--ink-muted);
+  letter-spacing: 0.02em;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.sticky-foot .sticky-brand { font-weight: 700; letter-spacing: 0.08em; opacity: 0.55; }
+
+/* 저장 상태 — 저장 중에는 점이 깜빡인다. */
+#sticky-state.is-saving { opacity: 0.9; }
+#sticky-state.is-error { color: #C0392B; }

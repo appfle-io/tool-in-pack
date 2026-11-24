@@ -37,6 +37,13 @@ import currencyCalc from './currency-calc/module.js';
 import clipboardHistory from './clipboard-history/module.js';
 import addressSearch from './address-search/module.js';
 import parcelTracker from './parcel-tracker/module.js';
+// v1.14.0 — Mac 전용 생산성 확장(스티커·스포이드·드래그 OCR·창 분할)과 공용 도구(이름 변경·스니펫)
+import stickyNotes from './sticky-notes/module.js';
+import screenPicker from './screen-picker/module.js';
+import dragOcr from './drag-ocr/module.js';
+import windowSnap from './window-snap/module.js';
+import bulkRename from './bulk-rename/module.js';
+import snippets from './snippets/module.js';
 
 /**
  * 홈 화면 섹션 순서. 여기에 적은 순서대로 홈이 그려진다.
@@ -87,10 +94,29 @@ export const registry = [
   fileCompress,
   unitConverter,
   currencyCalc,
+  // v1.14.0
+  stickyNotes,
+  snippets,
+  screenPicker,
+  dragOcr,
+  windowSnap,
+  bulkRename,
 ];
 
+const TAURI = typeof window !== 'undefined' && !!(window.__TAURI__ && window.__TAURI__.core);
+
+/** 이 환경에서 쓸 수 있는 모듈 — 웹(PWA)에서는 Mac 전용(macOnly)을 감춘다. (v1.14.0) */
 export function listModules() {
+  return registry.filter((mod) => !mod.macOnly || TAURI);
+}
+
+/** 환경과 상관없이 등록된 모든 모듈 — 설정 화면 등 내부용. */
+export function allModules() {
   return registry.slice();
+}
+
+export function isTauri() {
+  return TAURI;
 }
 
 export function getModule(id) {

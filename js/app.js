@@ -11,6 +11,12 @@ import {
   getSearchShortcut, setSearchShortcut, SEARCH_SHORTCUT_DEFAULT,
 } from './store.js';
 import { quickOrderIds, customQuickOrderIds, saveQuickOrder } from './quickbar.js';
+import {
+  SEARCH_SCOPE_ITEMS, getSearchScope, setSearchScope, getShortcut, setShortcut, clearShortcut,
+  syncShortcuts, actionsFor, valuesFor, getFeatureValue, setFeatureValue,
+  getSystemCommandEnabled, setSystemCommandEnabled,
+} from './feature-settings.js';
+import { listSnippets } from './snippets.js';
 import { el, toast, icons } from './ui.js';
 
 /* Mac 앱(Tauri) 안에서 실행 중인지 — 메뉴 막대 퀵바와 창을 주고받는 데 쓴다. */
@@ -441,6 +447,19 @@ function renderModule(mod) {
     ]),
   ]);
 
+  // v1.14.0 — 이 모듈만의 설정(전역 단축키·세부 옵션)으로 바로 가는 ⚙.
+  if (TAURI) {
+    const gear = el('button', {
+      class: 'icon-ghost-btn screen-gear',
+      type: 'button',
+      'aria-label': `${mod.name} 설정`,
+      title: '이 모듈의 설정 — 단축키·세부 옵션',
+      html: icons.gear || '',
+    });
+    gear.addEventListener('click', () => openSheet('modules', mod.id));
+    bar.append(gear);
+  }
+
   const root = el('section', { class: 'module-screen', 'aria-label': mod.name });
   view.append(bar, root);
   view.focus({ preventScroll: false });
@@ -448,6 +467,8 @@ function renderModule(mod) {
 
   activeCleanup = mod.mount(root, {
     goHome: () => { location.hash = '#/'; },
+    goModule: (id) => { location.hash = `#/${id}`; },
+    openSettings: (moduleId) => openSheet('modules', moduleId || mod.id),
     toast,
     icons,
   }) || null;
@@ -531,8 +552,11 @@ const SWATCH_COLORS = {
 
 /* ------------------- 반원 퀵바 순서 — 하위 메뉴 (v1.10.0) ------------------- */
 
-let sheetView = 'main';        // 'main' | 'quickbar'
-let sheetRender = null;        // openSheet() 가 만든 render — 하위 메뉴에서 다시 그릴 때 쓴다
+// v1.14.0 — 설정을 네 탭으로 나눈다. 일반 / 노치 / 검색(Spotlight) / 모듈.
+// 'quickbar' 는 노치 탭에서 들어가는 하위 화면(반원 퀵바 순서).
+let sheetTab = 'general';      // 'general' | 'notch' | 'search' | 'modules' | 'quickbar'
+let sheetModule = null;        // 모듈 탭에서 고른 모듈 id
+let sheetRender = null;        // openSheet() 가 만든 render — 하위 화면에서 다시 그릴 때 쓴다
 
 const RADIAL_MODE_LABELS = { asc: '오름차순', desc: '내림차순', custom: '사용자 지정' };
 
@@ -555,7 +579,7 @@ function quickbarMenuRow() {
     el('span', { class: 'sheet-menu-arrow', text: '›', 'aria-hidden': 'true' }),
   ]);
   row.addEventListener('click', () => {
-    sheetView = 'quickbar';
+    sheetTab = 'quickbar';
     if (sheetRender) sheetRender();
   });
   return el('div', { class: 'sheet-section' }, row);
@@ -570,7 +594,7 @@ function quickbarScreen(rerenderSheet) {
     el('span', { text: '설정' }),
   ]);
   back.addEventListener('click', () => {
-    sheetView = 'main';
+    sheetTab = 'notch';
     rerenderSheet();
   });
 
@@ -766,7 +790,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.13.1';
+const APP_VERSION = '1.14.0';
 
 let updateBusy = false;
 
@@ -1360,9 +1384,542 @@ function closeSheet() {
   setTimeout(() => { backdrop.remove(); panel.remove(); }, 220);
 }
 
-function openSheet() {
-  if (sheet) return;
-  sheetView = 'main';
+/* ------------------------- 설정 — 네 탭 (v1.14.0) ------------------------- */
+//
+// 유동규 님 지시: 설정이 어디를 바꾸는지 헷갈리지 않게 네 곳으로 나눈다.
+//   일반  — 앱 공통(테마·색·메뉴 막대·자동 실행·권한·업데이트)
+//   노치  — 화면 최상단 노치 아일랜드 전용(켜기·위젯·퀵바 순서·캘린더 필터)
+//   검색  — 전역 검색(Option+Space) 전용(단축키·검색 대상·시스템 명령)
+//   모듈  — 개별 도구(모듈별 전역 단축키 + 세부 옵션)
+// 탭 맨 위 한 줄이 "이 탭이 어디를 바꾸는지"를 말해 준다.
+
+const SHEET_TABS = [
+  { id: 'general', label: '일반' },
+  { id: 'notch', label: '노치', mac: true },
+  { id: 'search', label: '검색', mac: true },
+  { id: 'modules', label: '모듈' },
+];
+
+const TAB_NOTES = {
+  general: '앱 전체에 적용됩니다 — 테마·기본 색·메뉴 막대·로그인 자동 실행·권한·업데이트.',
+  notch: '화면 최상단에 붙는 노치 아일랜드와 메뉴 막대 퀵바만 바꿉니다. 검색창은 [검색] 탭에 있습니다.',
+  search: '전역 검색(Option+Space) 창에서 무엇을 찾고 실행할지 정합니다. 모듈별 단축키는 [모듈] 탭입니다.',
+  modules: '고른 모듈 하나의 전역 단축키와 세부 옵션만 보여 줍니다.',
+  quickbar: '메뉴 막대 퀵바(반원)에 모듈이 놓이는 순서입니다.',
+};
+
+function sheetNote(tab) {
+  return el('p', { class: 'sheet-tab-note', text: TAB_NOTES[tab] || '' });
+}
+
+function sheetSwitch(on, label, onChange, { disabled = false } = {}) {
+  const button = el('button', {
+    class: 'switch',
+    type: 'button',
+    'aria-pressed': String(!!on),
+    'aria-label': label,
+    disabled: disabled ? 'true' : null,
+  }, el('span', { class: 'switch-track' }, el('span', { class: 'switch-thumb' })));
+  button.addEventListener('click', () => {
+    const next = button.getAttribute('aria-pressed') !== 'true';
+    button.setAttribute('aria-pressed', String(next));
+    onChange(next);
+  });
+  return button;
+}
+
+/** 탭 막대 — Mac 앱에서만 보인다(웹은 지금처럼 한 화면). */
+function sheetTabs(render) {
+  const bar = el('div', { class: 'sheet-tabs', role: 'tablist', 'aria-label': '설정 영역' });
+  SHEET_TABS.forEach(({ id, label }) => {
+    const active = sheetTab === id || (sheetTab === 'quickbar' && id === 'notch');
+    const button = el('button', {
+      class: `sheet-tab${active ? ' is-on' : ''}`,
+      type: 'button',
+      role: 'tab',
+      'aria-selected': String(active),
+      text: label,
+      'data-tab': id,
+    });
+    button.addEventListener('click', () => {
+      sheetTab = id;
+      sheetModule = null;
+      render();
+    });
+    bar.append(button);
+  });
+  return bar;
+}
+
+/* ------------------------------ 일반 탭 ------------------------------ */
+
+function generalTab(render) {
+  const parts = [sheetNote('general')];
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const accent = getAccent();
+
+  // 화면 모드
+  const seg = el('div', { class: 'sheet-segment', role: 'radiogroup', 'aria-label': '화면 모드' });
+  [['light', '라이트'], ['dark', '다크']].forEach(([id, label]) => {
+    const btn = el('button', {
+      class: 'sheet-seg',
+      type: 'button',
+      role: 'radio',
+      'aria-checked': String(dark === (id === 'dark')),
+    });
+    btn.innerHTML = `${id === 'dark' ? MOON : SUN}<span> ${label}</span>`;
+    btn.addEventListener('click', () => {
+      setTheme(id);
+      render();
+    });
+    seg.append(btn);
+  });
+  parts.push(el('div', { class: 'sheet-section' }, el('h3', { text: '화면 모드' }), seg));
+
+  // 기본 색상
+  const swatches = el('div', { class: 'sheet-swatches', role: 'radiogroup', 'aria-label': '기본 색상' });
+  ACCENTS.forEach(({ id, label }) => {
+    const [lightColor, darkColor] = SWATCH_COLORS[id];
+    const btn = el('button', {
+      class: 'swatch',
+      type: 'button',
+      role: 'radio',
+      'aria-checked': String(accent === id),
+      'aria-label': label,
+    });
+    const dot = el('span', { class: 'swatch-dot' });
+    dot.style.background = `linear-gradient(135deg, ${lightColor} 50%, ${darkColor} 50%)`;
+    btn.append(dot, el('span', { text: label }));
+    btn.addEventListener('click', () => {
+      setAccent(id);
+      render();
+    });
+    swatches.append(btn);
+  });
+  parts.push(el('div', { class: 'sheet-section' }, el('h3', { text: '기본 색상' }), swatches));
+
+  if (TAURI) {
+    parts.push(autostartSection());
+    parts.push(menuBarSection());
+    parts.push(permissionSection());
+  }
+
+  parts.push(updateSection());
+
+  if (hasSectionOrder()) {
+    parts.push(el('div', { class: 'sheet-section' }, [
+      el('h3', { text: '홈 화면' }),
+      el('button', {
+        class: 'sheet-reset',
+        type: 'button',
+        text: '카드 순서 초기화',
+        onclick: () => {
+          resetSectionOrder();
+          rerenderHome();
+          closeSheet();
+          toast('카드 순서를 처음 상태로 되돌렸습니다');
+        },
+      }),
+    ]));
+  }
+
+  return parts;
+}
+
+/** 로그인 시 자동 실행 — LaunchAgent(io.appfle.tip.plist) 하나만 쓴다. */
+function autostartSection() {
+  const readout = el('i', { class: 'notch-hint', text: '확인 중…' });
+  const toggle = sheetSwitch(false, '로그인 시 자동 실행', async (next) => {
+    try {
+      await invokeTauri('set_autostart', { enabled: next });
+      readout.textContent = next ? '켜짐' : '꺼짐';
+      toast(next ? '로그인할 때 TIP 이 자동으로 켜집니다' : '로그인 자동 실행을 껐습니다');
+    } catch (error) {
+      console.error('[TIP autostart]', error);
+      toggle.setAttribute('aria-pressed', String(!next));
+      readout.textContent = !next ? '켜짐' : '꺼짐';
+      toast(typeof error === 'string' ? error : '자동 실행 설정을 바꾸지 못했습니다');
+    }
+  });
+
+  invokeTauri('get_autostart').then((on) => {
+    toggle.setAttribute('aria-pressed', String(!!on));
+    readout.textContent = on ? '켜짐' : '꺼짐';
+  }).catch(() => { readout.textContent = '꺼짐'; });
+
+  return el('div', { class: 'sheet-section mb-section' }, [
+    el('h3', { text: '시작' }),
+    el('p', {
+      class: 'mb-note',
+      text: 'Mac 에 로그인할 때 TIP 을 자동으로 켭니다. ~/Library/LaunchAgents 에 TIP 자신의 실행 파일만 등록합니다.',
+    }),
+    el('div', { class: 'mb-row' }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: '로그인 시 자동 실행' }),
+        readout,
+      ]),
+      toggle,
+    ]),
+  ]);
+}
+
+/* ------------------------------ 노치 탭 ------------------------------ */
+
+function notchTab(render) {
+  const parts = [sheetNote('notch')];
+  parts.push(notchSection(render));
+  parts.push(calendarFilterSection());
+  parts.push(quickbarMenuRow());
+  return parts;
+}
+
+/** 노치 캘린더에 어떤 캘린더를 보일지 — 노치 화면과 같은 저장 키를 쓴다. */
+const CAL_FILTER_KEY = 'tip.calendar.selectedIds.v1';
+
+function calendarFilterSection() {
+  const holder = el('div', { class: 'sheet-section mb-section cal-filter-section' }, [
+    el('h3', { text: '캘린더 표시 필터' }),
+    el('p', { class: 'mb-note', text: '노치의 오늘 일정에 보일 캘린더만 고릅니다. 고른 값은 이 기기에만 저장됩니다.' }),
+    el('p', { class: 'mb-note', text: '캘린더 목록을 불러오는 중…' }),
+  ]);
+
+  if (!TAURI) return holder;
+
+  invokeTauri('calendar_list').then((list) => {
+    holder.innerHTML = '';
+    holder.append(
+      el('h3', { text: '캘린더 표시 필터' }),
+      el('p', { class: 'mb-note', text: '노치의 오늘 일정에 보일 캘린더만 고릅니다. 고른 값은 이 기기에만 저장됩니다.' }),
+    );
+    const calendars = Array.isArray(list) ? list : [];
+    if (!calendars.length) {
+      holder.append(el('p', { class: 'mb-note', text: '읽을 수 있는 캘린더가 없습니다. 권한을 확인해 주세요.' }));
+      return;
+    }
+    let selected = null;
+    try {
+      const stored = JSON.parse(localStorage.getItem(CAL_FILTER_KEY) || 'null');
+      if (Array.isArray(stored)) selected = stored;
+    } catch { selected = null; }
+
+    const save = () => {
+      const on = [...holder.querySelectorAll('input[data-cal]')].filter((input) => input.checked).map((input) => input.dataset.cal);
+      try {
+        if (on.length === calendars.length) localStorage.removeItem(CAL_FILTER_KEY);
+        else localStorage.setItem(CAL_FILTER_KEY, JSON.stringify(on));
+      } catch { /* 저장하지 못하면 이번에만 */ }
+      if (window.__TAURI__?.event?.emitTo) {
+        window.__TAURI__.event.emitTo('notch', 'tip://notch-refresh', null).catch(() => {});
+      }
+    };
+
+    calendars.forEach((calendar) => {
+      const checked = selected === null || selected.includes(calendar.id);
+      const input = el('input', { type: 'checkbox', 'data-cal': calendar.id });
+      input.checked = checked;
+      input.addEventListener('change', save);
+      const dot = el('span', { class: 'cal-filter-dot' });
+      dot.style.background = calendar.color || '#2E5E4E';
+      const row = el('label', { class: 'cal-filter-row' }, [input, dot, el('span', { text: calendar.title || calendar.id })]);
+      holder.append(row);
+    });
+  }).catch(() => {
+    holder.append(el('p', { class: 'mb-note', text: '캘린더 목록을 불러오지 못했습니다(권한 확인).' }));
+  });
+
+  return holder;
+}
+
+/* ------------------------------ 검색 탭 ------------------------------ */
+
+function searchTab(render) {
+  const parts = [sheetNote('search')];
+  parts.push(searchSection(render));
+  parts.push(searchScopeSection());
+  parts.push(systemCommandSection(render));
+  return parts;
+}
+
+function searchScopeSection() {
+  const scope = getSearchScope();
+  const rows = SEARCH_SCOPE_ITEMS.filter((item) => !item.mac || TAURI).map((item) => {
+    const toggle = sheetSwitch(scope[item.id], item.label, (next) => {
+      setSearchScope(item.id, next);
+      toast(next ? `'${item.label}'을(를) 검색에 포함합니다` : `'${item.label}'을(를) 검색에서 뺐습니다`);
+    });
+    return el('div', { class: 'mb-row' }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: item.label }),
+        el('i', { class: 'notch-hint', text: item.hint }),
+      ]),
+      toggle,
+    ]);
+  });
+
+  return el('div', { class: 'sheet-section mb-section' }, [
+    el('h3', { text: '검색 대상' }),
+    el('p', { class: 'mb-note', text: '끄면 그 종류는 검색 결과에 아예 나오지 않습니다.' }),
+    ...rows,
+  ]);
+}
+
+/** 시스템 명령 9종 — 켜고 끄고, 위험한 명령은 한 번 더 묻는다. */
+const SYSTEM_COMMAND_ROWS = [
+  { id: 'lock', label: '화면 잠금', risky: false },
+  { id: 'sleep', label: '잠자기', risky: false },
+  { id: 'screensaver', label: '화면 보호기', risky: false },
+  { id: 'darkmode', label: '다크 · 라이트 모드 전환', risky: false },
+  { id: 'hiddenfiles', label: '숨김 파일 표시 전환', risky: false },
+  { id: 'emptytrash', label: '휴지통 비우기', risky: true },
+  { id: 'restart', label: '재시동', risky: true },
+  { id: 'shutdown', label: '시스템 종료', risky: true },
+  { id: 'logout', label: '로그아웃', risky: true },
+];
+
+function systemCommandSection(render) {
+  if (!TAURI) return el('div', { class: 'sheet-section mb-section' });
+  const enabled = getSystemCommandEnabled();
+  const rows = SYSTEM_COMMAND_ROWS.map((command) => {
+    const toggle = sheetSwitch(enabled[command.id], command.label, (next) => {
+      setSystemCommandEnabled(command.id, next);
+      toast(`${command.label} 명령을 ${next ? '켜' : '껐'}습니다`);
+    });
+    return el('div', { class: 'mb-row' }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: command.label }),
+        el('i', { class: 'notch-hint', text: command.risky ? '실행 전에 한 번 더 확인합니다' : '검색에서 바로 실행' }),
+      ]),
+      toggle,
+    ]);
+  });
+
+  return el('div', { class: 'sheet-section mb-section' }, [
+    el('h3', { text: '시스템 명령' }),
+    el('p', {
+      class: 'mb-note',
+      text: '검색창에서 잠금·잠자기·다크 모드 같은 macOS 명령을 실행합니다. 위험한 명령은 Enter 를 한 번 더 눌러야 실행됩니다.',
+    }),
+    ...rows,
+  ]);
+}
+
+/* ------------------------------ 모듈 탭 ------------------------------ */
+
+function modulesTab(render) {
+  if (sheetModule) return moduleTab(sheetModule, render);
+
+  const parts = [sheetNote('modules')];
+  const list = el('div', { class: 'sheet-module-list' });
+  listModules().forEach((mod) => {
+    const actions = actionsFor(mod.id);
+    const count = actions.filter((action) => getShortcut(action.key)).length;
+    const row = el('button', { class: 'sheet-module-row', type: 'button' }, [
+      el('span', { class: 'sheet-module-icon', html: mod.icon || '' }),
+      el('span', { class: 'sheet-module-text' }, [
+        el('b', { text: mod.shortName || mod.name }),
+        el('span', { text: `${mod.subtitle || ''}${count ? ` · 단축키 ${count}개` : ''}` }),
+      ]),
+      el('span', { class: 'sheet-menu-arrow', text: '›', 'aria-hidden': 'true' }),
+    ]);
+    row.addEventListener('click', () => {
+      sheetModule = mod.id;
+      render();
+    });
+    list.append(row);
+  });
+
+  parts.push(el('div', { class: 'sheet-section' }, list));
+  return parts;
+}
+
+function moduleTab(moduleId, render) {
+  const mod = getModule(moduleId);
+  if (!mod) {
+    sheetModule = null;
+    return modulesTab(render);
+  }
+
+  const back = el('button', { class: 'sheet-back', type: 'button', 'aria-label': '모듈 목록으로' }, [
+    el('span', { class: 'sheet-back-icon', html: icons.back, 'aria-hidden': 'true' }),
+    el('span', { text: '모듈' }),
+  ]);
+  back.addEventListener('click', () => {
+    sheetModule = null;
+    render();
+  });
+
+  const parts = [
+    el('div', { class: 'sheet-head sheet-head-sub' }, [
+      back,
+      el('h2', { text: mod.shortName || mod.name }),
+    ]),
+    el('p', { class: 'sheet-tab-note', text: `${mod.name} 하나에만 적용됩니다 — 전역 단축키와 이 모듈의 세부 옵션.` }),
+  ];
+
+  const actions = actionsFor(moduleId);
+  const shortcutRows = actions.map((action) => shortcutRow(action, render));
+  parts.push(el('div', { class: 'sheet-section mb-section' }, [
+    el('h3', { text: '전역 단축키' }),
+    el('p', { class: 'mb-note', text: '어디서든 이 조합을 누르면 바로 실행합니다. macOS 나 다른 앱이 이미 쓰는 조합은 등록되지 않습니다.' }),
+    ...shortcutRows,
+  ]));
+
+  if (moduleId === 'window-snap') {
+    parts.push(el('div', { class: 'sheet-section' }, el('button', {
+      class: 'sheet-reset',
+      type: 'button',
+      text: '권장 단축키 채우기 (⌃⌥ + 방향키)',
+      onclick: async () => {
+        const table = {
+          'snap:left': 'Control+Alt+ArrowLeft',
+          'snap:right': 'Control+Alt+ArrowRight',
+          'snap:top': 'Control+Alt+ArrowUp',
+          'snap:bottom': 'Control+Alt+ArrowDown',
+          'snap:max': 'Control+Alt+Enter',
+          'snap:center': 'Control+Alt+KeyC',
+        };
+        Object.entries(table).forEach(([key, accelerator]) => setShortcut(key, accelerator));
+        const failures = await syncShortcuts();
+        render();
+        toast(failures.length ? `일부 단축키를 등록하지 못했습니다: ${failures[0].accelerator}` : '권장 단축키를 채웠습니다');
+      },
+    })));
+  }
+
+  const options = valuesFor(moduleId);
+  if (options.length) {
+    const rows = options.map((option) => featureValueRow(option, render));
+    parts.push(el('div', { class: 'sheet-section mb-section' }, [
+      el('h3', { text: '세부 옵션' }),
+      ...rows,
+    ]));
+  }
+
+  if (moduleId === 'snippets') {
+    const count = listSnippets().length;
+    parts.push(el('div', { class: 'sheet-section' }, [
+      el('p', { class: 'mb-note', text: `지금 스니펫 ${count}개. 내용은 모듈 화면에서 고칩니다.` }),
+    ]));
+  }
+
+  return parts;
+}
+
+/** 단축키 하나 — 칩 + 변경(녹음) + 해제. */
+function shortcutRow(action, render) {
+  const current = getShortcut(action.key);
+  const chip = el('kbd', { class: 'shortcut-chip', text: current ? prettyShortcut(current) : '없음' });
+  const change = el('button', { class: 'primary-btn ghost shortcut-change', type: 'button', text: '변경' });
+  const drop = el('button', { class: 'icon-btn shortcut-open', type: 'button', text: '해제' });
+  drop.disabled = !current;
+
+  let capturing = false;
+  const stop = () => {
+    capturing = false;
+    document.removeEventListener('keydown', onKey, true);
+    chip.classList.remove('is-capturing');
+    chip.textContent = getShortcut(action.key) ? prettyShortcut(getShortcut(action.key)) : '없음';
+    change.textContent = '변경';
+  };
+
+  const onKey = async (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      stop();
+      return;
+    }
+    const accelerator = acceleratorOf(event);
+    if (!accelerator) return;
+    event.preventDefault();
+    if (accelerator === getSearchShortcut()) {
+      toast('검색 단축키와 같은 조합입니다 — 다른 조합을 써 주세요');
+      return;
+    }
+    const previous = getShortcut(action.key);
+    setShortcut(action.key, accelerator);
+    const failures = await syncShortcuts();
+    const failure = failures.find((item) => item.key === action.key);
+    if (failure) {
+      if (previous) setShortcut(action.key, previous);
+      else clearShortcut(action.key);
+      await syncShortcuts();
+      toast(`${prettyShortcut(accelerator)} 를 등록하지 못했습니다 — 이미 쓰는 조합입니다`);
+    } else {
+      toast(`${action.label}: ${prettyShortcut(accelerator)}`);
+    }
+    stop();
+    render();
+  };
+
+  change.addEventListener('click', () => {
+    if (capturing) return;
+    capturing = true;
+    chip.textContent = '새 단축키를 누르세요';
+    chip.classList.add('is-capturing');
+    change.textContent = '취소';
+    document.addEventListener('keydown', onKey, true);
+  });
+
+  drop.addEventListener('click', async () => {
+    clearShortcut(action.key);
+    await syncShortcuts();
+    render();
+    toast(`${action.label} 단축키를 해제했습니다`);
+  });
+
+  return el('div', { class: 'mb-row shortcut-feature-row' }, [
+    el('span', { class: 'mb-label' }, [
+      el('b', { text: action.label }),
+      action.hint ? el('i', { class: 'notch-hint', text: action.hint }) : null,
+    ]),
+    el('div', { class: 'shortcut-keys' }, [chip]),
+    el('div', { class: 'shortcut-actions' }, [change, drop]),
+  ]);
+}
+
+/** 모듈 세부 옵션 한 줄 — 고르기 / 스위치 / 색. */
+function featureValueRow(option, render) {
+  const value = getFeatureValue(option.key, option.fallback);
+  const label = el('span', { class: 'mb-label' }, [
+    el('b', { text: option.label }),
+    option.hint ? el('i', { class: 'notch-hint', text: option.hint }) : null,
+  ]);
+
+  if (option.type === 'switch') {
+    const toggle = sheetSwitch(value !== false, option.label, (next) => {
+      setFeatureValue(option.key, next);
+      toast(`${option.label} ${next ? '켬' : '끔'}`);
+    });
+    return el('div', { class: 'mb-row' }, [label, toggle]);
+  }
+
+  if (option.type === 'select' || option.type === 'color') {
+    const select = el('select', { class: 'pt-input sheet-select', 'aria-label': option.label });
+    option.options.forEach(([id, text]) => {
+      const item = el('option', { value: id, text });
+      if (id === value) item.selected = true;
+      select.append(item);
+    });
+    select.addEventListener('change', () => {
+      setFeatureValue(option.key, select.value);
+      toast(`${option.label}을(를) 바꿨습니다`);
+      render();
+    });
+    return el('div', { class: 'mb-row feature-select-row' }, [label, select]);
+  }
+
+  return el('div', { class: 'mb-row' }, [label]);
+}
+
+function openSheet(tab = 'general', moduleId = null) {
+  if (sheet) {
+    sheetTab = tab || 'general';
+    sheetModule = moduleId || sheetModule;
+    if (sheetRender) sheetRender();
+    return;
+  }
+  sheetTab = tab || 'general';
+  sheetModule = moduleId || null;
   const backdrop = el('div', { class: 'sheet-backdrop' });
   backdrop.addEventListener('click', closeSheet);
 
@@ -1377,14 +1934,10 @@ function openSheet() {
     panel.innerHTML = '';
     panel.append(el('div', { class: 'sheet-grab' }));
 
-    // 하위 메뉴 — 반원 퀵바 순서(방식 + 사용자 지정 목록).
-    if (sheetView === 'quickbar') {
+    if (sheetTab === 'quickbar') {
       quickbarScreen(render).forEach((node) => panel.append(node));
       return;
     }
-
-    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
-    const accent = getAccent();
 
     panel.append(el('div', { class: 'sheet-head' }, [
       el('h2', { text: '환경설정' }),
@@ -1397,80 +1950,18 @@ function openSheet() {
       }),
     ]));
 
-    // 화면 모드
-    const seg = el('div', { class: 'sheet-segment', role: 'radiogroup', 'aria-label': '화면 모드' });
-    [['light', '라이트'], ['dark', '다크']].forEach(([id, label]) => {
-      const btn = el('button', {
-        class: 'sheet-seg',
-        type: 'button',
-        role: 'radio',
-        'aria-checked': String(dark === (id === 'dark')),
-      });
-      btn.innerHTML = `${id === 'dark' ? MOON : SUN}<span> ${label}</span>`;
-      btn.addEventListener('click', () => {
-        setTheme(id);
-        render();
-      });
-      seg.append(btn);
-    });
-    panel.append(el('div', { class: 'sheet-section' }, el('h3', { text: '화면 모드' }), seg));
-
-    // 기본 색상
-    const swatches = el('div', { class: 'sheet-swatches', role: 'radiogroup', 'aria-label': '기본 색상' });
-    ACCENTS.forEach(({ id, label }) => {
-      const [lightColor, darkColor] = SWATCH_COLORS[id];
-      const btn = el('button', {
-        class: 'swatch',
-        type: 'button',
-        role: 'radio',
-        'aria-checked': String(accent === id),
-        'aria-label': label,
-      });
-      const dot = el('span', { class: 'swatch-dot' });
-      dot.style.background = `linear-gradient(135deg, ${lightColor} 50%, ${darkColor} 50%)`;
-      btn.append(dot, el('span', { text: label }));
-      btn.addEventListener('click', () => {
-        setAccent(id);
-        render();
-      });
-      swatches.append(btn);
-    });
-    panel.append(el('div', { class: 'sheet-section' }, el('h3', { text: '기본 색상' }), swatches));
-
-    // Mac 앱 — 메뉴 막대 아이콘 표시 여부.
-    if (TAURI) panel.append(menuBarSection());
-
-    // Mac 앱 — 노치 아일랜드(자체 + 위젯별 ON/OFF)와 전역 빠른 실행 검색.
-    if (TAURI) {
-      panel.append(notchSection(render));
-      panel.append(searchSection(render));
-      // macOS 권한 설정 — 시스템 설정의 개인정보 보호 항목을 바로 여는 버튼(v1.12.3).
-      panel.append(permissionSection());
+    let body;
+    if (!TAURI) {
+      // 웹(PWA)은 지금처럼 한 화면 — Mac 전용 탭은 없다.
+      body = generalTab(render);
+    } else {
+      panel.append(sheetTabs(render));
+      if (sheetTab === 'general') body = generalTab(render);
+      else if (sheetTab === 'notch') body = notchTab(render);
+      else if (sheetTab === 'search') body = searchTab(render);
+      else body = modulesTab(render);
     }
-
-    // 앱 업데이트 — 현재 버전과 확인 버튼(v1.10.0).
-    panel.append(updateSection());
-
-    // 반원 퀵바 순서 — 하위 메뉴로 들어가는 한 줄 메뉴(지금 방식이 오른쪽에 보인다).
-    panel.append(quickbarMenuRow());
-
-    // 홈 카드 순서를 바꾼 적이 있을 때만 되돌리기 버튼을 보여 준다.
-    if (hasSectionOrder()) {
-      panel.append(el('div', { class: 'sheet-section' }, [
-        el('h3', { text: '홈 화면' }),
-        el('button', {
-          class: 'sheet-reset',
-          type: 'button',
-          text: '카드 순서 초기화',
-          onclick: () => {
-            resetSectionOrder();
-            rerenderHome();
-            closeSheet();
-            toast('카드 순서를 처음 상태로 되돌렸습니다');
-          },
-        }),
-      ]));
-    }
+    body.forEach((node) => panel.append(node));
   };
 
   sheetRender = render;
@@ -1487,6 +1978,41 @@ settingsBtn.addEventListener('click', () => {
   if (sheet) closeSheet();
   else openSheet();
 });
+
+/* ------------------------------ 문의하기 (v1.14.0) ------------------------------ */
+
+const MAIL_TO = 'appfle.io@gmail.com';
+
+function inquiryUrl() {
+  const subject = `[TIP 문의] v${APP_VERSION}`;
+  return `mailto:${MAIL_TO}?subject=${encodeURIComponent(subject)}`;
+}
+
+const inquiryBtn = document.getElementById('inquiry-btn');
+if (inquiryBtn) {
+  inquiryBtn.addEventListener('click', async () => {
+    // Mac 앱은 Rust 가 mailto 를 열어 기본 메일 앱을 확실히 띄운다.
+    if (TAURI) {
+      try {
+        await invokeTauri('open_external_url', { url: inquiryUrl() });
+        return;
+      } catch (error) {
+        console.warn('[TIP inquiry]', error);
+      }
+    } else {
+      location.href = inquiryUrl();
+      return;
+    }
+    // 메일 앱이 없으면 주소를 복사해 준다.
+    try {
+      if (TAURI) await invokeTauri('copy_text', { text: MAIL_TO });
+      else await navigator.clipboard.writeText(MAIL_TO);
+      toast(`메일 앱을 열지 못해 주소를 복사했습니다 — ${MAIL_TO}`, 3600);
+    } catch {
+      toast(`문의 주소: ${MAIL_TO}`, 4000);
+    }
+  });
+}
 
 window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeSheet();
@@ -1546,6 +2072,12 @@ if (TAURI && window.__TAURI__.event) {
   // 반원 퀵바의 ⚙ 버튼 — 창이 이미 떠 있어도 설정 시트를 앞으로 꺼낸다.
   window.__TAURI__.event.listen('tip://open-settings', () => openSheet());
 
+  // Rust 가 알리는 짧은 안내(단축키 실패·권한 등)를 화면 토스트로 띄운다(v1.14.0).
+  window.__TAURI__.event.listen('tip://toast', (event) => {
+    const text = typeof event.payload === 'string' ? event.payload : '';
+    if (text) toast(text.replace('[permission]', '').trim(), 3200);
+  });
+
   // 창이 뜨기 전에 누른 요청은 Rust 쪽에 남아 있다가 여기서 한 번 꺼낸다.
   // (컴팩트 도구 창은 주인공이 아니므로 꺼내지 않는다 — 메인 창이 가져간다.)
   const isToolWindow = new URLSearchParams(location.search).has('module');
@@ -1567,6 +2099,13 @@ if (TAURI && window.__TAURI__.event) {
       .catch((error) => console.warn('[TIP] notch hover:', error));
     window.__TAURI__.core.invoke('set_search_shortcut', { accelerator: getSearchShortcut() })
       .catch((error) => console.warn('[TIP] search shortcut:', error));
+
+    // v1.14.0 — 기능별 전역 단축키도 저장값 그대로 등록한다. 실패한 조합은 조용히 알린다.
+    syncShortcuts().then((failures) => {
+      if (failures.length) {
+        toast(`${failures.length}개 단축키를 등록하지 못했습니다 — 설정 → 모듈에서 확인해 주세요`, 3600);
+      }
+    });
   }
 }
 

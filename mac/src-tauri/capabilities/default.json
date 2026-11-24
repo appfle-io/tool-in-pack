@@ -1,14 +1,16 @@
 {
   "identifier": "default",
-  "description": "TIP 앱 창(메인·퀵바·컴팩트·노치·검색)에 필요한 기본 권한",
+  "description": "TIP 앱 창(메인·퀵바·컴팩트·노치·검색·스티커)에 필요한 기본 권한",
   "windows": [
     "main",
     "quickbar",
     "tool",
     "notch",
-    "search"
+    "search",
+    "sticky-*"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-start-dragging"
   ]
 }

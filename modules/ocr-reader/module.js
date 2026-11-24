@@ -6,6 +6,10 @@
  */
 
 import { formatBytes, icons } from '../../js/ui.js';
+import { getFeatureValue } from '../../js/feature-settings.js';
+
+const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
+const C = TAURI ? window.__TAURI__.core : null;
 
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M20 8V5a1 1 0 0 0-1-1h-3M4 16v3a1 1 0 0 0 1 1h3M20 16v3a1 1 0 0 1-1 1h-3"/><path d="M8 9h8M12 9v7M10 16h4"/></svg>`;
 
@@ -92,7 +96,11 @@ const module = {
 
     let file = null;
     let previewUrl = null;
-    let langId = LANGS[0].id;
+    // v1.14.0 — 설정(설정 → 모듈 → 화면 드래그 OCR)에서 고른 언어로 시작한다.
+    let langId = (() => {
+      const saved = getFeatureValue('ocr.lang', 'kor+eng');
+      return LANGS.some((lang) => lang.id === saved) ? saved : LANGS[0].id;
+    })();
     let worker = null;
     let workerLangId = null;
     let busy = false;
@@ -275,6 +283,12 @@ const module = {
         const text = (data.text || '').replace(/\n{4,}/g, '\n\n\n').trim();
         textEl.value = text;
         updateCount();
+        // v1.14.0 — 설정에서 켜 두면 추출한 글자를 바로 복사한다(드래그 OCR 단축키 흐름).
+        if (text && getFeatureValue('ocr.autoCopy', true)) {
+          navigator.clipboard.writeText(text).catch(() => {
+            if (C) C.invoke('copy_text', { text }).catch(() => {});
+          });
+        }
         resultEl.hidden = false;
         hideProgress();
         if (!text) {
@@ -356,6 +370,28 @@ const module = {
       const name = `${baseName(file?.name)}-text.txt`;
       download(new Blob([textEl.value], { type: 'text/plain;charset=utf-8' }), name);
     }, { signal });
+
+    /* v1.14.0 — 전역 단축키로 찍어 둔 화면이 있으면 이 창이 열리자마자 불러와 읽는다.
+     * (drag-ocr 모듈은 handoff 로 넘기고, 단축키는 Rust 가 찍은 뒤 이 창을 연다.) */
+    async function takePendingShot() {
+      if (!C) return;
+      try {
+        const shot = await C.invoke('take_pending_shot');
+        if (!shot) return;
+        const base64 = await C.invoke('read_capture', { path: shot });
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        const image = new File([bytes], 'screen-shot.png', { type: 'image/png' });
+        loadFile(image);
+        run();
+      } catch (error) {
+        console.warn('[TIP ocr-reader] 찍어 둔 화면을 불러오지 못했습니다', error);
+      }
+    }
+    takePendingShot();
 
     ['dragenter', 'dragover'].forEach((type) =>
       root.addEventListener(type, (event) => {

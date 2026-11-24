@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * TIP v1.13.1 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
+ * TIP v1.14.0 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
  *
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.14.0 — Mac 생산성 확장(스티커 메모 · Spotlight형 전역 검색 · 모듈별 단축키 · 스포이드 ·
+ *          드래그 OCR · 창 분할 · 파일 일괄 이름 변경 · 스니펫 · 로그인 자동 실행 · 시스템 명령 ·
+ *          설정 4탭 · 문의 메일 · 주소 영문 변환)을 검사한다.
  * v1.13.1 — 우편번호 스크립트 도메인을 t1.kakaocdn.net 으로 옮긴 것(daumcdn 잔존 참조 없음,
  *          CSP script/style/img/font/frame/connect 에 kakaocdn 허용)을 검사한다.
  * v1.13.0 — 캘린더 달력 보기(일·주·월)·독립 필터, 주소 검색 흰 화면 수정(CSP 카카오 우편번호
@@ -56,7 +59,7 @@ check('Cargo.toml 버전', new RegExp(`^version = "${VERSION}"`, 'm').test(read(
 check('mac/package.json 버전', JSON.parse(read('mac/package.json')).version === VERSION);
 check('sw.js 캐시 버전', read('sw.js').includes(`tip-v${VERSION}`));
 check('js/app.js APP_VERSION', read('js/app.js').includes(`APP_VERSION = '${VERSION}'`));
-check('버전이 1.13.1 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 13 || (minor === 13 && patch >= 1))))(VERSION.split('.').map(Number)), String(VERSION));
+check('버전이 1.14.0 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 14 || (minor === 14 && patch >= 0))))(VERSION.split('.').map(Number)), String(VERSION));
 
 /* ------------------------------ 2. 노치 밀착 ------------------------------ */
 
@@ -163,15 +166,19 @@ const EXPECTED = {
   document: ['doc-reader', 'pdf-tools', 'md-editor'],
   media: ['img-converter', 'photo-privacy', 'video-gif', 'video-mosaic'],
   dev: ['dev-tools', 'text-diff', 'regex-tester', 'color-tools', 'icon-gen'],
-  utility: ['clipboard-history', 'qr-gen', 'file-compress', 'ocr-reader', 'unit-converter'],
+  utility: [
+    'clipboard-history', 'qr-gen', 'file-compress', 'ocr-reader', 'unit-converter',
+    // v1.14.0
+    'sticky-notes', 'snippets', 'screen-picker', 'drag-ocr', 'window-snap', 'bulk-rename',
+  ],
   online: ['address-search', 'parcel-tracker', 'currency-calc'],
 };
 
 // registry 목록에 적힌 모듈만 센다(파일 시스템 탐색에 기대지 않는다).
 const listed = [...registry.matchAll(/^import\s+(\w+)\s+from\s+'\.\/([^/]+)\/module\.js';/gm)].map((m) => m[2]);
 const total = Object.values(EXPECTED).flat();
-check('registry 모듈 20개', listed.length === 20 && total.length === 20, `${listed.length}/${total.length}`);
-check('registry 가 20개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
+check('registry 모듈 26개', listed.length === 26 && total.length === 26, `${listed.length}/${total.length}`);
+check('registry 가 26개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
 
 Object.entries(EXPECTED).forEach(([category, ids]) => {
   ids.forEach((id) => {
@@ -260,7 +267,7 @@ check('업데이트에 verify 단계 문구', appJs.includes('verify'));
 
 const capability = read('mac/src-tauri/capabilities/default.json');
 check('capability 에 parcel 창 없음', !/"parcel"/.test(capability));
-['main', 'quickbar', 'tool', 'notch', 'search'].forEach((win) => {
+['main', 'quickbar', 'tool', 'notch', 'search', 'sticky-*'].forEach((win) => {
   check(`capability 창 ${win}`, capability.includes(`"${win}"`));
 });
 
@@ -342,6 +349,86 @@ check('배송 창이 m.search.naver.com 허용', lib.includes('host == "m.search
 check('홈 카드 버튼이 > 아이콘', /class: 'open-btn module-open'/.test(appJs) && /html: icons\.right/.test(appJs));
 check('홈 카드에 실행 글자 버튼 없음', !/text: state\.enabled \? '실행' : '중지'/.test(appJs));
 check('카드 버튼 aria-label 유지', /'aria-label': state\.enabled \? `\$\{mod\.name\} 실행`/.test(appJs));
+
+/* ------------------------- v1.14.0 Mac 생산성 확장 ------------------------- */
+
+// 1. 스티커 메모
+check('sticky.html 존재', exists('sticky.html'));
+check('js/sticky.js 존재', exists('js/sticky.js'));
+check('css/sticky.css 존재', exists('css/sticky.css'));
+const stickyRs = read('mac/src-tauri/src/sticky.rs');
+check('sticky.rs 저장 파일 sticky-notes.json', stickyRs.includes('"sticky-notes.json"'));
+check('sticky.rs 창 라벨 sticky-{id}', /fn window_label\(id: &str\) -> String \{\s*format!\("sticky-\{id\}"\)/.test(stickyRs));
+check('sticky.rs 이동·크기를 창 이벤트로 저장', stickyRs.includes('WindowEvent::Moved') && stickyRs.includes('WindowEvent::Resized'));
+check('sticky.rs 재실행 복원', /pub fn restore\(app: &AppHandle\)/.test(stickyRs));
+check('lib.rs 가 sticky::restore 호출', /sticky::restore\(&handle\)/.test(lib));
+check('lib.rs 스티커 커맨드 8개 등록', ['sticky_list', 'sticky_get', 'sticky_create', 'sticky_update', 'sticky_set_pin', 'sticky_close', 'sticky_delete', 'sticky_open'].every((name) => new RegExp(`sticky::${name},`).test(lib)));
+check('sticky.js 저장 디바운스', /setTimeout\(\(\) => save\(textarea.value\), 400\)/.test(read('js/sticky.js')));
+check('sticky.js 창 드래그 바', read('sticky.html').includes('data-tauri-drag-region'));
+check('스티커 모듈 Mac 배지', /badge: 'Mac'/.test(read('modules/sticky-notes/module.js')));
+
+// 2. 전역 검색 — 계산기·웹·파일·앱·스니펫·시스템 명령
+const searchJs = read('js/search.js');
+check('계산기 모듈 계산만 씀(eval 없음)', exists('js/calc.js') && !/\beval\(|new Function\(/.test(read('js/calc.js')));
+check('계산기 함수 export', /export function calculate\(/.test(read('js/calc.js')));
+check('search.js 가 계산기 사용', /import \{ calculate \} from '\.\/calc\.js'/.test(searchJs));
+check('초성 검색 모듈', exists('js/chosung.js') && /export function chosungRank\(/.test(read('js/chosung.js')));
+check('search.js 가 초성 검색 사용', /import \{ koreanRank \} from '\.\/chosung\.js'/.test(searchJs));
+check('search.js 가 앱 목록 호출', searchJs.includes("invoke('list_installed_apps')"));
+check('search.js 가 맥 앱 실행', searchJs.includes("invoke('open_local_app'"));
+check('search.js 가 mdfind 파일 검색', searchJs.includes("invoke('search_local_files'"));
+check('search.js 가 파일 열기', searchJs.includes("invoke('open_local_file'"));
+check('search.js 가 웹 검색 g·n', /WEB_ENGINES = \{[\s\S]{0,200}google[\s\S]{0,200}naver/.test(searchJs) && /\[gn\]/.test(searchJs));
+check('search.js 가 스니펫 검색', /import \{ findSnippets/.test(searchJs));
+check('search.js 가 시스템 명령 9종', ['lock', 'sleep', 'screensaver', 'darkmode', 'hiddenfiles', 'emptytrash', 'restart', 'shutdown', 'logout'].every((id) => new RegExp(`id: '${id}'`).test(searchJs)));
+check('위험 명령 한 번 더 확인', /pendingConfirm/.test(searchJs) && /한 번 더 Enter/.test(searchJs));
+check('Rust mdfind 사용', read('mac/src-tauri/src/apps.rs').includes('"mdfind"'));
+check('Rust mdfind 1초 제한', /MDFIND_TIMEOUT: Duration = Duration::from_millis\(1000\)/.test(read('mac/src-tauri/src/apps.rs')));
+check('Rust 파일 12건 제한', /FILE_HIT_MAX: usize = 12/.test(read('mac/src-tauri/src/apps.rs')));
+check('Rust 앱 경로 검증', /fn is_openable_app\(/.test(read('mac/src-tauri/src/apps.rs')));
+check('Rust run_system_command 표', exists('mac/src-tauri/src/system.rs') && /pub fn run_system_command\(id: String\)/.test(read('mac/src-tauri/src/system.rs')));
+
+// 3. 모듈별 단축키
+check('Rust 단축키 표', /static SHORTCUT_TABLE: Mutex<Vec<\(String, String\)>>/.test(lib));
+check('Rust set_module_shortcuts', /fn set_module_shortcuts\(app: AppHandle, items: Vec<\(String, String\)>\)/.test(lib));
+check('Rust 단축키 눌림 분기', /fn shortcut_pressed\(app: &AppHandle/.test(lib) && /"sticky:new" =>/.test(lib) && /starts_with\("snap:"\)/.test(lib));
+check('app.js 가 기능 단축키 등록', /syncShortcuts\(\)\.then/.test(appJs));
+check('feature-settings.js 단축키 저장', /tip\.shortcuts\.v1/.test(read('js/feature-settings.js')));
+
+// 4. 스포이드 · 드래그 OCR · 창 분할 · 파일 이름 변경 · 스니펫 · 자동 실행
+const captureRs = read('mac/src-tauri/src/capture.rs');
+check('NSColorSampler 사용', captureRs.includes('NSColorSampler') && captureRs.includes('showSamplerWithSelectionHandler'));
+check('screencapture -i 사용', captureRs.includes('"screencapture"') && captureRs.includes('"-i"'));
+check('화면 기록 권한 확인', captureRs.includes('CGPreflightScreenCaptureAccess'));
+check('AXIsProcessTrusted 로 창 이동', captureRs.includes('AXIsProcessTrusted') && captureRs.includes('AXFocusedWindow'));
+check('창 분할 6종', ['left', 'right', 'top', 'bottom', 'max', 'center'].every((preset) => captureRs.includes(`"${preset}"`)));
+check('손쉬운 사용 설정 열기', lib.includes('Privacy_Accessibility'));
+check('화면 기록 설정 열기', lib.includes('Privacy_ScreenCapture'));
+check('파일 이름 변경 허용 목록', /static DROP_ALLOWED/.test(read('mac/src-tauri/src/files.rs')) && /fn plan_targets\(/.test(read('mac/src-tauri/src/files.rs')));
+check('rename_files 커맨드', /fn rename_files\(plan: Vec<RenamePair>\)/.test(read('mac/src-tauri/src/files.rs')));
+check('드롭 경로 허용(tool 창)', /fn attach_file_drop\(win: &WebviewWindow\)/.test(lib));
+check('스니펫 저장 키', /const KEY = 'tip\.snippets\.v1'/.test(read('js/snippets.js')));
+check('자동 실행 LaunchAgent', exists('mac/src-tauri/src/autostart.rs') && read('mac/src-tauri/src/autostart.rs').includes('io.appfle.tip') && read('mac/src-tauri/src/autostart.rs').includes('RunAtLoad'));
+check('자동 실행 자기 실행 파일만', /fn own_executable\(/.test(read('mac/src-tauri/src/autostart.rs')));
+
+// 5. 설정 4탭 · 문의 메일 · 주소 영문
+check('설정 탭 4개', ['general', 'notch', 'search', 'modules'].every((id) => new RegExp(`\\{ id: '${id}', label:`).test(appJs)));
+check('탭 설명 문구', /TAB_NOTES = \{/.test(appJs) && /검색창은 \[검색\] 탭에 있습니다/.test(appJs));
+check('모듈 화면 ⚙', /screen-gear/.test(appJs) && /openSheet\('modules', mod\.id\)/.test(appJs));
+check('문의 버튼', read('index.html').includes('id="inquiry-btn"') && appJs.includes('appfle.io@gmail.com'));
+check('mailto 허용', /mailto:/.test(lib) && lib.includes('appfle.io@gmail.com'));
+check('주소 프레임 100% 크기', read('address-frame.html').includes('#addr-frame-embed {') && /width: 100%;\s*\n\s*height: 100%;/.test(read('address-frame.html')));
+check('우편번호 embed 100%', /postcode\.embed\(embedEl, \{ q: '' \}\)/.test(read('js/address-frame.js')) && /width: '100%'/.test(read('js/address-frame.js')));
+check('주소 iframe 480px', read('modules/address-search/module.js').includes("frame.style.height = '480px'"));
+check('영문 주소 변환 모듈', exists('modules/address-search/romanize.js') && /export function romanizeAddress\(/.test(read('modules/address-search/romanize.js')));
+check('해외직구 항목 분리', /Address Line/.test(read('modules/address-search/module.js')) && read('modules/address-search/module.js').includes('State / Province') && /Zip Code/.test(read('modules/address-search/module.js')));
+
+// 6. 캐시·자산
+check('sw.js 가 sticky.html 캐시', read('sw.js').includes("'./sticky.html'"));
+check('sw.js 가 새 스크립트 캐시', ['./js/calc.js', './js/chosung.js', './js/snippets.js', './js/feature-settings.js', './js/sticky.js']
+  .every((path) => read('sw.js').includes(`'${path}'`)));
+check('collect-web 이 sticky.html 포함', read('mac/scripts/collect-web.sh').includes('sticky.html'));
+check('README 에 v1.14.0', read('README.md').includes('v1.14.0'));
 
 /* ------------------------------ 결과 ------------------------------ */
 

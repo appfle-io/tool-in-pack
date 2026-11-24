@@ -1185,9 +1185,28 @@ function launcherCard() {
   requestAnimationFrame(() => {
     const row = card.querySelector('#launcher-row');
     if (!row) return;
+    // v1.14.0 — 노치에서도 바로 새 스티커 한 장.
+    if (TAURI) {
+      const add = document.createElement('button');
+      add.className = 'launcher-tile launcher-new';
+      add.type = 'button';
+      add.title = '새 스티커 메모';
+      add.innerHTML = '<span class="launcher-icon" aria-hidden="true">+</span><span>새 스티커</span>';
+      add.addEventListener('click', async () => {
+        try {
+          await invoke('sticky_create', {});
+          setExpanded(false);
+        } catch (error) {
+          console.error('[TIP notch] 스티커를 띄우지 못했습니다', error);
+          toast('스티커를 띄우지 못했습니다');
+        }
+      });
+      row.append(add);
+    }
+
     const ids = quickOrderIds();
     if (!ids.length) {
-      row.innerHTML = '<p class="launcher-empty">켜 둔 모듈이 없습니다</p>';
+      if (!TAURI) row.innerHTML = '<p class="launcher-empty">켜 둔 모듈이 없습니다</p>';
       return;
     }
     ids.forEach((id) => {

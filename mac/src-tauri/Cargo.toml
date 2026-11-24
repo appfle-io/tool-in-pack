@@ -1,6 +1,6 @@
 [package]
 name = "tip"
-version = "1.13.1"
+version = "1.14.0"
 description = "TIP (TOOL-IN-PACK) macOS 앱"
 authors = ["유동규 <appfle.io@gmail.com>"]
 edition = "2021"
@@ -48,6 +48,12 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   # v1.13.0 — 캘린더 색(EKCalendar.color)을 #RRGGBB 로 바꾸려면 색 공간 변환이 필요하다.
   "NSColor",
   "NSColorSpace",
+  # v1.14.0 — 화면 스포이드(NSColorSampler), 앞 앱 찾기(NSWorkspace·NSRunningApplication)
+  "NSColorSampler",
+  "NSWorkspace",
+  "NSRunningApplication",
+  # NSRunningApplication.processIdentifier() 는 libc feature 뒤에 있다.
+  "libc",
 ] }
 objc2-event-kit = { version = "0.3", default-features = false, features = [
   "std",

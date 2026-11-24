@@ -70,6 +70,9 @@
       opened = true;
       if (statusEl) statusEl.hidden = true;
       if (embedEl) embedEl.hidden = false;
+      // v1.14.0 — embed 전에 한 번 레이아웃을 확정한다. 보이지 않는(높이 0) 상자에 embed 하면
+      // 다음 우편번호 서비스가 0 높이로 그려 왼쪽 위에 작은 상자만 남았다.
+      void (embedEl && embedEl.offsetHeight);
       var postcode = new window.daum.Postcode({
         oncomplete: function (data) {
           post({
@@ -89,7 +92,17 @@
         width: '100%',
         height: '100%',
       });
-      postcode.embed(embedEl);
+      postcode.embed(embedEl, { q: '' });
+      // embed 뒤에도 한 번 더 크기를 알려 준다(내부 iframe 이 100% 로 늘어나게).
+      setTimeout(function () {
+        var inner = embedEl && embedEl.querySelector('iframe');
+        if (inner) {
+          inner.style.width = '100%';
+          inner.style.height = '100%';
+          inner.style.border = '0';
+          inner.style.display = 'block';
+        }
+      }, 60);
       // v1.13.0 — embed() 가 조용히 아무것도 그리지 않으면 화면이 흰색으로만 남았다.
       // 잠깐 뒤 속을 보고, 비어 있으면 부모에 오류로 알려 안내 문구가 뜨게 한다.
       setTimeout(function () {

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TIP 스티커</title>
+  <meta name="color-scheme" content="light dark">
+
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('tip.theme');
+        var dark = saved ? saved === 'dark'
+          : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        var accent = localStorage.getItem('tip.accent');
+        document.documentElement.setAttribute('data-accent',
+          ['green', 'blue', 'purple', 'orange', 'rose', 'slate'].indexOf(accent) >= 0 ? accent : 'green');
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+
+  <link rel="stylesheet" href="./css/app.css">
+  <link rel="stylesheet" href="./css/sticky.css">
+  <script type="module" src="./js/sticky.js"></script>
+</head>
+<body class="sticky-body">
+  <main class="sticky" id="sticky" data-color="green">
+    <header class="sticky-bar" data-tauri-drag-region>
+      <div class="sticky-tools">
+        <button class="sticky-tool" id="new-btn" type="button" title="새 스티커" aria-label="새 스티커">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button class="sticky-tool" id="color-btn" type="button" title="색 바꾸기" aria-label="색 바꾸기">
+          <span class="sticky-dot" aria-hidden="true"></span>
+        </button>
+        <button class="sticky-tool" id="pin-btn" type="button" title="항상 위" aria-label="항상 위" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v7"/></svg>
+        </button>
+      </div>
+      <div class="sticky-drag" data-tauri-drag-region></div>
+      <div class="sticky-tools">
+        <button class="sticky-tool sticky-danger" id="delete-btn" type="button" title="스티커 삭제" aria-label="스티커 삭제">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>
+        </button>
+        <button class="sticky-tool" id="close-btn" type="button" title="닫기 (내용은 남습니다)" aria-label="닫기">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="sticky-palette" id="palette" hidden>
+      <button class="sticky-swatch" type="button" data-color="yellow" aria-label="노랑"></button>
+      <button class="sticky-swatch" type="button" data-color="green" aria-label="딥그린"></button>
+      <button class="sticky-swatch" type="button" data-color="blue" aria-label="파랑"></button>
+      <button class="sticky-swatch" type="button" data-color="pink" aria-label="분홍"></button>
+      <button class="sticky-swatch" type="button" data-color="purple" aria-label="보라"></button>
+      <button class="sticky-swatch" type="button" data-color="dark" aria-label="다크그레이"></button>
+    </div>
+
+    <textarea id="sticky-text" class="sticky-text" placeholder="메모를 적으세요 — 바로 저장됩니다" spellcheck="false" aria-label="스티커 내용"></textarea>
+
+    <footer class="sticky-foot">
+      <span id="sticky-state">저장됨</span>
+      <span class="sticky-brand" aria-hidden="true">TIP</span>
+    </footer>
+  </main>
+</body>
+</html>
