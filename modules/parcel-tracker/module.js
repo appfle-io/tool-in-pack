@@ -1,10 +1,10 @@
 /**
- * TIP · 배송 조회 (parcel-tracker) — v1.12.0
+ * TIP · 배송 조회 (parcel-tracker) — v1.13.0
  *
  * 택배사 + 송장번호 + 별명(예: `시우 기저귀`)을 기기에만 저장해 두고, 누르면 바로 조회한다.
  * 조회는 **네이버 배송조회** 화면을 연다(API 키·서버 없음).
- * - Mac 앱: Rust 명령 `open_parcel_webview` 로 480×720 컴팩트 창 안에서 네이버 배송조회를 연다.
- * - 웹(PWA): 브라우저 새 탭으로 같은 주소를 연다.
+ * - Mac 앱: Rust 명령 `open_parcel_webview` 로 460×740 컴팩트 창 안에서 네이버 배송조회(모바일 판)를 연다.
+ * - 웹(PWA): 브라우저 새 탭으로 같은 모바일 판 주소를 연다.
  *
  * 저장 위치: localStorage 'tip.parcels.v1' — 서버로 보내지 않는다(TIP 에는 서버가 없다).
  * 항목: { id, carrierId, carrier, invoice, nickname, created, opened }
@@ -47,10 +47,12 @@ function normalizeInvoice(value) {
   return String(value ?? '').replace(/[\s-]/g, '').toUpperCase();
 }
 
-/** 네이버 배송조회 주소 — `택배사 송장번호` 한 줄로 검색한다. */
+/** 네이버 배송조회 주소 — `택배사 송장번호` 한 줄로 검색한다.
+ *  v1.13.0 — PC 판 대신 모바일 판(m.search.naver.com)을 연다. 좁은 앱 창(460px)에서 PC 레이아웃이
+ *  가로로 넘쳤다. Mac 앱은 같은 주소를 모바일 Safari User-Agent 로 열어 한 열 레이아웃을 받는다. */
 function naverUrl(carrier, invoice) {
   const query = [carrier, invoice].filter(Boolean).join(' ');
-  return `https://search.naver.com/search.naver?query=${encodeURIComponent(query)}`;
+  return `https://m.search.naver.com/search.naver?query=${encodeURIComponent(query)}`;
 }
 
 let nextId = Date.now();
@@ -361,7 +363,7 @@ const module = {
   subtitle: '송장번호 보관 · 네이버 배송조회 바로 열기',
   description: '택배사·송장번호·별명을 저장해 두고 네이버 배송조회를 한 번에 엽니다(Mac 앱은 앱 안 창).',
   icon: PARCEL_ICON,
-  version: '1.12.0',
+  version: '1.13.0',
   category: 'online',
   defaultEnabled: true,
   defaultPinned: false,

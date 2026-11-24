@@ -1,10 +1,15 @@
-/* TIP · 노치 아일랜드 — macOS 화면 최상단 중앙(노치 자리)에 붙는 작은 창. v1.12.3
+/* TIP · 노치 아일랜드 — macOS 화면 최상단 중앙(노치 자리)에 붙는 작은 창. v1.13.0
  *
  * 평소에는 노치 자리에 작은 알약으로 붙어 있다가, 알약을 클릭하거나 파일을 끌어다 놓으면 펼쳐진다.
  * (v1.12.3 — 마우스를 올리는 것만으로는 펼쳐지지 않는다. 다른 앱을 쓰다가 지나가듯 올려도
  *  작업을 가리지 않게, 펼침은 클릭으로만 한다.)
  * 창 크기와 위치는 Rust(mac/src-tauri) 가 바꾸고, 이 파일은 안쪽 화면만 담당한다.
  * 접힘/펼침은 창 너비로 판단한다 — Rust 가 접힘 240×28(노치 화면은 노치 높이), 펼침 452×600 으로 맞춘다.
+ *
+ * v1.13.0 — 캘린더 카드를 누르면 패널 안에 달력 보기(일별·주별·월별)가 열린다.
+ *   날짜를 누르면 그날 일정이 아래에 나오고, '캘린더' 버튼의 체크 목록으로 캘린더를 골라
+ *   볼 수 있다(맥 캘린더 앱과 독립, localStorage 'tip.calendar.selectedIds.v1'). 이 필터는
+ *   노치의 '다가오는 일정' 카드에도 그대로 적용된다.
  *
  * v1.12.2 수정
  *   · 환경설정에서 테마·기본 색·위젯·퀵바 순서를 바꾸면 tip://notch-refresh 를 받아 즉시 다시 그린다.
@@ -118,6 +123,8 @@ function setExpanded(next, { animate = true } = {}) {
     applyAppearance();
     requestAnimationFrame(() => { invoke('notch_expand').catch(() => {}); });
     startWidgets();
+    // v1.13.0 — 달력 보기가 열려 있었으면 다시 펼칠 때 보이는 기간을 새로 읽는다.
+    if (calView.open) loadCalendarView();
   } else {
     invoke('notch_collapse').catch(() => {});
     stopWidgets();
@@ -183,7 +190,8 @@ function renderWidgets() {
   if (widgets.launcher) add(launcherCard());
 
   emptyEl.hidden = count > 0;
-  widgetsEl.hidden = count === 0;
+  // v1.13.0 — 달력 보기가 열려 있으면 위젯 목록은 그 아래에 두고 숨긴다.
+  widgetsEl.hidden = calView.open ? true : count === 0;
   renderedSignature = settingsSignature();
 }
 
@@ -258,15 +266,20 @@ async function refreshMedia() {
 
 /* 캘린더 */
 
+const CAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8 3.5V6M16 3.5V6"/></svg>';
+
 function calendarCard() {
-  return widgetCard('calendar', `
+  const card = widgetCard('calendar', `
     <div class="wg-head">
       <span class="wg-label">다가오는 일정</span>
-      <span class="wg-side">오늘</span>
+      <button class="wg-link" id="cal-open" type="button" aria-label="달력 열기" title="달력 열기">${CAL_ICON}</button>
     </div>
     <ul class="cal-list" id="cal-list"><li class="cal-empty">일정을 불러오는 중…</li></ul>
     <button class="wg-perm" id="cal-perm" type="button" hidden>권한 설정</button>
   `);
+  // 카드 아무 곳이나 눌러도 달력이 열린다(아이콘을 정확히 겨냥하지 않아도 되게).
+  card.dataset.calOpen = '1';
+  return card;
 }
 
 function clock(ms) {
@@ -294,6 +307,497 @@ function startMs(event) {
   return Number.isFinite(parsed) ? parsed : NaN;
 }
 
+/* --------------------------- 캘린더 — 독립 필터 (v1.13.0) --------------------------- */
+
+/** TIP 안에서만 쓰는 캘린더 선택값 — macOS 달력 앱의 체크 상태와 무관하다. */
+const CAL_SELECTED_KEY = 'tip.calendar.selectedIds.v1';
+const CAL_DOW = ['일', '월', '화', '수', '목', '금', '토'];
+const CAL_FALLBACK_COLOR = '#2E5E4E';
+
+/** 저장된 선택 목록 — 저장값이 없으면 null(전체 선택). */
+function storedCalendarIds() {
+  try {
+    const raw = localStorage.getItem(CAL_SELECTED_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCalendarIds(ids) {
+  try {
+    localStorage.setItem(CAL_SELECTED_KEY, JSON.stringify(ids));
+  } catch (error) {
+    console.warn('[TIP notch] 캘린더 선택을 저장하지 못했습니다', error);
+  }
+}
+
+/** 조회에 넘길 캘린더 식별자 — null 이면 전체(필터 없음), 빈 배열이면 아무 캘린더도 표시하지 않음. */
+function selectedCalendarIds() {
+  return storedCalendarIds();
+}
+
+function isCalendarChecked(id) {
+  const stored = storedCalendarIds();
+  return stored === null ? true : stored.includes(id);
+}
+
+/** 색은 Rust 가 준 `#RRGGBB` 만 받는다 — 그 밖의 값이 style 로 흘러가지 않게. */
+function safeColor(value) {
+  return /^#[0-9A-Fa-f]{6}$/.test(String(value || '')) ? String(value) : CAL_FALLBACK_COLOR;
+}
+
+/* --------------------------- 캘린더 — 날짜 계산 --------------------------- */
+
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function midnight(value) {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function addDays(value, days) {
+  const date = new Date(value);
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function dayKey(value) {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function parseDayKey(key) {
+  const [year, month, day] = String(key).split('-').map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+}
+
+function weekStart(value) {
+  const date = midnight(value);
+  date.setDate(date.getDate() - date.getDay());
+  return date;
+}
+
+/** 화면에 열어 둔 캘린더 보기의 상태. */
+const calView = {
+  open: false,
+  mode: 'month',          // 'day' | 'week' | 'month'
+  selected: midnight(new Date()),
+  calendars: null,        // null = 아직 안 읽음
+  events: [],
+  loading: false,
+  error: '',
+  permission: false,
+  req: 0,                 // 늦게 도착한 조회 결과를 버리기 위한 번호
+};
+
+function calDom() {
+  return {
+    view: document.getElementById('cal-view'),
+    title: document.getElementById('cal-view-title'),
+    grid: document.getElementById('cal-grid-wrap'),
+    dayHead: document.getElementById('cal-day-head'),
+    dayList: document.getElementById('cal-day-list'),
+    filterBtn: document.getElementById('cal-filter-btn'),
+    filterPanel: document.getElementById('cal-filter-panel'),
+    filterList: document.getElementById('cal-filter-list'),
+    tabs: panelEl.querySelectorAll('[data-cal-mode]'),
+  };
+}
+
+/** 지금 보기(월·주·일)가 화면에 담는 기간 — [시작일 00:00, 끝 다음 날 00:00). */
+function calendarViewRange() {
+  const selected = calView.selected;
+  if (calView.mode === 'month') {
+    const first = new Date(selected.getFullYear(), selected.getMonth(), 1);
+    const start = weekStart(first);
+    return [start, addDays(start, 42)];   // 6주 격자 — 달마다 같은 높이
+  }
+  if (calView.mode === 'week') {
+    const start = weekStart(selected);
+    return [start, addDays(start, 7)];
+  }
+  const start = midnight(selected);
+  return [start, addDays(start, 1)];
+}
+
+function normalizeEvent(event) {
+  if (!event) return null;
+  const start = Number(event.start);
+  if (!Number.isFinite(start)) return null;
+  const end = Number(event.end);
+  return {
+    title: String(event.title || '(제목 없음)'),
+    start,
+    end: Number.isFinite(end) && end >= start ? end : start,
+    allDay: !!event.allDay,
+    calendarId: String(event.calendarId || ''),
+    calendar: String(event.calendar || ''),
+    color: safeColor(event.color),
+  };
+}
+
+function eventsOnDay(date, events = calView.events) {
+  const from = midnight(date).getTime();
+  const to = addDays(midnight(date), 1).getTime();
+  return events
+    .filter((event) => event.start < to && Math.max(event.end, event.start + 1) > from)
+    .sort((a, b) => (Number(b.allDay) - Number(a.allDay)) || (a.start - b.start));
+}
+
+/** 기간 안의 일정을 날짜별로 나눈다 — 여러 날에 걸친 일정은 그 날들 모두에 점이 찍힌다. */
+function eventsByDay(events = calView.events) {
+  const map = new Map();
+  events.forEach((event) => {
+    let cursor = midnight(event.start);
+    const last = midnight(Math.max(event.start, event.end - 1));
+    let guard = 0;
+    while (cursor.getTime() <= last.getTime() && guard < 62) {
+      const key = dayKey(cursor);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(event);
+      cursor = addDays(cursor, 1);
+      guard += 1;
+    }
+  });
+  return map;
+}
+
+async function loadCalendarList(force = false) {
+  if (calView.calendars && !force) return calView.calendars;
+  const list = await invoke('calendar_list');
+  calView.calendars = (Array.isArray(list) ? list : [])
+    .map((calendar) => ({
+      id: String(calendar.id || ''),
+      title: String(calendar.title || '캘린더'),
+      color: safeColor(calendar.color),
+      source: String(calendar.source || ''),
+    }))
+    .filter((calendar) => calendar.id);
+  return calView.calendars;
+}
+
+/** 보이는 기간의 일정을 읽어 다시 그린다. 필터(선택한 캘린더)가 있으면 그것만 요청한다. */
+async function loadCalendarView() {
+  if (!TAURI || !calView.open) return;
+  const request = ++calView.req;
+  calView.loading = true;
+  calView.error = '';
+  calView.permission = false;
+  const dom = calDom();
+  if (dom.dayList && !calView.events.length) {
+    dom.dayList.innerHTML = '<li class="cal-empty">일정을 불러오는 중…</li>';
+  }
+  try {
+    await loadCalendarList(false);
+    const [start, end] = calendarViewRange();
+    const ids = selectedCalendarIds();
+    const events = await invoke('calendar_events', {
+      startMs: start.getTime(),
+      endMs: end.getTime(),
+      calendarIds: ids === null ? null : ids,
+    });
+    if (request !== calView.req) return;   // 그사이 보기·날짜가 바뀌었다
+    calView.events = (Array.isArray(events) ? events : []).map(normalizeEvent).filter(Boolean);
+  } catch (error) {
+    if (request !== calView.req) return;
+    calView.permission = isPermissionError(error);
+    calView.error = errorText(error);
+    calView.events = [];
+  } finally {
+    if (request === calView.req) {
+      calView.loading = false;
+      renderCalendarView();
+    }
+  }
+}
+
+/* --------------------------- 캘린더 — 그리기 --------------------------- */
+
+function calendarTitle() {
+  const selected = calView.selected;
+  const year = selected.getFullYear();
+  const month = selected.getMonth() + 1;
+  if (calView.mode === 'month') return `${year}년 ${month}월`;
+  if (calView.mode === 'week') {
+    const start = weekStart(selected);
+    const end = addDays(start, 6);
+    const sameMonth = start.getMonth() === end.getMonth();
+    return sameMonth
+      ? `${start.getMonth() + 1}월 ${start.getDate()}일 – ${end.getDate()}일`
+      : `${start.getMonth() + 1}월 ${start.getDate()}일 – ${end.getMonth() + 1}월 ${end.getDate()}일`;
+  }
+  return `${month}월 ${selected.getDate()}일 (${CAL_DOW[selected.getDay()]})`;
+}
+
+function renderMonthGrid(dom) {
+  const selected = calView.selected;
+  const start = weekStart(new Date(selected.getFullYear(), selected.getMonth(), 1));
+  const todayKey = dayKey(new Date());
+  const selectedKey = dayKey(selected);
+  const byDay = eventsByDay();
+
+  const head = CAL_DOW.map((label) => `<span class="cal-dow">${label}</span>`).join('');
+  const cells = [];
+  for (let index = 0; index < 42; index += 1) {
+    const date = addDays(start, index);
+    const key = dayKey(date);
+    const dots = (byDay.get(key) || []).slice(0, 3)
+      .map((event) => `<span class="cal-dot" style="background:${event.color}"></span>`)
+      .join('');
+    const classes = ['cal-cell'];
+    if (date.getMonth() !== selected.getMonth()) classes.push('is-out');
+    if (key === todayKey) classes.push('is-today');
+    if (key === selectedKey) classes.push('is-sel');
+    const count = (byDay.get(key) || []).length;
+    cells.push(`
+      <button class="${classes.join(' ')}" type="button" data-cal-date="${key}"
+        aria-label="${date.getMonth() + 1}월 ${date.getDate()}일${count ? `, 일정 ${count}개` : ''}"
+        ${key === selectedKey ? 'aria-current="date"' : ''}>
+        <span class="cal-num">${date.getDate()}</span>
+        <span class="cal-dots" aria-hidden="true">${dots}</span>
+      </button>`);
+  }
+  dom.grid.innerHTML = `<div class="cal-grid">${head}${cells.join('')}</div>`;
+}
+
+function renderWeekStrip(dom) {
+  const start = weekStart(calView.selected);
+  const todayKey = dayKey(new Date());
+  const selectedKey = dayKey(calView.selected);
+  const byDay = eventsByDay();
+
+  const cells = [];
+  for (let index = 0; index < 7; index += 1) {
+    const date = addDays(start, index);
+    const key = dayKey(date);
+    const dots = (byDay.get(key) || []).slice(0, 4)
+      .map((event) => `<span class="cal-dot" style="background:${event.color}"></span>`)
+      .join('');
+    const classes = ['cal-week-cell'];
+    if (key === todayKey) classes.push('is-today');
+    if (key === selectedKey) classes.push('is-sel');
+    const count = (byDay.get(key) || []).length;
+    cells.push(`
+      <button class="${classes.join(' ')}" type="button" data-cal-date="${key}"
+        aria-label="${date.getMonth() + 1}월 ${date.getDate()}일 ${CAL_DOW[index]}요일${count ? `, 일정 ${count}개` : ''}">
+        <span class="cal-week-dow">${CAL_DOW[index]}</span>
+        <span class="cal-week-num">${date.getDate()}</span>
+        <span class="cal-dots" aria-hidden="true">${dots}</span>
+      </button>`);
+  }
+  dom.grid.innerHTML = `<div class="cal-week">${cells.join('')}</div>`;
+}
+
+function renderDayPanel(dom) {
+  const selected = calView.selected;
+  const events = eventsOnDay(selected);
+  const when = `${selected.getMonth() + 1}월 ${selected.getDate()}일 (${CAL_DOW[selected.getDay()]})`;
+
+  if (calView.permission) {
+    dom.dayHead.innerHTML = `<span>${when}</span>`;
+    dom.dayList.innerHTML = `
+      <li class="cal-empty">캘린더 권한이 필요합니다 — 시스템 설정 › 개인정보 보호 및 보안 › 캘린더에서 TIP을 허용하세요</li>
+      <li><button class="cal-tool" type="button" data-cal-perm>권한 설정 열기</button></li>`;
+    return;
+  }
+  if (calView.error) {
+    dom.dayHead.innerHTML = `<span>${when}</span>`;
+    dom.dayList.innerHTML = `<li class="cal-empty">캘린더를 읽지 못했습니다<span class="cal-error">${escapeHtml(calView.error)}</span></li>`;
+    return;
+  }
+
+  dom.dayHead.innerHTML = `<span>${when}</span><span>${events.length ? `${events.length}개 일정` : '일정 없음'}</span>`;
+  if (!events.length) {
+    dom.dayList.innerHTML = `<li class="cal-empty">${calView.loading ? '일정을 불러오는 중…' : '이 날은 일정이 없습니다'}</li>`;
+    return;
+  }
+
+  const wide = calView.mode === 'day';
+  dom.dayList.innerHTML = events.map((event) => {
+    const time = event.allDay
+      ? '종일'
+      : wide
+        ? `${clock(event.start)}–${clock(event.end)}`
+        : clock(event.start);
+    const meta = [event.calendar, event.allDay ? '' : `${clock(event.start)}–${clock(event.end)}`]
+      .filter(Boolean)
+      .join(' · ');
+    return `
+      <li class="cal-item${wide ? ' is-day' : ''}">
+        <span class="cal-item-bar" aria-hidden="true" style="background:${event.color}"></span>
+        <span class="cal-item-time">${time}</span>
+        <span class="cal-item-text">
+          <b>${escapeHtml(event.title)}</b>
+          <span>${escapeHtml(meta)}</span>
+        </span>
+      </li>`;
+  }).join('');
+}
+
+function renderCalendarFilter() {
+  const dom = calDom();
+  const calendars = calView.calendars || [];
+  const bySource = new Map();
+  calendars.forEach((calendar) => {
+    const key = calendar.source || '기타';
+    if (!bySource.has(key)) bySource.set(key, []);
+    bySource.get(key).push(calendar);
+  });
+
+  if (!calendars.length) {
+    dom.filterList.innerHTML = '<li class="cal-empty">캘린더가 없습니다</li>';
+    return;
+  }
+  dom.filterList.innerHTML = calendars.map((calendar) => `
+    <li class="cal-filter-row">
+      <label>
+        <input type="checkbox" data-cal-id="${escapeHtml(calendar.id)}" ${isCalendarChecked(calendar.id) ? 'checked' : ''}>
+        <span class="cal-filter-dot" style="background:${calendar.color}"></span>
+        <span class="cal-filter-name">${escapeHtml(calendar.title)}</span>
+        <span class="cal-filter-source">${escapeHtml(calendar.source)}</span>
+      </label>
+    </li>`).join('');
+}
+
+function renderCalendarView() {
+  if (!calView.open) return;
+  const dom = calDom();
+  dom.title.textContent = calendarTitle();
+  dom.tabs.forEach((tab) => {
+    const on = tab.dataset.calMode === calView.mode;
+    tab.classList.toggle('is-on', on);
+    tab.setAttribute('aria-selected', String(on));
+  });
+  dom.filterBtn.classList.toggle('is-on', !dom.filterPanel.hidden);
+  dom.filterBtn.setAttribute('aria-expanded', String(!dom.filterPanel.hidden));
+  if (calView.mode === 'month') renderMonthGrid(dom);
+  else if (calView.mode === 'week') renderWeekStrip(dom);
+  else dom.grid.innerHTML = '';
+  renderDayPanel(dom);
+  renderCalendarFilter();
+}
+
+/* --------------------------- 캘린더 — 조작 --------------------------- */
+
+function openCalendarView() {
+  if (!TAURI) {
+    toast('달력은 Mac 앱에서만 볼 수 있습니다');
+    return;
+  }
+  const dom = calDom();
+  if (!dom.view) return;
+  calView.open = true;
+  calView.selected = midnight(new Date());
+  dom.view.hidden = false;
+  widgetsEl.hidden = true;
+  const hint = panelEl.querySelector('#panel-hint');
+  if (hint) hint.hidden = true;
+  cancelCollapse();
+  renderCalendarView();
+  loadCalendarView();
+}
+
+function closeCalendarView() {
+  const dom = calDom();
+  calView.open = false;
+  calView.req += 1;              // 진행 중인 조회 결과는 버린다
+  if (dom.view) dom.view.hidden = true;
+  widgetsEl.hidden = widgetsEl.childElementCount === 0;
+  const hint = panelEl.querySelector('#panel-hint');
+  if (hint) hint.hidden = false;
+  if (dom.filterPanel) dom.filterPanel.hidden = true;
+}
+
+function setCalendarMode(mode) {
+  if (!['day', 'week', 'month'].includes(mode) || calView.mode === mode) return;
+  calView.mode = mode;
+  renderCalendarView();
+  loadCalendarView();
+}
+
+function selectCalendarDay(value) {
+  const date = typeof value === 'string' ? parseDayKey(value) : midnight(value);
+  if (Number.isNaN(date.getTime())) return;
+  // 월별 격자의 앞뒤 달 칸을 누르면 그 달로 넘어간다 — 격자가 바뀌므로 기간을 다시 읽는다.
+  const changedMonth = calView.mode === 'month'
+    && (date.getMonth() !== calView.selected.getMonth() || date.getFullYear() !== calView.selected.getFullYear());
+  const changedRange = calView.mode === 'day' || changedMonth || !isInView(date);
+  calView.selected = date;
+  renderCalendarView();
+  if (changedRange) loadCalendarView();
+}
+
+/** 지금 읽어 둔 기간 안의 날인지 — 안이면 다시 조회하지 않고 그려만 준다. */
+function isInView(date) {
+  const [start, end] = calendarViewRange();
+  const ms = midnight(date).getTime();
+  return ms >= start.getTime() && ms < end.getTime();
+}
+
+function stepCalendar(direction) {
+  const selected = calView.selected;
+  let next;
+  if (calView.mode === 'month') {
+    const year = selected.getFullYear();
+    const month = selected.getMonth() + direction;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    next = new Date(year, month, Math.min(selected.getDate(), lastDay));
+  } else if (calView.mode === 'week') {
+    next = addDays(selected, 7 * direction);
+  } else {
+    next = addDays(selected, direction);
+  }
+  calView.selected = midnight(next);
+  renderCalendarView();
+  loadCalendarView();
+}
+
+function goCalendarToday() {
+  calView.selected = midnight(new Date());
+  renderCalendarView();
+  loadCalendarView();
+}
+
+function toggleCalendarFilter(force) {
+  const dom = calDom();
+  if (!dom.filterPanel) return;
+  const next = typeof force === 'boolean' ? force : dom.filterPanel.hidden;
+  dom.filterPanel.hidden = !next;
+  dom.filterBtn.classList.toggle('is-on', next);
+  dom.filterBtn.setAttribute('aria-expanded', String(next));
+  if (next) renderCalendarFilter();
+  cancelCollapse();
+}
+
+/** 필터를 바꾸면 달력과 노치 오늘 요약을 함께 다시 읽는다. */
+function applyCalendarFilter() {
+  renderCalendarFilter();
+  if (calView.open) loadCalendarView();
+  refreshCalendar();
+}
+
+function setCalendarChecked(id, checked) {
+  const all = (calView.calendars || []).map((calendar) => calendar.id);
+  const base = storedCalendarIds() ?? all;
+  const next = checked
+    ? Array.from(new Set([...base, id]))
+    : base.filter((value) => value !== id);
+  saveCalendarIds(next);
+  applyCalendarFilter();
+}
+
+function setAllCalendars(checked) {
+  const all = (calView.calendars || []).map((calendar) => calendar.id);
+  saveCalendarIds(checked ? all : []);
+  applyCalendarFilter();
+}
+
 async function refreshCalendar() {
   if (!TAURI || !expanded || calendarBusy) return;
   if (!getNotchSettings().widgets.calendar) return;
@@ -301,11 +805,20 @@ async function refreshCalendar() {
   if (!list) return;
   calendarBusy = true;
   try {
-    const events = await invoke('calendar_today');
+    const today = midnight(new Date());
+    const ids = selectedCalendarIds();
+    // v1.13.0 — 카드도 달력과 같은 독립 필터를 쓴다(고른 캘린더만).
+    const events = await invoke('calendar_events', {
+      startMs: today.getTime(),
+      endMs: addDays(today, 1).getTime(),
+      calendarIds: ids === null ? null : ids,
+    });
+    const now = Date.now();
     const rows = (Array.isArray(events) ? events : [])
-      .map((event) => ({ event, ms: startMs(event) }))
-      .filter((row) => Number.isFinite(row.ms))
-      .sort((a, b) => a.ms - b.ms)
+      .map(normalizeEvent)
+      .filter(Boolean)
+      .filter((event) => Math.max(event.end, event.start + 1) >= now)
+      .sort((a, b) => (Number(b.allDay) - Number(a.allDay)) || (a.start - b.start))
       .slice(0, 4);
     if (!rows.length) {
       list.innerHTML = '<li class="cal-empty">오늘 남은 일정이 없습니다</li>';
@@ -315,12 +828,12 @@ async function refreshCalendar() {
     }
     const permBtn = panelEl.querySelector('#cal-perm');
     if (permBtn) permBtn.hidden = true;
-    list.innerHTML = rows.map(({ event, ms }) => `
+    list.innerHTML = rows.map((event) => `
       <li class="cal-row">
-        <span class="cal-bar" aria-hidden="true"></span>
+        <span class="cal-bar" aria-hidden="true" style="background:${event.color}"></span>
         <span class="cal-text">
-          <b>${escapeHtml(event.title || '(제목 없음)')}</b>
-          <span>${clock(ms)} · ${relativeUntil(ms)}</span>
+          <b>${escapeHtml(event.title)}</b>
+          <span>${event.allDay ? '종일' : `${clock(event.start)} · ${relativeUntil(event.start)}`}${event.calendar ? ` · ${escapeHtml(event.calendar)}` : ''}</span>
         </span>
       </li>
     `).join('');
@@ -757,6 +1270,48 @@ panelEl.addEventListener('mouseenter', cancelCollapse);
 
 // 패널 안의 위젯 버튼 — 위임 처리
 panelEl.addEventListener('click', (event) => {
+  // v1.13.0 — 캘린더 카드(아이콘·카드 아무 곳)를 누르면 달력 보기가 열린다.
+  if (event.target.closest('[data-cal-open]') || event.target.closest('#cal-open')) {
+    openCalendarView();
+    return;
+  }
+  if (event.target.closest('[data-cal-perm]')) {
+    invoke('open_privacy_settings', { kind: 'calendars' }).catch(() => toast('시스템 설정을 열지 못했습니다'));
+    return;
+  }
+  const calDate = event.target.closest('[data-cal-date]');
+  if (calDate) {
+    selectCalendarDay(calDate.dataset.calDate);
+    return;
+  }
+  const calMode = event.target.closest('[data-cal-mode]');
+  if (calMode) {
+    setCalendarMode(calMode.dataset.calMode);
+    return;
+  }
+  const calStep = event.target.closest('[data-cal-step]');
+  if (calStep) {
+    stepCalendar(Number(calStep.dataset.calStep) || 0);
+    return;
+  }
+  if (event.target.closest('#cal-view-close')) {
+    closeCalendarView();
+    return;
+  }
+  if (event.target.closest('#cal-view-title') || event.target.closest('#cal-today-btn')) {
+    goCalendarToday();
+    return;
+  }
+  if (event.target.closest('#cal-filter-btn')) {
+    toggleCalendarFilter();
+    return;
+  }
+  const calAll = event.target.closest('[data-cal-filter]');
+  if (calAll) {
+    setAllCalendars(calAll.dataset.calFilter !== 'none');
+    return;
+  }
+
   // v1.12.3 — 카드의 '권한 설정' 버튼 — 시스템 설정의 해당 개인정보 보호 항목을 연다.
   if (event.target.closest('#media-perm')) {
     invoke('open_privacy_settings', { kind: 'automation' }).catch(() => toast('시스템 설정을 열지 못했습니다'));
@@ -821,6 +1376,13 @@ panelEl.addEventListener('click', (event) => {
     invoke('open_main', { module: null, settings: true });
     setExpanded(false);
   }
+});
+
+// v1.13.0 — 독립 캘린더 필터 — 체크를 바꾸면 바로 다시 읽는다(달력과 노치 요약 모두).
+panelEl.addEventListener('change', (event) => {
+  const box = event.target.closest('input[data-cal-id]');
+  if (!box) return;
+  setCalendarChecked(box.dataset.calId, box.checked);
 });
 
 /* 파일 끌어다 놓기 — 두 갈래를 모두 받는다. (v1.12.2)

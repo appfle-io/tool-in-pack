@@ -55,8 +55,13 @@ const SEARCH_W: f64 = 640.0;
 const SEARCH_H: f64 = 440.0;
 
 // 배송 조회 — 네이버 배송조회를 앱 안에서 여는 컴팩트 창(일반 창이라 사용자가 닫·크기 조절).
-const PARCEL_W: f64 = 480.0;
-const PARCEL_H: f64 = 720.0;
+// v1.13.0 — 네이버의 PC 웹 레이아웃이 480px 창에 가로로 넘쳐, 모바일 판(m.search.naver.com)을
+// 아이폰 Safari User-Agent 로 열고 창을 460×740(모바일 화면 비율)에 맞춘다.
+const PARCEL_W: f64 = 460.0;
+const PARCEL_H: f64 = 740.0;
+/// 배송 조회 창이 스스로를 모바일 Safari 로 알리는 값 — 네이버가 모바일 레이아웃을 내려 준다.
+const PARCEL_USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) \
+     AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 const DEFAULT_SEARCH_SHORTCUT: &str = "Alt+Space";
 
 const RELEASES_LATEST: &str = "https://api.github.com/repos/appfle-io/tool-in-pack/releases/latest";
@@ -762,7 +767,7 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
 }
 
 /// 배송 조회 — 네이버 배송조회 화면을 앱 안의 컴팩트 창(parcel)에서 바로 연다.
-/// 이미 열려 있으면 그 창의 주소만 바꾼다. 네이버 주소(https://search.naver.com/…)만 허용한다.
+/// 이미 열려 있으면 그 창의 주소만 바꾼다. 네이버 검색 주소(https, PC·모바일)만 허용한다.
 #[tauri::command]
 fn open_parcel_webview(app: AppHandle, url: String, title: String) -> Result<(), String> {
     let target: tauri::Url = url.parse().map_err(|_| "주소를 읽지 못했습니다".to_string())?;
@@ -785,7 +790,9 @@ fn open_parcel_webview(app: AppHandle, url: String, title: String) -> Result<(),
     let win = WebviewWindowBuilder::new(&app, PARCEL, WebviewUrl::External(target))
         .title(title)
         .inner_size(PARCEL_W, PARCEL_H)
-        .min_inner_size(360.0, 480.0)
+        .min_inner_size(360.0, 560.0)
+        // v1.13.0 — 모바일 Safari 로 알려 네이버가 모바일 레이아웃(한 열)을 내려 주게 한다.
+        .user_agent(PARCEL_USER_AGENT)
         .resizable(true)
         .visible(false)
         .build()
@@ -1275,6 +1282,8 @@ pub fn run() {
             media::media_state,
             media::media_control,
             media::calendar_today,
+            media::calendar_list,
+            media::calendar_events,
             notch_expand,
             notch_collapse,
             notch_focus,

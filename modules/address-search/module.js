@@ -1,10 +1,13 @@
 /**
- * TIP · 주소 검색 (address-search) — v1.12.4
+ * TIP · 주소 검색 (address-search) — v1.13.0
  *
  * 두 갈래:
  * - 한국 주소 — 다음(카카오) 우편번호 서비스를 **전용 iframe(address-frame.html)** 안에서 열어
  *   도로명·지번·영문 주소와 우편번호를 받는다(API 키 없음). v1.12.4 부터 이 화면은 그 서비스의
  *   스크립트를 직접 불러오지 않는다 — 다른 문서에서 돌리고 고른 주소만 postMessage 로 받는다.
+ *   v1.13.0 — Mac 앱에서 흰 화면만 뜨던 문제를 고쳤다. 우편번호 스크립트는 자기 UI 를
+ *   https://postcode.map.kakao.com/search iframe 으로 그리는데, CSP frame-src 가 daum.net 만
+ *   허용해 그 프레임이 막혔다. 프레임 샌드박스(불투명 출처)도 함께 걷어냈다.
  * - 해외 주소 — OpenStreetMap Nominatim 검색 API 로 한글·영어 검색, 주소·영문명·좌표를 보여 준다.
  *
  * 이 모듈만 예외적으로 외부 네트워크를 쓴다(사용자가 검색한 주소만 해당 서비스로 간다).
@@ -117,17 +120,16 @@ function mount(root, ctx) {
   /* ------------------------------ 한국 주소 ------------------------------ */
 
   /** iframe 을 만들고 열기 요청을 보낸다 — 서비스 스크립트는 그 안에서만 돈다. */
-  function createKoreanFrame(sandboxed) {
+  function createKoreanFrame() {
     const frame = document.createElement('iframe');
     frame.className = 'addr-frame';
     frame.title = '우편번호 검색';
     frame.setAttribute('referrerpolicy', 'no-referrer');
-    // 외부 서비스는 샌드박스(불투명 출처) 안에서만 돌린다 — 부모 문서·저장소·IPC 에 손대지 못한다.
-    // (스크립트·폼·팝업만 허용). 이 환경이 불투명 출처 프레임을 막으면 아래에서 샌드박스를 빗긴
-    // 프레임으로 한 번 다시 시도한다 — 웹 PWA 와 Mac 웹뷰 어디서든 주소 검색은 그대로 동작해야 한다.
-    if (sandboxed) {
-      frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox');
-    }
+    // v1.13.0 — sandbox 를 걷어낸다. v1.12.4 의 `sandbox="allow-scripts …"`(불투명 출처 null)는
+    // 다음 우편번호 스크립트가 저장소·쿠키를 읽는 순간 SecurityError 로 멈춰 Mac 앱에서 흰 화면만
+    // 남겼다. 지금은 서비스 스크립트를 이 전용 문서(address-frame.html) 안에서만 돌리고(메인 화면은
+    // 이 스크립트를 불러오지 않는다), 불러올 수 있는 곳은 tauri.conf.json 의 CSP 가 다음·카카오
+    // 우편번호 도메인으로 제한한다. 고른 주소만 postMessage 로 부모에 넘어온다.
     frame.src = DAUM_FRAME;
     daumReady = false;
     daumFrame = frame;
@@ -135,12 +137,10 @@ function mount(root, ctx) {
     return frame;
   }
 
-  let sandboxRetried = false;
-
   /** 열기 — 필요하면 프레임을 만들고, 준비되면 열기 메시지를 보낸다. */
   function openKoreanFrame() {
     if (!daumFrame) {
-      createKoreanFrame(true);
+      createKoreanFrame();
       return;
     }
     if (daumReady && daumFrame.contentWindow) {
@@ -209,12 +209,6 @@ function mount(root, ctx) {
     clearTimeout(daumTimer);
     daumTimer = setTimeout(() => {
       if (daumReady) return;
-      // 샌드박스 프레임이 준비 신호를 못 보내는 환경이면 한 번만 샌드박스를 빗긴 프레임으로 재시도한다.
-      if (!sandboxRetried) {
-        sandboxRetried = true;
-        createKoreanFrame(false);
-        return;
-      }
       krHint.textContent = '';
       krEmbed.hidden = true;
       krError.hidden = false;
@@ -343,7 +337,7 @@ export default {
   subtitle: '한글·영문 주소와 우편번호 찾기',
   description: '한국 주소는 다음 우편번호 서비스로 도로명·지번·영문·우편번호를, 해외 주소는 OpenStreetMap 으로 찾습니다.',
   icon: ICON,
-  version: '1.12.4',
+  version: '1.13.0',
   category: 'online',
   defaultEnabled: true,
   defaultPinned: false,

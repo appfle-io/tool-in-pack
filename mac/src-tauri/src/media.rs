@@ -1,10 +1,17 @@
-// TIP 미디어·캘린더 위젯 — v1.12.4
+// TIP 미디어·캘린더 위젯 — v1.13.0
 //
 // 노치 아일랜드가 쓰는 작은 조회/조작.
 //  · 미디어 — AppleScript(osascript)를 거쳐 Apple Music · Spotify 재생 정보를 읽고 조작한다.
 //  · 캘린더 — v1.12.4 부터 macOS 네이티브 EventKit(EKEventStore)으로 직접 읽는다.
 // 권한이 없으면 오류 문자열을 돌려주고 화면은 "권한을 확인하세요" 안내로 바뀐다.
 // 외부로 보내는 데이터는 없다. 읽은 값은 이 기기 안에서만 쓰인다.
+//
+// v1.13.0 — 달력 보기(일·주·월)와 독립 캘린더 필터를 위해 두 커맨드를 더한다.
+//  · calendar_list     — 사용자의 모든 일정 캘린더(id·이름·색·계정) 목록
+//  · calendar_events   — 지정 기간의 일정(시작·끝·종일·캘린더 id·이름·색), 고른 캘린더만 필터
+//  캐시도 한 칸(오늘)에서 (기간·필터)별 여러 칸으로 넓혀, 오늘 요약과 달력 보기가 번갈아
+//  들어와도 EventKit 에 다시 묻지 않는다. macOS 캘린더 앱의 체크 상태와는 무관하다 —
+//  필터는 TIP 화면(localStorage 'tip.calendar.selectedIds.v1')에만 있다.
 //
 // v1.12.4 — 캘린더를 AppleScript → EventKit 으로 바꾼 이유
 //   예전 CALENDAR_SCRIPT 는 `tell application "Calendar"` 로 Calendar.app 을 조종했다. 이 방식은
@@ -48,16 +55,50 @@ pub struct MediaState {
 }
 
 #[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct CalEvent {
     pub title: String,
     /// 시작 시각 — 에포크 밀리초(예: 1763937600000). 화면(notch.js)은 `new Date(start)` 로 읽는다.
     pub start: i64,
+    /// 끝 시각 — 에포크 밀리초. 종일 일정은 그날 00:00 ~ 다음 날 00:00 이다.
+    pub end: i64,
+    /// 종일 일정 — 화면은 시각 대신 '종일'로 적는다.
+    pub all_day: bool,
+    /// 캘린더 식별자(EKCalendar.calendarIdentifier) — TIP 안의 독립 필터가 이 값으로 거른다.
+    pub calendar_id: String,
     pub calendar: String,
+    /// 캘린더 색 `#RRGGBB` — 화면의 점·막대 색.
+    pub color: String,
 }
 
-/// 마지막 캘린더 조회 결과 — (조회 시각, 결과). 실패도 담아 권한 없는 상태에서 매번
-/// 권한 요청·조회를 새로 하지 않는다.
-static CALENDAR_CACHE: Mutex<Option<(Instant, Result<Vec<CalEvent>, String>)>> = Mutex::new(None);
+/// 캘린더 한 개 — 화면의 독립 필터 목록(체크박스)에 그대로 쓴다.
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CalCalendar {
+    pub id: String,
+    pub title: String,
+    pub color: String,
+    /// 계정 이름(iCloud·Google 등) — 같은 이름의 캘린더를 구분한다.
+    pub source: String,
+}
+
+/// 캘린더를 읽을 수 없거나 색을 못 읽었을 때 쓰는 기본 색(팩인백 딥그린).
+const DEFAULT_CALENDAR_COLOR: &str = "#2E5E4E";
+/// 한 번에 조회하는 최대 기간(400일) — 화면이 실수로 몇 년 치를 묻지 않게 막는다.
+const CALENDAR_MAX_RANGE_MS: f64 = 400.0 * 86_400_000.0;
+/// 조회 캐시에 담아 두는 최대 항목 수(오늘 요약·월·주·일 보기가 번갈아 들어와도 다시 묻지 않게).
+const CALENDAR_CACHE_MAX: usize = 8;
+
+/// 캘린더 조회 캐시 한 줄 — 같은 (기간·필터) 조회는 TTL 안에서 EventKit 에 다시 묻지 않는다.
+struct CalCacheEntry {
+    key: String,
+    at: Instant,
+    result: Result<Vec<CalEvent>, String>,
+}
+
+/// v1.13.0 — 조회가 오늘 하루뿐 아니라 보이는 기간(월·주·일)마다 달라져, 한 칸짜리 캐시 대신
+/// (기간·필터) 별로 몇 줄 담아 둔다. 실패도 담아 권한 없는 상태에서 매번 권한 요청을 새로 하지 않는다.
+static CALENDAR_CACHE: Mutex<Vec<CalCacheEntry>> = Mutex::new(Vec::new());
 
 /* ------------------------------ 권한 오류 구분 ------------------------------ */
 
@@ -225,15 +266,18 @@ pub async fn media_control(action: String) -> Result<(), String> {
 
 /* ------------------------------ 캘린더 (EventKit) ------------------------------ */
 
-/// macOS — EventKit 으로 오늘 00:00 ~ 내일 00:00 일정을 읽는다.
+/// macOS — EventKit 창고(EKEventStore)를 권한까지 확인해 연다.
 /// 권한이 NotDetermined 면 시스템 권한 팝업을 띄우고(최대 15초) 답을 기다린다.
+/// 호출한 쪽은 이 안에서만 store 를 쓰고, 끝나면 자동 해제 풀과 함께 사라진다.
 #[cfg(target_os = "macos")]
-fn read_calendar_events() -> Result<Vec<CalEvent>, String> {
+fn with_calendar_store<T>(
+    work: impl FnOnce(&objc2_event_kit::EKEventStore) -> T,
+) -> Result<T, String> {
     use block2::RcBlock;
     use objc2::rc::autoreleasepool;
     use objc2::runtime::{Bool, NSObjectProtocol};
     use objc2_event_kit::{EKAuthorizationStatus, EKEntityType, EKEventStore};
-    use objc2_foundation::{NSCalendar, NSDate, NSError};
+    use objc2_foundation::NSError;
 
     autoreleasepool(|_pool| {
         let store = unsafe { EKEventStore::new() };
@@ -269,62 +313,232 @@ fn read_calendar_events() -> Result<Vec<CalEvent>, String> {
             return Err(format!("{PERMISSION_TAG} 캘린더 권한이 필요합니다"));
         }
 
-        // 오늘 00:00 ~ 내일 00:00 (사용자 로컬 달력 기준).
-        let calendar = NSCalendar::currentCalendar();
-        let start = calendar.startOfDayForDate(&NSDate::now());
-        let end = NSDate::dateWithTimeInterval_sinceDate(86_400.0, &start);
+        Ok(work(&store))
+    })
+}
 
-        // SAFETY: 같은 스레드에서 만든 store·날짜·술어만 쓴다. calendars 는 nil(모든 달력).
-        let (events, predicate) = unsafe {
-            let predicate = store.predicateForEventsWithStartDate_endDate_calendars(&start, &end, None);
-            let events = store.eventsMatchingPredicate(&predicate);
-            (events, predicate)
-        };
-        let _ = predicate;
+/// NSColor → `#RRGGBB`. 캘린더 색은 기기 색 공간(P3 등)일 수 있어 sRGB 로 옮겨 성분을 읽는다.
+#[cfg(target_os = "macos")]
+fn color_hex(color: &objc2_app_kit::NSColor) -> String {
+    use objc2_app_kit::NSColorSpace;
 
-        let mut list: Vec<CalEvent> = Vec::new();
-        for event in events.to_vec() {
-            // SAFETY: EventKit 이 돌려준 EKEvent — 제목·시작일은 항상 있다.
-            let (title, start_ms, calendar_name) = unsafe {
-                let title = event.title().to_string();
-                let start_ms = (event.startDate().timeIntervalSince1970() * 1000.0).round() as i64;
-                let calendar_name = event
-                    .calendar()
-                    .map(|calendar| calendar.title().to_string())
-                    .unwrap_or_default();
-                (title, start_ms, calendar_name)
-            };
-            list.push(CalEvent { title, start: start_ms, calendar: calendar_name });
-        }
-        list.sort_by_key(|event| event.start);
-        Ok(list)
+    let Some(rgb) = color.colorUsingColorSpace(&NSColorSpace::sRGBColorSpace()) else {
+        return DEFAULT_CALENDAR_COLOR.to_string();
+    };
+    let channel = |value: f64| (value * 255.0).round().clamp(0.0, 255.0) as u8;
+    format!(
+        "#{:02X}{:02X}{:02X}",
+        channel(rgb.redComponent()),
+        channel(rgb.greenComponent()),
+        channel(rgb.blueComponent())
+    )
+}
+
+/// EKCalendar → (식별자, 이름, 색). 일정(EKEvent)과 필터 목록이 같은 값을 쓴다.
+#[cfg(target_os = "macos")]
+fn calendar_meta(calendar: &objc2_event_kit::EKCalendar) -> (String, String, String) {
+    // SAFETY: EventKit 이 돌려준 EKCalendar — 식별자·이름은 항상 있다.
+    unsafe {
+        (
+            calendar.calendarIdentifier().to_string(),
+            calendar.title().to_string(),
+            color_hex(&calendar.color()),
+        )
+    }
+}
+
+/// macOS — EventKit 으로 사용자의 모든 일정 캘린더를 읽는다(독립 필터 목록).
+#[cfg(target_os = "macos")]
+fn read_calendars() -> Result<Vec<CalCalendar>, String> {
+    use objc2_event_kit::EKEntityType;
+
+    with_calendar_store(|store| {
+        let calendars = unsafe { store.calendarsForEntityType(EKEntityType::Event) };
+        let mut list: Vec<CalCalendar> = calendars
+            .to_vec()
+            .iter()
+            .map(|calendar| {
+                let (id, title, color) = calendar_meta(calendar);
+                // SAFETY: 같은 스레드에서 만든 캘린더만 읽는다. source 는 없을 수 있다.
+                let source = unsafe {
+                    calendar
+                        .source()
+                        .map(|source| source.title().to_string())
+                        .unwrap_or_default()
+                };
+                CalCalendar { id, title, color, source }
+            })
+            .collect();
+        // 계정 → 이름 순 — 화면의 체크 목록이 매번 같은 차례로 나오게 한다.
+        list.sort_by(|a, b| a.source.cmp(&b.source).then_with(|| a.title.cmp(&b.title)));
+        list
     })
 }
 
 /// macOS 가 아닌 곳(문서 빌드·다른 OS 확인용) — EventKit 이 없으므로 빈 목록 대신 오류를 돌려준다.
 #[cfg(not(target_os = "macos"))]
-fn read_calendar_events() -> Result<Vec<CalEvent>, String> {
+fn read_calendars() -> Result<Vec<CalCalendar>, String> {
     Err("캘린더는 macOS 앱에서만 읽습니다".into())
+}
+
+/// macOS — 주어진 기간(에포크 밀리초)의 일정을 읽는다. `ids` 가 있으면 그 캘린더만 남긴다.
+#[cfg(target_os = "macos")]
+fn read_events_between(
+    start_ms: f64,
+    end_ms: f64,
+    ids: Option<Vec<String>>,
+) -> Result<Vec<CalEvent>, String> {
+    use objc2_foundation::NSDate;
+
+    let filter: Option<std::collections::HashSet<String>> =
+        ids.map(|list| list.into_iter().collect());
+
+    with_calendar_store(|store| {
+        let start = NSDate::dateWithTimeIntervalSince1970(start_ms / 1000.0);
+        let end = NSDate::dateWithTimeIntervalSince1970(end_ms / 1000.0);
+
+        // SAFETY: 같은 스레드에서 만든 store·날짜·술어만 쓴다. calendars 는 nil(모든 달력)이고,
+        // 화면이 고른 캘린더는 아래에서 식별자로 거른다 — 결과는 같고 술어를 만드는 코드가 짧다.
+        let (events, _predicate) = unsafe {
+            let predicate = store.predicateForEventsWithStartDate_endDate_calendars(&start, &end, None);
+            let events = store.eventsMatchingPredicate(&predicate);
+            (events, predicate)
+        };
+
+        let mut list: Vec<CalEvent> = Vec::new();
+        for event in events.to_vec() {
+            // SAFETY: EventKit 이 돌려준 EKEvent — 제목·시작/끝은 항상 있다.
+            let (title, start, end, all_day, calendar_id, calendar_name, color) = unsafe {
+                let title = event.title().to_string();
+                let start = (event.startDate().timeIntervalSince1970() * 1000.0).round() as i64;
+                let end = (event.endDate().timeIntervalSince1970() * 1000.0).round() as i64;
+                let all_day = event.isAllDay();
+                let (calendar_id, calendar_name, color) = match event.calendar() {
+                    Some(calendar) => calendar_meta(&calendar),
+                    None => (String::new(), String::new(), DEFAULT_CALENDAR_COLOR.to_string()),
+                };
+                (title, start, end, all_day, calendar_id, calendar_name, color)
+            };
+            if let Some(filter) = filter.as_ref() {
+                if !filter.contains(&calendar_id) {
+                    continue;
+                }
+            }
+            list.push(CalEvent { title, start, end, all_day, calendar_id, calendar: calendar_name, color });
+        }
+        // 시작 순 — 같은 시각이면 끝나는 시각 순. 종일 일정을 먼저 두는 정리는 화면이 한다.
+        list.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| a.end.cmp(&b.end)));
+        list
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn read_events_between(
+    _start_ms: f64,
+    _end_ms: f64,
+    _ids: Option<Vec<String>>,
+) -> Result<Vec<CalEvent>, String> {
+    Err("캘린더는 macOS 앱에서만 읽습니다".into())
+}
+
+/// 오늘 00:00 ~ 내일 00:00 (사용자 로컬 달력 기준) — 에포크 밀리초.
+#[cfg(target_os = "macos")]
+fn today_range_ms() -> Result<(f64, f64), String> {
+    use objc2_foundation::{NSCalendar, NSDate};
+
+    let calendar = NSCalendar::currentCalendar();
+    let start = calendar.startOfDayForDate(&NSDate::now());
+    let start_ms = start.timeIntervalSince1970() * 1000.0;
+    Ok((start_ms, start_ms + 86_400_000.0))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn today_range_ms() -> Result<(f64, f64), String> {
+    Err("캘린더는 macOS 앱에서만 읽습니다".into())
+}
+
+/* ------------------------------ 캘린더 캐시 ------------------------------ */
+
+/// 캐시에 살아 있는 같은 조회가 있으면 그대로 돌려준다(락은 잠깐만 잡는다).
+fn cache_lookup(key: &str) -> Option<Result<Vec<CalEvent>, String>> {
+    let guard = CALENDAR_CACHE.lock().ok()?;
+    let entry = guard.iter().find(|entry| entry.key == key)?;
+    let ttl = if entry.result.is_ok() { CALENDAR_TTL } else { CALENDAR_ERROR_TTL };
+    if entry.at.elapsed() < ttl {
+        Some(entry.result.clone())
+    } else {
+        None
+    }
+}
+
+fn cache_store(key: String, result: Result<Vec<CalEvent>, String>) {
+    if let Ok(mut guard) = CALENDAR_CACHE.lock() {
+        guard.retain(|entry| entry.key != key);
+        guard.push(CalCacheEntry { key, at: Instant::now(), result });
+        while guard.len() > CALENDAR_CACHE_MAX {
+            guard.remove(0);
+        }
+    }
+}
+
+/// 기간·필터가 같은 조회를 한 줄 키로 만든다 — 필터는 순서와 상관없이 같은 키가 되게 정렬한다.
+fn cache_key(start_ms: f64, end_ms: f64, ids: &Option<Vec<String>>) -> String {
+    let filter = match ids {
+        Some(list) => {
+            let mut sorted = list.clone();
+            sorted.sort();
+            sorted.join(",")
+        }
+        None => "*".to_string(),
+    };
+    format!("{start_ms:.0}-{end_ms:.0}-{filter}")
+}
+
+async fn events_for_range(
+    start_ms: f64,
+    end_ms: f64,
+    ids: Option<Vec<String>>,
+) -> Result<Vec<CalEvent>, String> {
+    if !(end_ms > start_ms) {
+        return Err("조회 기간이 올바르지 않습니다".into());
+    }
+    if end_ms - start_ms > CALENDAR_MAX_RANGE_MS {
+        return Err("한 번에 400일까지만 조회합니다".into());
+    }
+
+    let key = cache_key(start_ms, end_ms, &ids);
+    if let Some(cached) = cache_lookup(&key) {
+        return cached;
+    }
+
+    let fresh = tauri::async_runtime::spawn_blocking(move || read_events_between(start_ms, end_ms, ids))
+        .await
+        .map_err(|error| format!("캘린더 조회를 마치지 못했습니다: {error}"))?;
+
+    cache_store(key, fresh.clone());
+    fresh
+}
+
+/// 사용자의 캘린더 목록 — 화면의 독립 필터가 이 목록으로 체크박스를 만든다.
+#[tauri::command]
+pub async fn calendar_list() -> Result<Vec<CalCalendar>, String> {
+    tauri::async_runtime::spawn_blocking(read_calendars)
+        .await
+        .map_err(|error| format!("캘린더 목록을 마치지 못했습니다: {error}"))?
+}
+
+/// 지정 기간의 일정 — `calendarIds` 를 주면 그 캘린더만. 달력(월·주·일) 보기가 쓴다.
+#[tauri::command]
+pub async fn calendar_events(
+    start_ms: f64,
+    end_ms: f64,
+    calendar_ids: Option<Vec<String>>,
+) -> Result<Vec<CalEvent>, String> {
+    events_for_range(start_ms, end_ms, calendar_ids).await
 }
 
 #[tauri::command]
 pub async fn calendar_today() -> Result<Vec<CalEvent>, String> {
-    // 캐시가 살아 있으면 권한 요청·조회를 아예 하지 않는다(락은 잠깐만 잡는다).
-    if let Ok(guard) = CALENDAR_CACHE.lock() {
-        if let Some((at, cached)) = guard.as_ref() {
-            let ttl = if cached.is_ok() { CALENDAR_TTL } else { CALENDAR_ERROR_TTL };
-            if at.elapsed() < ttl {
-                return cached.clone();
-            }
-        }
-    }
-
-    let fresh = tauri::async_runtime::spawn_blocking(read_calendar_events)
-        .await
-        .map_err(|error| format!("캘린더 조회를 마치지 못했습니다: {error}"))?;
-
-    if let Ok(mut guard) = CALENDAR_CACHE.lock() {
-        *guard = Some((Instant::now(), fresh.clone()));
-    }
-    fresh
+    let (start, end) = today_range_ms()?;
+    events_for_range(start, end, None).await
 }

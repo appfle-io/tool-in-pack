@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * TIP v1.12.4 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
+ * TIP v1.13.0 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
  *
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.13.0 — 캘린더 달력 보기(일·주·월)·독립 필터, 주소 검색 흰 화면 수정(CSP 카카오 우편번호
+ *          프레임·샌드박스 제거), 배송 조회 모바일 판/User-Agent 를 함께 검사한다.
  * v1.12.4 — 버전을 mac/src-tauri/tauri.conf.json 에서 읽는다(한 곳만 고치면 되게).
  *          보안 4종(업데이트 URL·해시 검증 / 보관함 허용 목록 / parcel 창 권한 제외 · CSP /
  *          주소 검색 iframe 격리)과 이번 기능(EventKit 캘린더 · 노치 커서 감시 · 알약 폭 ·
@@ -19,6 +21,8 @@
  *   6. 설정 동기화 — store.js notifyWindows(emitTo 'notch') · notch.js 의 tip://notch-refresh
  *   7. 카테고리 — 5묶음 정의와 20개 모듈의 배분(3·4·5·5·3)
  *   8. 캘린더 — EventKit(EKEventStore) 조회 · 권한 요청 · AppleScript 제거 · 밀리초 반환
+ *               + 캘린더 목록(calendar_list) · 기간 조회·필터(calendar_events) · 달력 보기(일·주·월)
+ *   14. 배송 조회 — 모바일 판(m.search.naver.com) · 아이폰 User-Agent · 460×740 창
  *   9. 커서 감시 — setAcceptsMouseMovedEvents · NSEvent.mouseLocation · set_notch_hover
  *  10. 업데이트 보안 — URL 은 릴리스 자산만 · SHA256SUMS.txt 대조 · sha2
  *  11. 창 권한·CSP — parcel 제외 · csp 지시문(wasm·worker·카메라·IPC·외부 API)
@@ -50,7 +54,7 @@ check('Cargo.toml 버전', new RegExp(`^version = "${VERSION}"`, 'm').test(read(
 check('mac/package.json 버전', JSON.parse(read('mac/package.json')).version === VERSION);
 check('sw.js 캐시 버전', read('sw.js').includes(`tip-v${VERSION}`));
 check('js/app.js APP_VERSION', read('js/app.js').includes(`APP_VERSION = '${VERSION}'`));
-check('버전이 1.12.4 이상', VERSION.split('.').map(Number)[2] >= 4, String(VERSION));
+check('버전이 1.13.0 이상', (([major, minor]) => major > 1 || (major === 1 && minor >= 13))(VERSION.split('.').map(Number)), String(VERSION));
 
 /* ------------------------------ 2. 노치 밀착 ------------------------------ */
 
@@ -192,6 +196,35 @@ check('CalEvent.start 가 밀리초(i64)', /pub start: i64/.test(media));
 check('notch.js 가 start 를 밀리초/문자열 모두 처리', /function startMs\(event\)/.test(notchJs));
 check('notch.js 캘린더 오류 원인 표시', /cal-error/.test(notchJs) && /function errorText\(/.test(notchJs));
 
+// v1.13.0 — 달력 보기(일·주·월)와 독립 캘린더 필터
+check('media.rs calendar_list 커맨드', /fn calendar_list\(/.test(media) && /calendarsForEntityType\(EKEntityType::Event\)/.test(media));
+check('media.rs calendar_events 커맨드', /fn calendar_events\(/.test(media));
+check('calendar_events 가 calendar_ids 를 받음', /calendar_ids: Option<Vec<String>>/.test(media));
+check('캘린더 필터를 식별자로 거름', /filter\.contains\(&calendar_id\)/.test(media));
+check('CalEvent 끝 시각·종일·캘린더 id·색', /pub end: i64/.test(media) && /pub all_day: bool/.test(media)
+  && /pub calendar_id: String/.test(media) && /pub color: String/.test(media));
+check('EKEvent.isAllDay 사용', media.includes('event.isAllDay()'));
+check('캘린더 색 #RRGGBB 변환', /fn color_hex\(/.test(media) && media.includes('colorUsingColorSpace'));
+check('CalEvent camelCase 직렬화', /rename_all = "camelCase"/.test(media));
+check('캘린더 캐시가 기간·필터별', /struct CalCacheEntry/.test(media) && /CALENDAR_CACHE_MAX/.test(media));
+check('lib.rs calendar_list 등록', /media::calendar_list,/.test(lib));
+check('lib.rs calendar_events 등록', /media::calendar_events,/.test(lib));
+
+check('notch.js 가 calendar_events 사용', notchJs.includes("invoke('calendar_events'"));
+check('notch.js 독립 필터 저장 키', notchJs.includes("tip.calendar.selectedIds.v1"));
+check('notch.js 필터 초기값 전체 선택', /storedCalendarIds\(\) \?\? all/.test(notchJs) && /return stored === null \? true/.test(notchJs));
+check('notch.js 캘린더 목록 조회', notchJs.includes("invoke('calendar_list'"));
+check('notch.js 일·주·월 탭 전환', /\['day', 'week', 'month'\]\.includes\(mode\)/.test(notchJs)
+  && notchJs.includes('function renderMonthGrid(') && notchJs.includes('function renderWeekStrip('));
+
+const notchHtml = read('notch.html');
+check('notch.html 달력 보기 컨테이너', notchHtml.includes('id="cal-view"'));
+check('notch.html 일·주·월 탭', ['day', 'week', 'month'].every((mode) => notchHtml.includes(`data-cal-mode=\"${mode}\"`)));
+check('notch.html 필터 목록', notchHtml.includes('id="cal-filter-list"'));
+const notchCss = read('css/notch.css');
+check('css 달력 격자·주간 스트립', notchCss.includes('.cal-grid {') && notchCss.includes('.cal-week {') && notchCss.includes('.cal-filter-list'));
+check('css 오늘·선택 표시', notchCss.includes('.cal-cell.is-today') && notchCss.includes('.cal-cell.is-sel'));
+
 /* ------------------------------ 9. 커서 감시 ------------------------------ */
 
 check('notch.rs setAcceptsMouseMovedEvents', notchRs.includes('setAcceptsMouseMovedEvents(true)'));
@@ -247,6 +280,11 @@ if (typeof csp === 'string') {
     ['connect-src nominatim', /connect-src [^;]*https:\/\/nominatim\.openstreetmap\.org/],
     ['connect-src github api', /connect-src [^;]*https:\/\/api\.github\.com/],
     ['frame-src 다음 우편번호', /frame-src [^;]*https:\/\/postcode\.map\.daum\.net/],
+    // v1.13.0 — postcode.v2.js 는 자기 UI 를 postcode.map.kakao.com/search iframe 으로 그린다.
+    // 이 도메인이 frame-src 에 없어 Mac 앱에서 흰 화면만 떴다.
+    ['frame-src 카카오 우편번호', /frame-src [^;]*https:\/\/postcode\.map\.kakao\.com/],
+    ['script-src 카카오 우편번호', /script-src [^;]*https:\/\/\*\.kakao\.com/],
+    ['connect-src 카카오 우편번호', /connect-src [^;]*https:\/\/postcode\.map\.kakao\.com/],
   ].forEach(([name, pattern]) => check(`CSP ${name}`, pattern.test(csp)));
   check('CSP 에 script unsafe-inline 없음', !/script-src[^;]*'unsafe-inline'/.test(csp));
 }
@@ -259,7 +297,7 @@ check('address-frame.js 존재', exists('js/address-frame.js'));
 check('주소 검색이 iframe 사용', address.includes('address-frame.html') && address.includes('createElement(\'iframe\')'));
 check('메인 문서에 다음 스크립트 직접 삽입 없음', !address.includes('t1.daumcdn.net') && !/createElement\('script'\)/.test(address));
 check('iframe 메시지 출처 확인', /event\.source !== daumFrame\.contentWindow/.test(address));
-check('iframe 샌드박스', /allow-scripts/.test(address));
+check('iframe 에 불투명 출처 샌드박스 없음(v1.13.0)', !/setAttribute\('sandbox'/.test(address) && !/sandboxRetried/.test(address));
 const addressFrame = read('js/address-frame.js');
 check('프레임이 우편번호 스크립트 로드', addressFrame.includes('t1.daumcdn.net'));
 check('프레임이 결과만 postMessage', addressFrame.includes("type: 'tip:address:result'"));
@@ -276,6 +314,16 @@ check('sw.js 가 address-frame 캐시', read('sw.js').includes("'./address-frame
 check('주소 검색 외부 결과 이스케이프', /escapeHtml\(item\.display_name/.test(address)
   && /escapeHtml\(name \|\| query\)/.test(address));
 check('송장 목록 이스케이프 확인', /escapeHtml\(item\.nickname \|\| item\.invoice\)/.test(read('modules/parcel-tracker/module.js')));
+
+/* ------------------------------ 14. 배송 조회 모바일 ------------------------------ */
+
+const parcel = read('modules/parcel-tracker/module.js');
+check('배송 조회가 모바일 판 주소', parcel.includes('https://m.search.naver.com/search.naver'));
+check('parcel-tracker 에 PC 판 주소 없음', !/`https:\/\/search\.naver\.com\/search\.naver/.test(parcel));
+check('Rust 가 아이폰 User-Agent 를 건다', /const PARCEL_USER_AGENT: &str = "Mozilla\/5\.0 \(iPhone;/.test(lib)
+  && lib.includes('.user_agent(PARCEL_USER_AGENT)'));
+check('배송 창 460×740', /const PARCEL_W: f64 = 460\.0;/.test(lib) && /const PARCEL_H: f64 = 740\.0;/.test(lib));
+check('배송 창이 m.search.naver.com 허용', lib.includes('host == "m.search.naver.com"'));
 
 /* ------------------------------ 13. 홈 카드 > 아이콘 ------------------------------ */
 

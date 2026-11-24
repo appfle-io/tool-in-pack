@@ -1,4 +1,4 @@
-/* TIP · 우편번호 검색 전용 문서 — v1.12.4
+/* TIP · 우편번호 검색 전용 문서 — v1.13.0
  *
  * 왜 따로 두나:
  *   v1.12.3 까지는 메인 화면(index.html)이 다음(카카오) 우편번호 스크립트를 직접 불러와
@@ -87,7 +87,18 @@
         height: '100%',
       });
       postcode.embed(embedEl);
-      post({ type: 'tip:address:opened' });
+      // v1.13.0 — embed() 가 조용히 아무것도 그리지 않으면 화면이 흰색으로만 남았다.
+      // 잠깐 뒤 속을 보고, 비어 있으면 부모에 오류로 알려 안내 문구가 뜨게 한다.
+      setTimeout(function () {
+        var drew = embedEl && (embedEl.childElementCount > 0 || embedEl.textContent.trim().length > 0);
+        if (!drew) {
+          opened = false;
+          embedEl.hidden = true;
+          fail('empty');
+          return;
+        }
+        post({ type: 'tip:address:opened' });
+      }, 1200);
     }).catch(function (error) {
       fail(error && error.message ? error.message : error);
     });

@@ -55,6 +55,49 @@
 
       <div class="widgets" id="widgets"></div>
 
+      <!-- v1.13.0 — 캘린더 달력 보기(일별·주별·월별). 캘린더 카드의 달력 버튼으로 열고 닫는다. -->
+      <section class="cal-view" id="cal-view" aria-label="캘린더 달력" hidden>
+        <header class="cal-view-head">
+          <div class="cal-view-nav">
+            <button class="cal-icon-btn" type="button" data-cal-step="-1" aria-label="이전" title="이전">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6"/></svg>
+            </button>
+            <button class="cal-view-title" type="button" id="cal-view-title" title="오늘로">이번 달</button>
+            <button class="cal-icon-btn" type="button" data-cal-step="1" aria-label="다음" title="다음">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 6 6-6 6"/></svg>
+            </button>
+          </div>
+          <div class="cal-view-tools">
+            <button class="cal-tool" type="button" id="cal-today-btn" title="오늘로">오늘</button>
+            <button class="cal-tool" type="button" id="cal-filter-btn" aria-expanded="false" title="캘린더 고르기">캘린더</button>
+            <button class="cal-icon-btn" type="button" id="cal-view-close" aria-label="달력 닫기" title="닫기">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="cal-view-tabs" role="tablist" aria-label="보기 단위">
+          <button class="cal-tab" type="button" role="tab" data-cal-mode="day" aria-selected="false">일별</button>
+          <button class="cal-tab" type="button" role="tab" data-cal-mode="week" aria-selected="false">주별</button>
+          <button class="cal-tab is-on" type="button" role="tab" data-cal-mode="month" aria-selected="true">월별</button>
+        </div>
+
+        <div class="cal-filter-panel" id="cal-filter-panel" hidden>
+          <div class="cal-filter-head">
+            <span>표시할 캘린더 <em>— macOS 캘린더 앱과 따로 저장됩니다</em></span>
+            <span class="cal-filter-actions">
+              <button class="cal-link" type="button" data-cal-filter="all">모두</button>
+              <button class="cal-link" type="button" data-cal-filter="none">없음</button>
+            </span>
+          </div>
+          <ul class="cal-filter-list" id="cal-filter-list"></ul>
+        </div>
+
+        <div class="cal-grid-wrap" id="cal-grid-wrap"></div>
+        <div class="cal-day-head" id="cal-day-head"></div>
+        <ul class="cal-day-list" id="cal-day-list"></ul>
+      </section>
+
       <p class="panel-empty" id="panel-empty" hidden>
         표시할 위젯이 없습니다.<br>TIP 환경설정 → 노치 아일랜드에서 켜세요.
       </p>
