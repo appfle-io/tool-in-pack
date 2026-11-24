@@ -42,6 +42,7 @@ const SEARCH: &str = "search";
 const PARCEL: &str = "parcel";
 /// 우편번호 검색 전용 창(v1.15.1) — capabilities/default.json 의 windows 목록에 없으므로
 /// Tauri IPC 권한이 전혀 없다.
+const POSTCODE: &str = "postcode";
 
 // 퀵바 창 — 납작한 반타원 판(가로 284·세로 176)이 위쪽 일직선으로 메뉴 막대에 붙고,
 // 아래로 176px 내려간다. 창 높이 206 = 판 176 + 아래 그림자 여백 30.
@@ -93,6 +94,9 @@ const SEARCH_KEY: &str = "search";
 const WEB_ALLOWED_HOSTS: [&str; 4] = ["www.google.com", "google.com", "search.naver.com", "m.search.naver.com"];
 
 const RELEASES_LATEST: &str = "https://api.github.com/repos/appfle-io/tool-in-pack/releases/latest";
+
+/// 마지막으로 누른 메뉴 막대 아이콘의 사각형(물리 픽셀: x, y, w, h).
+static TRAY_RECT: Mutex<Option<(f64, f64, f64, f64)>> = Mutex::new(None);
 
 /// 우편번호 창이 고른 주소 — 마지막 결과 한 건.
 /// 창에서 온 결과를 이벤트로 바로 알리고, 화면이 늦게 붙었을 때도 꺼낼 수 있게 같이 남긴다(v1.15.1).
