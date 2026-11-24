@@ -1,13 +1,13 @@
 /**
- * TIP · 주소 검색 (address-search) — v1.13.0
+ * TIP · 주소 검색 (address-search) — v1.15.1
  *
  * 두 갈래:
- * - 한국 주소 — 다음(카카오) 우편번호 서비스를 **전용 iframe(address-frame.html)** 안에서 열어
- *   도로명·지번·영문 주소와 우편번호를 받는다(API 키 없음). v1.12.4 부터 이 화면은 그 서비스의
- *   스크립트를 직접 불러오지 않는다 — 다른 문서에서 돌리고 고른 주소만 postMessage 로 받는다.
- *   v1.13.0 — Mac 앱에서 흰 화면만 뜨던 문제를 고쳤다. 우편번호 스크립트는 자기 UI 를
- *   https://postcode.map.kakao.com/search iframe 으로 그리는데, CSP frame-src 가 daum.net 만
- *   허용해 그 프레임이 막혔다. 프레임 샌드박스(불투명 출처)도 함께 걷어냈다.
+ * - 한국 주소 — 다음(카카오) 우편번호 서비스로 도로명·지번·영문 주소와 우편번호를 받는다(API 키 없음).
+ *   · Mac 앱(v1.15.1): **IPC 권한이 없는 별도 창**(postcode.html)에서 띄운다 — 카카오 스크립트가
+ *     window.__TAURI__ 도 parent.__TAURI__ 도 쓸 수 없다(창 라벨이 capabilities 에 없고, Rust 가
+ *     전역을 지운 뒤 문서를 연다). 고른 주소만 `tip://postcode-result` 이벤트로 돌아온다.
+ *   · 웹(PWA): 예전처럼 전용 iframe(address-frame.html)에서 돌리고 postMessage 로만 받는다
+ *     (웹에는 __TAURI__ 가 없어 격리 문제가 없다).
  * - 해외 주소 — OpenStreetMap Nominatim 검색 API 로 한글·영어 검색, 주소·영문명·좌표를 보여 준다.
  *
  * 이 모듈만 예외적으로 외부 네트워크를 쓴다(사용자가 검색한 주소만 해당 서비스로 간다).
@@ -18,6 +18,9 @@ import { romanizeAddress } from './romanize.js';
 
 const DAUM_FRAME = './address-frame.html';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+/// 우편번호 창이 고른 주소를 남기는 열쇠 — 이벤트를 놓쳤을 때 화면이 직접 읽는 보험(v1.15.1).
+const POSTCODE_RESULT_KEY = 'tip.postcode.result.v1';
+const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
 const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6.5-5.4 6.5-11a6.5 6.5 0 1 0-13 0C5.5 15.6 12 21 12 21z"/><circle cx="12" cy="10" r="2.4"/></svg>';
 const COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 5.5V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h.5"/></svg>';
@@ -35,6 +38,8 @@ function mount(root, ctx) {
   let daumFrame = null;
   let daumReady = false;
   let daumTimer = null;
+  let postcodePoll = null;
+  let postcodeSeenAt = 0;
   let worldBusy = false;
   let lastKorean = null;
 
@@ -185,6 +190,71 @@ function mount(root, ctx) {
     }
   }
 
+  /* --------- 한국 주소 — Mac 앱은 IPC 권한 없는 별도 창(v1.15.1) --------- */
+
+  function invoke(command, args) {
+    return window.__TAURI__.core.invoke(command, args || {});
+  }
+
+  /** 주소 하나를 결과 카드로 그린다 — 창/프레임 어느 쪽으로 받았든 같은 길을 쓴다. */
+  function deliverKorean(data) {
+    if (!data || typeof data !== 'object') return;
+    stopPostcodePoll();
+    clearTimeout(daumTimer);
+    showKorean(data);
+    krEmbed.hidden = true;
+    krHint.textContent = '다른 주소를 찾으려면 다시 누르세요.';
+    if (TAURI) invoke('close_postcode_window').catch(() => {});
+  }
+
+  function stopPostcodePoll() {
+    if (postcodePoll) clearInterval(postcodePoll);
+    postcodePoll = null;
+  }
+
+  /** 우편번호 창의 결과를 살펴본다 — 이벤트를 놓쳤을 때를 위한 두 겹의 보험(Rust 보관함 → 저장소). */
+  function checkPostcodeResult() {
+    if (!TAURI) return;
+    invoke('take_postcode_result').then((payload) => {
+      if (!payload) return;
+      try {
+        deliverKorean(JSON.parse(payload));
+      } catch (error) {
+        console.error('[TIP address-search] 주소 결과를 읽지 못했습니다', error);
+      }
+    }).catch(() => {});
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(POSTCODE_RESULT_KEY) || 'null');
+      if (saved && saved.data && Number(saved.at) >= postcodeSeenAt) {
+        localStorage.removeItem(POSTCODE_RESULT_KEY);
+        deliverKorean(saved.data);
+      }
+    } catch { /* 읽지 못하면 다음 차례에 다시 본다 */ }
+  }
+
+  /** Mac 앱 — 우편번호를 별도 창으로 열고 결과를 기다린다. */
+  function openKoreanWindow() {
+    postcodeSeenAt = Date.now();
+    krError.hidden = true;
+    krEmbed.hidden = true;
+    krHint.textContent = '별도 창에서 검색 중…';
+    stopPostcodePoll();
+    invoke('open_postcode_window').then(() => {
+      // 고른 주소는 이벤트로도 오고, 놓쳤을 때를 위해 0.6초마다 한 번 더 살펴본다(5분까지).
+      let ticks = 0;
+      postcodePoll = setInterval(() => {
+        ticks += 1;
+        if (ticks > 500) stopPostcodePoll();
+        checkPostcodeResult();
+      }, 600);
+    }).catch((error) => {
+      console.error('[TIP address-search] 우편번호 창을 열지 못했습니다', error);
+      krHint.textContent = '';
+      krError.hidden = false;
+    });
+  }
+
   function koreanRows(data) {
     const road = data.roadAddress || data.autoRoadAddress || '';
     const jibun = data.jibunAddress || data.autoJibunAddress || '';
@@ -288,6 +358,10 @@ function mount(root, ctx) {
 
   krOpen.addEventListener('click', () => {
     krError.hidden = true;
+    if (TAURI) {
+      openKoreanWindow();
+      return;
+    }
     krHint.textContent = '불러오는 중…';
     krEmbed.hidden = false;
     openKoreanFrame();
@@ -300,6 +374,19 @@ function mount(root, ctx) {
       krError.hidden = false;
     }, 6000);
   }, { signal });
+
+  // Mac 앱 — 우편번호 창(Rust)이 고른 주소를 이벤트로 넘겨 준다.
+  if (TAURI) {
+    window.__TAURI__.event.listen('tip://postcode-result', (event) => {
+      const payload = event.payload;
+      try {
+        const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        deliverKorean(data);
+      } catch (error) {
+        console.error('[TIP address-search] 주소 결과를 읽지 못했습니다', error);
+      }
+    });
+  }
 
   // iframe(우편번호 전용 문서)이 보내는 메시지만 받는다 — 출처가 그 프레임일 때만 처리한다.
   window.addEventListener('message', (event) => {
@@ -326,10 +413,7 @@ function mount(root, ctx) {
       return;
     }
     if (data.type === 'tip:address:result' && data.data) {
-      clearTimeout(daumTimer);
-      showKorean(data.data);
-      krEmbed.hidden = true;
-      krHint.textContent = '다른 주소를 찾으려면 다시 누르세요.';
+      deliverKorean(data.data);
     }
   }, { signal });
 
@@ -475,6 +559,7 @@ function mount(root, ctx) {
 
   return () => {
     clearTimeout(daumTimer);
+    stopPostcodePoll();
     controller.abort();
   };
 }
@@ -486,7 +571,7 @@ export default {
   subtitle: '한글·영문 주소와 우편번호 찾기',
   description: '한국 주소는 다음 우편번호 서비스로 도로명·지번·영문·우편번호를, 해외 주소는 OpenStreetMap 으로 찾습니다.',
   icon: ICON,
-  version: '1.13.0',
+  version: '1.15.1',
   category: 'online',
   defaultEnabled: true,
   defaultPinned: false,

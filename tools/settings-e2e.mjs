@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 /**
- * TIP v1.15.0 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.15.1 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
+ *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
+ *   TIP_PLAYWRIGHT=/path/to/node_modules/playwright node tools/settings-e2e.mjs
+ *
+ * Playwright 와 브라우저는 환경에 맞게 찾는다(v1.15.1).
+ *   · 브라우저 — TIP_CHROME 이 있으면 그것을, 없으면 Playwright 가 설치한 Chromium 을 쓴다.
+ *     Mac 에서는 `npx playwright install chromium` 뒤 그냥 `node tools/settings-e2e.mjs` 로 돈다.
+ *   · Playwright 모듈 — 보통 설치본을 찾고, 없으면 TIP_PLAYWRIGHT 경로나 NODE_PATH 를 쓴다.
  *
  * 하는 일
  *   · 저장소를 로컬 HTTP 로 띄우고, Tauri(Mac 앱) 환경을 흉내 내는 window.__TAURI__ 를
@@ -11,8 +18,6 @@
  *   · v1.14.0 제보 버그(단축키 '변경' 직후 '취소'가 먹지 않음)의 회귀 테스트를 포함한다.
  *   · 모듈(타이머) 화면과 접힌 노치 알약(음악·타이머)도 같은 방식으로 확인한다.
  *
- * Playwright 가 필요하다. 이 작업 환경에서는 다음 두 곳을 쓴다(없으면 PLAYWRIGHT 모듈 경로 지정).
- *   NODE_PATH=/workspace/work/shot/node_modules
  */
 
 import { createServer } from 'node:http';
@@ -23,16 +28,25 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 let chromium;
-try {
-  ({ chromium } = require('playwright'));
-} catch {
-  console.error('playwright 를 찾지 못했습니다 — NODE_PATH=/workspace/work/shot/node_modules 로 실행하세요.');
+const playwrightCandidates = [
+  'playwright',
+  process.env.TIP_PLAYWRIGHT || '',
+].filter(Boolean);
+for (const candidate of playwrightCandidates) {
+  try {
+    ({ chromium } = require(candidate));
+    break;
+  } catch { /* 다음 후보를 본다 */ }
+}
+if (!chromium) {
+  console.error('playwright 를 찾지 못했습니다 — `npm i -D playwright` 뒤 다시 실행하거나 TIP_PLAYWRIGHT=/path/to/playwright 로 경로를 주세요.');
   process.exit(2);
 }
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const EXE = process.env.TIP_CHROME || '/workspace/work/headless-shell/chrome-headless-shell-linux64/chrome-headless-shell';
-const LIB = process.env.TIP_LIBS || '/workspace/work/sysroot/usr/lib/x86_64-linux-gnu';
+// 브라우저·라이브러리 경로는 환경변수로만 바꾼다 — 없으면 Playwright 설치본을 그대로 쓴다.
+const EXE = process.env.TIP_CHROME || '';
+const LIB = process.env.TIP_LIBS || '';
 
 /* ------------------------------ 결과 기록 ------------------------------ */
 
@@ -78,8 +92,8 @@ const BASE = `http://127.0.0.1:${server.address().port}`;
 /* ------------------------------ 브라우저 ------------------------------ */
 
 const browser = await chromium.launch({
-  executablePath: EXE,
-  env: { ...process.env, LD_LIBRARY_PATH: LIB },
+  ...(EXE ? { executablePath: EXE } : {}),
+  ...(LIB ? { env: { ...process.env, LD_LIBRARY_PATH: LIB } } : {}),
   args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
 });
 
@@ -99,7 +113,7 @@ const MOCK = `
     get_module_shortcuts: [],
     set_search_shortcut: null,
     get_search_shortcut: 'Alt+Space',
-    check_app_update: { available: false, current: '1.15.0', message: '최신 버전입니다 (v1.15.0)' },
+    check_app_update: { available: false, current: '1.15.1', message: '최신 버전입니다 (v1.15.1)' },
     open_privacy_settings: null,
     calendar_list: [
       { id: 'cal-1', title: '개인', color: '#2E5E4E', source: 'iCloud', writable: true },
@@ -126,6 +140,11 @@ const MOCK = `
     search_local_files: [],
     list_installed_apps: [],
     run_system_command: null,
+    set_system_commands: null,
+    set_clipboard_exclude_secret: null,
+    open_postcode_window: null,
+    close_postcode_window: null,
+    take_postcode_result: null,
     send_email: null,
   };
   window.__TAURI__ = {
@@ -225,19 +244,19 @@ const autoCall = await lastCall('set_autostart');
 check('일반 — 로그인 자동 실행 토글', !!autoCall && autoCall.args.enabled === true, JSON.stringify(autoCall && autoCall.args));
 check('일반 — 자동 실행 상태 표시', (await autoRow.locator('i').textContent()) === '켜짐');
 
-// 메뉴 막대
-const menuRow = page.locator('.mb-row', { hasText: '메뉴 막대에 표시' }).first();
-const menuBefore = await menuRow.locator('.switch').getAttribute('aria-pressed');
-await menuRow.locator('.switch').click();
-await page.waitForTimeout(120);
-const trayCall = await lastCall('set_tray_visible');
-check('일반 — 메뉴 막대 표시 토글', !!trayCall && trayCall.args.visible === (menuBefore !== 'true'), JSON.stringify(trayCall && trayCall.args));
+// v1.15.1 — 메뉴 막대·퀵바는 노치 탭 한 묶음으로 옮겼다(일반 탭에는 없다).
+check('일반 — 메뉴 막대 항목 없음(v1.15.1)', (await page.locator('.mb-row', { hasText: '메뉴 막대에 표시' }).count()) === 0);
+check('일반 — 시트 높이 고정 클래스', await page.evaluate(() => document.querySelector('.sheet')?.classList.contains('is-fixed')));
+check('일반 — 탭 줄 고정(sticky)', await page.evaluate(() => getComputedStyle(document.querySelector('.sheet-tabs')).position === 'sticky'));
+const sheetHeightGeneral = (await page.locator('.sheet').boundingBox())?.height || 0;
 
-// 투명도 슬라이더
-const range = page.locator('.op-range');
-await range.evaluate((node) => { node.value = '64'; node.dispatchEvent(new Event('input', { bubbles: true })); });
-check('일반 — 퀵바 투명도 슬라이더', (await page.evaluate(() => Number(localStorage.getItem('tip.quickbarOpacity.v1')))) === 64, await page.evaluate(() => localStorage.getItem('tip.quickbarOpacity.v1')));
-check('일반 — 투명도 숫자 표시', (await page.locator('.op-value').textContent()) === '64%');
+// 스크롤해도 탭 줄이 붙어 있는지 — 본문을 내려도 탭 줄 y 가 그대로다.
+const tabsY = (await page.locator('.sheet-tabs').boundingBox())?.y;
+await page.evaluate(() => { const body = document.querySelector('.sheet-body'); if (body) body.scrollTop = 400; });
+await page.waitForTimeout(120);
+const tabsYAfter = (await page.locator('.sheet-tabs').boundingBox())?.y;
+check('일반 — 스크롤해도 탭 줄 고정', Math.abs((tabsY || 0) - (tabsYAfter || 0)) < 2, `${tabsY} → ${tabsYAfter}`);
+await page.evaluate(() => { const body = document.querySelector('.sheet-body'); if (body) body.scrollTop = 0; });
 
 // 권한 3종
 const permButtons = page.locator('.perm-open');
@@ -257,6 +276,7 @@ check('일반 — 업데이트 토스트', (await toastText()).includes('최신 
 
 await openSettings('notch');
 check('노치 — 탭 설명', (await page.locator('.sheet-tab-note').first().textContent()).includes('노치'));
+check('노치 — 메뉴 막대·퀵바 한 묶음(v1.15.1)', (await page.locator('.sheet-section h3', { hasText: '메뉴 막대 · 퀵바' }).count()) === 1);
 const notchMaster = page.locator('.notch-section .switch').first();
 await notchMaster.click();
 await page.waitForTimeout(120);
@@ -285,14 +305,42 @@ check('노치 — 미디어 위젯 켜기', (await stored('tip.notch.v1')).widge
 await mediaRow.locator('.switch').click();
 check('노치 — 미디어 위젯 끄기', (await stored('tip.notch.v1')).widgets.media === false);
 
-// 캘린더 필터
+// 캘린더 필터 — 캘린더 위젯이 꺼져 있으면(기본) 비활성이다(v1.15.1).
 await page.waitForTimeout(200);
+check('노치 — 캘린더 위젯이 꺼져 있으면 필터 비활성', await page.evaluate(() => document.querySelector('.cal-filter-section')?.classList.contains('is-off')));
+check('노치 — 꺼져 있으면 목록을 그리지 않는다', (await page.locator('.cal-filter-section input[data-cal]').count()) === 0);
+// 캘린더 위젯을 켜면 필터가 살아난다.
+const calWidgetRow = page.locator('.notch-row', { hasText: '캘린더' }).first();
+await calWidgetRow.locator('.switch').click();
+await page.waitForTimeout(400);
 const calBoxes = page.locator('.cal-filter-section input[data-cal]');
 const calCount = await calBoxes.count();
-check('노치 — 캘린더 필터 목록', calCount === 3, String(calCount));
+check('노치 — 캘린더 위젯을 켜면 필터 목록', calCount === 3, String(calCount));
 await calBoxes.nth(1).uncheck();
 await page.waitForTimeout(120);
 check('노치 — 캘린더 필터 저장', JSON.stringify(await stored('tip.calendar.selectedIds.v1')) === '["cal-1","cal-3"]', JSON.stringify(await stored('tip.calendar.selectedIds.v1')));
+
+// v1.15.1 — 노치 아일랜드를 끄면 캘린더 필터는 비활성(목록을 그리지 않는다).
+await notchMaster.click();
+await page.waitForTimeout(250);
+check('노치 — 끄면 캘린더 필터 비활성', await page.evaluate(() => document.querySelector('.cal-filter-section')?.classList.contains('is-off')));
+check('노치 — 끄면 캘린더 목록 없음', (await page.locator('.cal-filter-section input[data-cal]').count()) === 0);
+await notchMaster.click();
+await page.waitForTimeout(250);
+check('노치 — 다시 켜면 캘린더 목록', (await page.locator('.cal-filter-section input[data-cal]').count()) === 3);
+await page.waitForTimeout(150);
+
+// 메뉴 막대 · 퀵바 묶음 — 표시 토글 + 투명도 + 반원 퀵바 순서
+const menuRow = page.locator('.mb-row', { hasText: '메뉴 막대에 표시' }).first();
+const menuBefore = await menuRow.locator('.switch').getAttribute('aria-pressed');
+await menuRow.locator('.switch').click();
+await page.waitForTimeout(120);
+const trayCall = await lastCall('set_tray_visible');
+check('노치 — 메뉴 막대 표시 토글', !!trayCall && trayCall.args.visible === (menuBefore !== 'true'), JSON.stringify(trayCall && trayCall.args));
+const range = page.locator('.op-range');
+await range.evaluate((node) => { node.value = '64'; node.dispatchEvent(new Event('input', { bubbles: true })); });
+check('노치 — 퀵바 투명도 슬라이더', (await page.evaluate(() => Number(localStorage.getItem('tip.quickbarOpacity.v1')))) === 64, await page.evaluate(() => localStorage.getItem('tip.quickbarOpacity.v1')));
+check('노치 — 투명도 숫자 표시', (await page.locator('.op-value').textContent()) === '64%');
 
 // 반원 퀵바 순서 하위 화면
 await page.click('.sheet-menu:has-text("반원 퀵바 순서")');
@@ -351,8 +399,12 @@ check('검색 — 대상 토글 저장', (await stored('tip.searchScope.v1')).ca
 const systemSection = page.locator('.sheet-section:has(h3:text-is("시스템 명령"))');
 const systemRows = systemSection.locator('.mb-row');
 check('검색 — 시스템 명령 9종', (await systemRows.count()) === 9, String(await systemRows.count()));
-await page.locator('.mb-row', { hasText: '재시동' }).locator('.switch').click();
-check('검색 — 시스템 명령 토글 저장', (await stored('tip.systemCommands.v1')).restart === false);
+const restartSwitch = page.locator('.mb-row', { hasText: '재시동' }).locator('.switch');
+check('검색 — 위험 명령은 기본 OFF(v1.15.1)', (await restartSwitch.getAttribute('aria-pressed')) === 'false');
+await restartSwitch.click();
+await page.waitForTimeout(150);
+check('검색 — 시스템 명령 토글 저장', (await stored('tip.systemCommands.v1')).restart === true);
+check('검색 — Rust 에 설정 전달', JSON.stringify((await lastCall('set_system_commands'))?.args.settings?.restart) === 'true', JSON.stringify((await lastCall('set_system_commands'))?.args));
 
 /* ------------------------------ 모듈 탭 ------------------------------ */
 
@@ -363,6 +415,41 @@ const prefixOptions = await prefixSelect.locator('option').allTextContents();
 check('모듈 — 공통 조합 6가지', prefixOptions.length === 6, String(prefixOptions.length));
 const moduleRows = await page.locator('.sheet-module-row').count();
 check('모듈 — 모듈 목록 27개', moduleRows === 27, String(moduleRows));
+// v1.15.1 — 탭을 바꿔도 시트 높이가 튀지 않는다.
+const sheetHeightModules = (await page.locator('.sheet').boundingBox())?.height || 0;
+check('모듈 — 탭을 바꿔도 시트 높이 고정', Math.abs(sheetHeightGeneral - sheetHeightModules) < 2, `${Math.round(sheetHeightGeneral)} → ${Math.round(sheetHeightModules)}`);
+
+// v1.15.1 — 검색 칸
+const moduleSearch = page.locator('.sheet-module-search');
+check('모듈 — 검색 칸 있음', (await moduleSearch.count()) === 1);
+await moduleSearch.fill('타이머');
+await page.waitForTimeout(150);
+check('모듈 — 검색으로 거르기', (await page.locator('.sheet-module-row').count()) < 5, String(await page.locator('.sheet-module-row').count()));
+await moduleSearch.fill('');
+await page.waitForTimeout(150);
+
+// 아직 단축키가 하나도 없으니 '단축키 있음만' 필터는 0개여야 한다.
+check('모듈 — 단축키 없을 때 표시도 없음', (await page.locator('.sheet-module-row .module-shortcut').count()) === 0);
+await page.click('.sheet-chip:has-text("단축키 있음만")');
+await page.waitForTimeout(150);
+check('모듈 — 단축키 있음만 필터(없을 때 0개)', (await page.locator('.sheet-module-row').count()) === 0, String(await page.locator('.sheet-module-row').count()));
+await page.click('.sheet-chip:has-text("단축키 있음만")');
+await page.waitForTimeout(150);
+
+// 클립보드 — 비밀번호 앱에서 복사한 항목 제외(기본 ON)
+await page.click('.sheet-module-row:has-text("클립보드")');
+await page.waitForTimeout(200);
+const clipSwitch = page.locator('.mb-row', { hasText: '비밀번호 앱에서 복사한 항목 제외' }).locator('.switch');
+check('클립보드 — 비밀번호 제외 항목', (await clipSwitch.count()) === 1);
+check('클립보드 — 기본 켜짐', (await clipSwitch.getAttribute('aria-pressed')) === 'true');
+await clipSwitch.click();
+await page.waitForTimeout(200);
+check('클립보드 — 끄면 Rust 로 전달', (await lastCall('set_clipboard_exclude_secret'))?.args.enabled === false, JSON.stringify((await lastCall('set_clipboard_exclude_secret'))?.args));
+await clipSwitch.click();
+await page.waitForTimeout(200);
+check('클립보드 — 다시 켜면 저장', (await stored('tip.featureValues.v1'))['clip.excludeSecret'] === true, JSON.stringify(await stored('tip.featureValues.v1')));
+await page.click('.sheet-back');
+await page.waitForTimeout(150);
 
 // 모듈 하나 — 한 글자 단축키
 await page.click('.sheet-module-row:has-text("스티커")');
@@ -388,7 +475,22 @@ await timerLetter.fill('T');
 await page.waitForTimeout(250);
 check('모듈 — 다른 글자는 등록', (await stored('tip.shortcutLetters.v1')).timer === 'T');
 
-// 해제
+// v1.15.1 — 목록으로 돌아오면 단축키가 있는 모듈이 위로 오고 오른쪽에 단축키가 보인다.
+await page.click('.sheet-back');
+await page.waitForTimeout(200);
+const firstRowText = await page.locator('.sheet-module-list .sheet-module-row').first().textContent();
+check('모듈 — 단축키 있는 모듈이 위로', firstRowText.includes('스티커') || firstRowText.includes('타이머'), firstRowText.trim().slice(0, 24));
+const badgeTexts = await page.locator('.sheet-module-row .module-shortcut').allTextContents();
+check('모듈 — 단축키 표시(⌃⇧S 등)', badgeTexts.length === 2 && badgeTexts.some((text) => text.includes('S')), JSON.stringify(badgeTexts));
+await page.click('.sheet-chip:has-text("단축키 있음만")');
+await page.waitForTimeout(150);
+check('모듈 — 단축키 있음만 필터(2개)', (await page.locator('.sheet-module-row').count()) === 2, String(await page.locator('.sheet-module-row').count()));
+await page.click('.sheet-chip:has-text("단축키 있음만")');
+await page.waitForTimeout(150);
+
+// 해제 — 타이머 모듈 상세로 다시 들어간다.
+await page.click('.sheet-module-row:has-text("타이머")');
+await page.waitForTimeout(200);
 await page.locator('.shortcut-clear').first().click();
 await page.waitForTimeout(200);
 check('모듈 — 해제', !(await stored('tip.shortcutLetters.v1')).timer);
@@ -424,8 +526,22 @@ await page.waitForTimeout(300);
 const extras = await stored('tip.shortcutExtra.v1');
 check('모듈 — 창 분할 권장 단축키 6개', extras && extras['snap:left'] === 'Control+Alt+ArrowLeft' && Object.keys(extras).length === 6, JSON.stringify(extras && Object.keys(extras)));
 
+/* ------------------- 주소 검색 — Mac 은 별도 창(v1.15.1) ------------------- */
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.evaluate(() => { location.hash = '#/address-search'; });
+await page.waitForTimeout(500);
+await page.evaluate(() => window.__TIP_CALLS__.length = 0);
+await page.click('#addr-kr-open');
+await page.waitForTimeout(400);
+check('주소 — Mac 은 별도 우편번호 창을 연다', (await calls('open_postcode_window')).length === 1);
+check('주소 — Mac 은 iframe 을 만들지 않는다', (await page.locator('#addr-kr-embed iframe').count()) === 0);
+check('주소 — 결과를 기다리는 안내', (await page.locator('#addr-kr-hint').textContent()).includes('별도 창'), await page.locator('#addr-kr-hint').textContent());
+
 /* ------------------------------ 닫기 ------------------------------ */
 
+await openSettings('modules');
 await page.click('.sheet-head .icon-btn[aria-label="닫기"]');
 await page.waitForTimeout(300);
 check('설정 — X 로 닫힘', !(await sheetOpen()));
@@ -581,7 +697,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.15.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.15.1 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

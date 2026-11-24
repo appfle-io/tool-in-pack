@@ -1,11 +1,17 @@
-// TIP Spotlight 형 검색의 macOS 부분 — v1.14.0 (Mac 앱 전용)
+// TIP Spotlight 형 검색의 macOS 부분 — v1.14.0, v1.15.1(파일 열기 범위 축소) (Mac 앱 전용)
 //
 // 전역 검색(Option+Space)이 쓰는 세 가지를 여기서 만든다.
 //  · list_installed_apps — /Applications · /System/Applications · ~/Applications 의 .app 번들 목록.
 //    한 번 읽어 메모리에 캐시한다(앱이 켜져 있는 동안 그대로).
 //  · open_local_app      — 목록에서 고른 .app 만 연다(허용 폴더·.app 확장자·실존 확인).
 //  · search_local_files  — macOS 내장 mdfind 로 홈 디렉토리의 파일 이름을 찾는다(최대 12건, 1초 제한).
-//  · open_local_file     — mdfind 가 돌려준 경로(또는 홈 안의 실존 경로)만 연다.
+//  · open_local_file     — **방금 mdfind 가 돌려준 경로만** 연다(v1.15.1).
+//
+// v1.15.1 — '홈 폴더 아래면 다 열어 준다' 규칙을 없앴다. 웹뷰가 임의의 홈 경로(예: ~/Library 의
+//   스크립트)를 넘겨도 열리지 않고, 사용자가 화면에서 실제로 고른 검색 결과만 열린다.
+//   그리고 .command·.sh·.tool·.terminal·.workflow·.pkg 같은 스크립트·설치 파일은 실행하지 않고
+//   Finder 에서 위치만 보여 준다(open -R). .app 은 앱 실행기 UX 를 위해 그대로 연다.
+//   문서·이미지 같은 일반 파일은 예전치럼 연다.
 //
 // 모두 기기 안에서만 돈다 — 검색어도 결과도 밖으로 보내지 않는다.
 
@@ -37,7 +43,7 @@ pub struct FileHit {
 }
 
 static APP_CACHE: Mutex<Option<Vec<AppEntry>>> = Mutex::new(None);
-/// mdfind 로 찾은 경로 — open_local_file 은 여기 있는 경로(또는 홈 안 경로)만 연다.
+/// 방금 mdfind 로 찾아 화면에 돌려준 경로 — open_local_file 은 여기 있는 경로만 연다(v1.15.1).
 static FILE_HITS: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
 
 const FILE_HIT_MAX: usize = 12;
@@ -247,10 +253,8 @@ pub async fn search_local_files(query: String) -> Vec<FileHit> {
             });
         }
         if let Ok(mut slot) = FILE_HITS.lock() {
-            let set = slot.get_or_insert_with(HashSet::new);
-            for path in allowed {
-                set.insert(path);
-            }
+            // v1.15.1 — 매 검색의 결과로 통째로 바꾼다. 예전 결과는 열 수 없게 지운다.
+            *slot = Some(allowed);
         }
         list
     })
@@ -258,7 +262,18 @@ pub async fn search_local_files(query: String) -> Vec<FileHit> {
     .unwrap_or_default()
 }
 
-/// 열어도 되는 경로인지 — 홈·/Applications·/Volumes 안의 실존 경로, 또는 방금 mdfind 가 찾은 경로.
+/// 실행하지 않고 Finder 에서 위치만 보여 줄 확장자(v1.15.1) — 스크립트·설치 파일.
+const SCRIPT_EXTENSIONS: [&str; 6] = ["command", "sh", "tool", "terminal", "workflow", "pkg"];
+
+/// 이 경로가 스크립트·설치 파일인지 — 대소문자 구분 없이 확장자만 본다.
+fn is_script_file(path: &Path) -> bool {
+    path.extension()
+        .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
+        .map(|ext| SCRIPT_EXTENSIONS.contains(&ext.as_str()))
+        .unwrap_or(false)
+}
+
+/// 열어도 되는 경로인지 — 방금 mdfind 가 돌려준 경로만(홈 아래라는 이유만으로 열지 않는다).
 fn is_openable_file(path: &Path) -> bool {
     if !path.is_absolute() || !path.exists() {
         return false;
@@ -266,28 +281,29 @@ fn is_openable_file(path: &Path) -> bool {
     if path.to_string_lossy().contains("..") {
         return false;
     }
-    if let Ok(slot) = FILE_HITS.lock() {
-        if let Some(set) = slot.as_ref() {
-            if set.contains(path) {
-                return true;
-            }
-        }
+    match FILE_HITS.lock() {
+        Ok(slot) => slot
+            .as_ref()
+            .map(|set| set.contains(path))
+            .unwrap_or(false),
+        Err(_) => false,
     }
-    let allowed_root = home_dir()
-        .map(|home| path.starts_with(home))
-        .unwrap_or(false)
-        || path.starts_with("/Applications")
-        || path.starts_with("/System/Applications")
-        || path.starts_with("/Volumes")
-        || path.starts_with("/Users/Shared");
-    allowed_root
 }
 
 #[tauri::command]
 pub fn open_local_file(path: String) -> Result<(), String> {
     let path = PathBuf::from(path.trim());
     if !is_openable_file(&path) {
-        return Err("이 경로는 열 수 없습니다".into());
+        return Err("검색 결과에 있는 경로만 열 수 있습니다".into());
+    }
+    // v1.15.1 — 스크립트·설치 파일은 실행하지 않고 Finder 에서 위치만 보여 준다.
+    if is_script_file(&path) {
+        return Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .status()
+            .map(|_| ())
+            .map_err(|error| format!("Finder 에서 위치를 보여 주지 못했습니다: {error}"));
     }
     // Finder 에서 고른 것처럼 연다. 실패하면 Finder 에서 위치를 보여 준다.
     let opened = Command::new("open").arg(&path).status();

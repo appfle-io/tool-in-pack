@@ -1,6 +1,6 @@
 [package]
 name = "tip"
-version = "1.15.0"
+version = "1.15.1"
 description = "TIP (TOOL-IN-PACK) macOS 앱"
 authors = ["유동규 <appfle.io@gmail.com>"]
 edition = "2021"
@@ -41,6 +41,11 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSApplication",
   "NSPanel",
   "NSScreen",
+  # v1.15.1 — 비밀번호 앱이 붙이는 숨김 표시(types) 확인과 위험한 시스템 명령의 NSAlert 확인창
+  "NSPasteboard",
+  "NSAlert",
+  "NSButton",
+  "NSControl",
   "NSEvent",
   "NSWindow",
   "NSView",

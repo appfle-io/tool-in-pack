@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * TIP v1.15.0 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
+ * TIP v1.15.1 릴리스 사전 점검 — 코드가 약속한 것을 실제로 담고 있는지 센다.
  *
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.15.1 — 보안 4종(클립보드 비밀번호 제외 · 주소 검색 별도 창 격리 · 위험한 시스템 명령의 Rust
+ *          확인·기본 OFF · 로컬 파일 열기 범위 축소)과 환경설정 UX 개편(sticky 탭·높이 고정·
+ *          메뉴 막대 묶음·모듈 검색·단축키 표시·캘린더 필터 비활성·⌥Space 표기)을 검사한다.
  * v1.15.0 — 노치 동적 음악·타이머·공통 단축키 조합·설정 전수 점검을 검사한다.
  * v1.14.0 — Mac 생산성 확장(스티커 메모 · Spotlight형 전역 검색 · 모듈별 단축키 · 스포이드 ·
  *          드래그 OCR · 창 분할 · 파일 일괄 이름 변경 · 스니펫 · 로그인 자동 실행 · 시스템 명령 ·
@@ -60,7 +63,7 @@ check('Cargo.toml 버전', new RegExp(`^version = "${VERSION}"`, 'm').test(read(
 check('mac/package.json 버전', JSON.parse(read('mac/package.json')).version === VERSION);
 check('sw.js 캐시 버전', read('sw.js').includes(`tip-v${VERSION}`));
 check('js/app.js APP_VERSION', read('js/app.js').includes(`APP_VERSION = '${VERSION}'`));
-check('버전이 1.15.0 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 15 || (minor === 15 && patch >= 0))))(VERSION.split('.').map(Number)), String(VERSION));
+check('버전이 1.15.1 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 15 || (minor === 15 && patch >= 1))))(VERSION.split('.').map(Number)), String(VERSION));
 
 /* ------------------------------ 2. 노치 밀착 ------------------------------ */
 
@@ -283,11 +286,9 @@ if (typeof csp === 'string') {
     ['script-src 인라인 부트스트랩 해시', /script-src [^;]*'sha256-/],
     // v1.13.1 — 카카오가 t1.daumcdn.net 을 닫아 스크립트를 t1.kakaocdn.net 에서 받는다.
     ['script-src 카카오 우편번호 CDN', /script-src [^;]*https:\/\/t1\.kakaocdn\.net/],
-    ['script-src 카카오 CDN 와일드카드', /script-src [^;]*https:\/\/\*\.kakaocdn\.net/],
     ['style-src 카카오 CDN', /style-src [^;]*https:\/\/t1\.kakaocdn\.net/],
     ['img-src 카카오 CDN', /img-src [^;]*https:\/\/t1\.kakaocdn\.net/],
     ['font-src 카카오 CDN', /font-src [^;]*https:\/\/t1\.kakaocdn\.net/],
-    ['frame-src 카카오 CDN', /frame-src [^;]*https:\/\/t1\.kakaocdn\.net/],
     ['connect-src 카카오 CDN', /connect-src [^;]*https:\/\/t1\.kakaocdn\.net/],
     ['worker-src blob', /worker-src [^;]*blob:/],
     ['img-src blob·data', /img-src [^;]*blob:[^;]*data:/],
@@ -302,21 +303,52 @@ if (typeof csp === 'string') {
     // v1.13.0 — postcode.v2.js 는 자기 UI 를 postcode.map.kakao.com/search iframe 으로 그린다.
     // 이 도메인이 frame-src 에 없어 Mac 앱에서 흰 화면만 떴다.
     ['frame-src 카카오 우편번호', /frame-src [^;]*https:\/\/postcode\.map\.kakao\.com/],
-    ['script-src 카카오 우편번호', /script-src [^;]*https:\/\/\*\.kakao\.com/],
+    ['script-src 카카오 우편번호 CDN', /script-src [^;]*https:\/\/postcode\.map\.kakao\.com/],
     ['connect-src 카카오 우편번호', /connect-src [^;]*https:\/\/postcode\.map\.kakao\.com/],
   ].forEach(([name, pattern]) => check(`CSP ${name}`, pattern.test(csp)));
   check('CSP 에 script unsafe-inline 없음', !/script-src[^;]*'unsafe-inline'/.test(csp));
+  // v1.15.1 — 와일드카드 출처를 걷어내고 실제로 쓰는 호스트만 남긴다.
+  check('CSP 에 와일드카드 출처 없음', !csp.includes('*'), (csp.match(/\S*\*\S*/g) || []).join(' '));
+  check('CSP 에 *.kakao.com 없음', !csp.includes('*.kakao.com'));
+  check('CSP 에 *.daumcdn.net 없음', !csp.includes('*.daumcdn.net'));
+  check('CSP 에 *.kakaocdn.net 없음', !csp.includes('*.kakaocdn.net'));
+  ['https://t1.daumcdn.net', 'https://t1.kakaocdn.net', 'https://postcode.map.daum.net', 'https://postcode.map.kakao.com'].forEach((host) => {
+    check(`CSP 실제 호스트 ${host}`, csp.includes(host));
+  });
 }
 
 /* ------------------------------ 12. 주소 검색 격리 ------------------------------ */
 
 const address = read('modules/address-search/module.js');
-check('address-frame.html 존재', exists('address-frame.html'));
+check('address-frame.html 존재(웹 경로)', exists('address-frame.html'));
 check('address-frame.js 존재', exists('js/address-frame.js'));
-check('주소 검색이 iframe 사용', address.includes('address-frame.html') && address.includes('createElement(\'iframe\')'));
+check('웹은 예전처럼 iframe 사용', address.includes('address-frame.html') && address.includes('createElement(\'iframe\')'));
 check('메인 문서에 다음 스크립트 직접 삽입 없음', !address.includes('t1.daumcdn.net') && !address.includes('t1.kakaocdn.net') && !/createElement\('script'\)/.test(address));
 check('iframe 메시지 출처 확인', /event\.source !== daumFrame\.contentWindow/.test(address));
 check('iframe 에 불투명 출처 샌드박스 없음(v1.13.0)', !/setAttribute\('sandbox'/.test(address) && !/sandboxRetried/.test(address));
+
+// v1.15.1 — Mac 앱은 IPC 권한이 없는 별도 창(postcode)에서 띄우고 이벤트로만 결과를 받는다.
+check('postcode.html 존재', exists('postcode.html'));
+check('js/postcode.js 존재', exists('js/postcode.js'));
+check('postcode-done.html 존재', exists('postcode-done.html'));
+check('주소 모듈이 postcode 창을 연다', address.includes("invoke('open_postcode_window')"));
+check('주소 모듈이 결과 창을 닫는다', address.includes("invoke('close_postcode_window')"));
+check('주소 모듈이 결과 이벤트를 받는다', address.includes("listen('tip://postcode-result'"));
+check('주소 모듈이 결과 보관함을 확인', address.includes("invoke('take_postcode_result')"));
+check('Rust open_postcode_window 커맨드', /fn open_postcode_window\(app: AppHandle\)/.test(lib));
+check('Rust close_postcode_window 커맨드', /fn close_postcode_window\(app: AppHandle\)/.test(lib));
+check('Rust take_postcode_result 커맨드', /fn take_postcode_result\(\)/.test(lib));
+check('Rust 가 postcode 창을 만든다', lib.includes('WebviewWindowBuilder::new(&app, POSTCODE, WebviewUrl::App("postcode.html".into()))'));
+check('postcode 창은 capabilities 밖(IPC 권한 0)', !/postcode/.test(capability));
+check('postcode 창에서 Tauri 전역을 지운다', /POSTCODE_HIDE_TAURI/.test(lib) && /delete window\.__TAURI__/.test(lib) && /initialization_script\(POSTCODE_HIDE_TAURI\)/.test(lib));
+check('postcode 창은 조각의 결과만 받는다', /fn postcode_payload\(url: &tauri::Url\)/.test(lib) && lib.includes('strip_prefix("d=")'));
+check('postcode 창이 외부 스킴을 막는다', lib.includes('scheme != "tauri" && scheme != "http" && scheme != "https"'));
+const postcodeJs = read('js/postcode.js');
+check('postcode.js 가 우편번호 스크립트를 로드', postcodeJs.includes('https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js'));
+check('postcode.js 가 Tauri 를 부르지 않는다', !/__TAURI__\.(core|event)/.test(postcodeJs));
+check('postcode.js 결과는 주소 조각으로만', /postcode-done\.html#d=/.test(postcodeJs));
+check('collect-web 이 postcode 페이지 포함', read('mac/scripts/collect-web.sh').includes('postcode.html') && read('mac/scripts/collect-web.sh').includes('postcode-done.html'));
+check('sw.js 가 postcode 페이지 캐시', read('sw.js').includes("'./postcode.html'") && read('sw.js').includes("'./postcode-done.html'"));
 const addressFrame = read('js/address-frame.js');
 check('프레임이 우편번호 스크립트 로드', addressFrame.includes('https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js'));
 check('프레임 SRC 가 종료된 daumcdn 아님(v1.13.1)', !/=\s*'https:\/\/t1\.daumcdn\.net/.test(addressFrame));
@@ -389,7 +421,7 @@ check('Rust mdfind 사용', read('mac/src-tauri/src/apps.rs').includes('"mdfind"
 check('Rust mdfind 1초 제한', /MDFIND_TIMEOUT: Duration = Duration::from_millis\(1000\)/.test(read('mac/src-tauri/src/apps.rs')));
 check('Rust 파일 12건 제한', /FILE_HIT_MAX: usize = 12/.test(read('mac/src-tauri/src/apps.rs')));
 check('Rust 앱 경로 검증', /fn is_openable_app\(/.test(read('mac/src-tauri/src/apps.rs')));
-check('Rust run_system_command 표', exists('mac/src-tauri/src/system.rs') && /pub fn run_system_command\(id: String\)/.test(read('mac/src-tauri/src/system.rs')));
+check('Rust run_system_command 표', exists('mac/src-tauri/src/system.rs') && /pub fn run_system_command\(app: AppHandle, id: String\)/.test(read('mac/src-tauri/src/system.rs')));
 
 // 3. 모듈별 단축키
 check('Rust 단축키 표', /static SHORTCUT_TABLE: Mutex<Vec<\(String, String\)>>/.test(lib));
@@ -416,7 +448,9 @@ check('자동 실행 자기 실행 파일만', /fn own_executable\(/.test(read('
 
 // 5. 설정 4탭 · 문의 메일 · 주소 영문
 check('설정 탭 4개', ['general', 'notch', 'search', 'modules'].every((id) => new RegExp(`\\{ id: '${id}', label:`).test(appJs)));
-check('탭 설명 문구', /TAB_NOTES = \{/.test(appJs) && /검색창은 \[검색\] 탭에 있습니다/.test(appJs));
+check('탭 설명 문구', /TAB_NOTES = \{/.test(appJs) && /노치 아일랜드와 메뉴 막대/.test(appJs));
+check('탭 안내에서 다른 탭 안내 문장 제거(v1.15.1)', !/탭에 있습니다/.test(appJs));
+check('웹 안내에 Mac 전용 항목 없음(v1.15.1)', /generalWeb:/.test(appJs) && !/generalWeb: '[^']*메뉴 막대/.test(appJs));
 check('모듈 화면 ⚙', /screen-gear/.test(appJs) && /openSheet\('modules', mod\.id\)/.test(appJs));
 check('문의 버튼', read('index.html').includes('id="inquiry-btn"') && appJs.includes('appfle.io@gmail.com'));
 check('mailto 허용', /mailto:/.test(lib) && lib.includes('appfle.io@gmail.com'));
@@ -507,6 +541,78 @@ check('취소 누름이 캐처를 끊음', /if \(capturing\) \{\s*stop\(\);/.tes
 check('Esc 캐처가 시트 닫기로 번지지 않음', /event\.stopPropagation\(\);/.test(appJs));
 check('설정 취소 버그 회귀 테스트', exists('tools/settings-e2e.mjs'));
 check('README 모듈 27종', read('README.md').includes('모듈 27종') || read('README.md').includes('27종'));
+
+/* ---------------------- v1.15.1 보안 4종 ---------------------- */
+
+// 1. 클립보드 — 비밀번호 앱이 복사한 항목 제외
+const clip = read('mac/src-tauri/src/clip.rs');
+check('clip.rs 가 숨김 표시 3종을 본다', ['org.nspasteboard.ConcealedType', 'org.nspasteboard.TransientType', 'org.nspasteboard.AutoGeneratedType']
+  .every((name) => clip.includes(name)));
+check('clip.rs 가 NSPasteboard types() 를 읽는다', /NSPasteboard::generalPasteboard\(\)/.test(clip) && /board\.types\(\)/.test(clip));
+check('clip.rs 감시 루프가 숨김 항목을 건너뛴다', /if should_skip\(\) \{\s*\n\s*last_text\.clear\(\);/.test(clip));
+check('clip.rs 가 설정을 들고 있다', /static EXCLUDE_CONCEALED: AtomicBool = AtomicBool::new\(true\)/.test(clip)
+  && /fn set_clipboard_exclude_secret\(enabled: bool\)/.test(clip));
+check('clip.rs 기본값 ON', clip.includes('AtomicBool::new(true)'));
+check('Rust set_clipboard_exclude_secret 등록', lib.includes('clip::set_clipboard_exclude_secret,'));
+check('objc2-app-kit NSPasteboard 기능', /"NSPasteboard",/.test(read('mac/src-tauri/Cargo.toml')));
+const featureJs = read('js/feature-settings.js');
+check('설정에 클립보드 비밀번호 제외 항목', featureJs.includes("key: 'clip.excludeSecret'") && featureJs.includes('비밀번호 앱에서 복사한 항목 제외'));
+check('클립보드 설정 기본 ON', /key: 'clip\.excludeSecret'[\s\S]{0,220}fallback: true/.test(featureJs));
+check('클립보드 설정이 Rust 로 간다', /set_clipboard_exclude_secret/.test(featureJs));
+check('설정 저장값을 앱이 켜질 때 민다', /applyModuleValues\(\)/.test(appJs));
+
+// 2. 주소 검색 격리 — 위 12번 절 + CSP 와일드카드 제거로 확인
+
+// 3. 위험한 시스템 명령 — 기본 OFF + 네이티브 확인창
+const systemRs = read('mac/src-tauri/src/system.rs');
+check('system.rs 위험 4종 표시', /fn is_risky\(self\) -> bool[\s\S]{0,160}Self::EmptyTrash \| Self::Restart \| Self::Shutdown \| Self::Logout/.test(systemRs));
+check('system.rs NSAlert 사용', systemRs.includes('NSAlert::new') && systemRs.includes('addButtonWithTitle'));
+check('system.rs 확인을 메인 스레드에서', /run_on_main_thread\(move \|\|/.test(systemRs) && /recv_timeout\(Duration::from_secs\(60\)\)/.test(systemRs));
+check('system.rs 가 설정값을 들고 있다', /static COMMAND_SETTINGS: Mutex<Option<HashMap<String, bool>>>/.test(systemRs)
+  && /fn set_system_commands\(settings: HashMap<String, bool>\)/.test(systemRs));
+check('system.rs 꺼 둔 명령은 거부', /환경설정에서 꺼 두었습니다/.test(systemRs));
+check('system.rs 위험 명령 기본 OFF', /saved\.unwrap_or\(!command\.is_risky\(\)\)/.test(systemRs));
+check('run_system_command 가 확인을 거친다', /pub fn run_system_command\(app: AppHandle, id: String\)/.test(systemRs)
+  && /if !confirm_with_user\(&app, command\)/.test(systemRs));
+check('Rust set_system_commands 등록', lib.includes('system::set_system_commands,'));
+check('objc2-app-kit NSAlert 기능', /"NSAlert",/.test(read('mac/src-tauri/Cargo.toml')) && /"NSButton",/.test(read('mac/src-tauri/Cargo.toml')));
+check('feature-settings 위험 명령 기본 OFF', /RISKY_SYSTEM_COMMANDS = \['emptytrash', 'restart', 'shutdown', 'logout'\]/.test(featureJs)
+  && /const fallback = !RISKY_SYSTEM_COMMANDS\.includes\(id\)/.test(featureJs));
+check('feature-settings 가 설정을 Rust 로 민다', /export async function syncSystemCommands/.test(featureJs) && /invoke\('set_system_commands'/.test(featureJs));
+check('app.js 가 시스템 명령 설정을 민다', /syncSystemCommands\(\)/.test(appJs));
+
+// 4. open_local_file — mdfind 결과만 + 스크립트·설치 파일은 Finder 로
+const appsRs = read('mac/src-tauri/src/apps.rs');
+check('apps.rs 홈 폴더 전체 허용 제거', !/let allowed_root = home_dir\(\)/.test(appsRs) && !/path\.starts_with\("\/Volumes"\)/.test(appsRs));
+check('apps.rs 는 FILE_HITS 만 허용', /fn is_openable_file\(path: &Path\) -> bool \{[\s\S]{0,420}set\.contains\(path\)/.test(appsRs));
+check('FILE_HITS 를 매 검색마다 교체', /\*slot = Some\(allowed\);/.test(appsRs));
+check('스크립트·설치 확장자 목록', /SCRIPT_EXTENSIONS: \[&str; 6\] = \["command", "sh", "tool", "terminal", "workflow", "pkg"\]/.test(appsRs));
+check('스크립트 파일은 open -R 만', /if is_script_file\(&path\) \{[\s\S]{0,220}"-R"/.test(appsRs));
+check('.app 은 그대로 실행(앱 실행기 UX)', !/SCRIPT_EXTENSIONS[^;]*app/.test(appsRs) && /fn is_openable_app\(/.test(appsRs));
+check('거부 문구', /검색 결과에 있는 경로만 열 수 있습니다/.test(appsRs));
+
+/* ---------------------- v1.15.1 환경설정 UX ---------------------- */
+
+const sheetCss = read('css/app.css');
+check('시트 고정 높이 클래스', /\.sheet\.is-fixed \{[\s\S]{0,200}height: min\(88vh, 680px\)/.test(sheetCss));
+check('시트 본문만 스크롤', /\.sheet-body \{[\s\S]{0,200}overflow-y: auto/.test(sheetCss));
+check('탭 줄 sticky', /\.sheet\.is-fixed \.sheet-tabs \{[\s\S]{0,120}position: sticky/.test(sheetCss));
+check('app.js 가 is-fixed 를 붙인다', /class: `sheet\$\{TAURI \? ' is-fixed' : ''\}`/.test(appJs));
+check('시트 본문 컨테이너', /class: 'sheet-body'/.test(appJs));
+check('메뉴 막대·퀵바 한 묶음', /text: '메뉴 막대 · 퀵바'/.test(appJs) && /function menuBarQuickbarSection/.test(appJs));
+check('일반 탭에서 메뉴 막대 묶음 제거', !/parts\.push\(menuBarSection\(\)\)/.test(appJs));
+check('메뉴 막대·퀵바에 투명도·순서', /quickbarOpacityRow\(\),\s*\n\s*orderRow,/.test(appJs));
+check('모듈 탭 검색 칸', /class: 'pt-input sheet-module-search'/.test(appJs) && /moduleQuery = search\.value/.test(appJs));
+check('모듈 탭 단축키 표시', /class: 'shortcut-chip module-shortcut'/.test(appJs) && /function moduleShortcutKeys/.test(appJs));
+check('모듈 탭 단축키 필터·정렬', /moduleFilterShortcuts/.test(appJs) && /a\.keys\.length \? -1 : 1/.test(appJs));
+check('캘린더 필터 비활성 처리', /function calendarFilterAvailable\(\)/.test(appJs) && /notch\.enabled && notch\.widgets && notch\.widgets\.calendar/.test(appJs));
+check('캘린더 필터 꺼짐 안내', /노치 아일랜드를 켜고 캘린더 위젯을 표시하면 쓸 수 있습니다/.test(appJs));
+check('⌥Space 기호 표기', appJs.includes('⌥Space') && !/Option\+Space/.test(appJs));
+check('README 도 ⌥Space 표기', read('README.md').includes('⌥Space') || read('README.md').includes('⌥ Space'));
+check('로컬 파일 검색 첫 안내', /filesNoticePending/.test(featureJs) && /markFilesNoticeShown/.test(featureJs)
+  && /홈 폴더 파일 이름을 검색합니다/.test(read('js/search.js')) && /filesNoticePending\(\)/.test(read('js/search.js')));
+check('README 에 v1.15.1', read('README.md').includes('| v1.15.1 |'));
+check('settings-e2e 경로 환경변수화', /TIP_CHROME/.test(read('tools/settings-e2e.mjs')) && /TIP_PLAYWRIGHT|NODE_PATH|PLAYWRIGHT/.test(read('tools/settings-e2e.mjs')));
 
 /* ------------------------------ 결과 ------------------------------ */
 

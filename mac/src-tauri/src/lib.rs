@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use base64::Engine as _;
 use futures_util::StreamExt;
 use tauri::{
     image::Image,
@@ -39,6 +40,8 @@ const TOOL: &str = "tool";
 const NOTCH: &str = "notch";
 const SEARCH: &str = "search";
 const PARCEL: &str = "parcel";
+/// 우편번호 검색 전용 창(v1.15.1) — capabilities/default.json 의 windows 목록에 없으므로
+/// Tauri IPC 권한이 전혀 없다.
 
 // 퀵바 창 — 납작한 반타원 판(가로 284·세로 176)이 위쪽 일직선으로 메뉴 막대에 붙고,
 // 아래로 176px 내려간다. 창 높이 206 = 판 176 + 아래 그림자 여백 30.
@@ -70,6 +73,16 @@ const SEARCH_H: f64 = 520.0;
 // 아이폰 Safari User-Agent 로 열고 창을 460×740(모바일 화면 비율)에 맞춘다.
 const PARCEL_W: f64 = 460.0;
 const PARCEL_H: f64 = 740.0;
+
+// 우편번호 창(v1.15.1) — 다음(카카오) 우편번호 서비스를 앱 본문과 다른 창에서 띄운다.
+// 일반 창이라 사용자가 닫을 수 있고, 창 라벨(postcode)은 capabilities 에 없어 IPC 권한이 없다.
+const POSTCODE_W: f64 = 520.0;
+const POSTCODE_H: f64 = 720.0;
+/// 우편번호 창에서 Tauri 전역을 지우는 초기화 스크립트 — 카카오 스크립트가 IPC 를 찾지 못하게.
+/// (창 자체에 IPC 권한이 없지만, 창에 window.__TAURI__ 와 parent.__TAURI__ 를 둘 다 못 쓰게 한다.)
+const POSTCODE_HIDE_TAURI: &str = "try{delete window.__TAURI__;delete window.__TAURI_INTERNALS__;}catch(e){}";
+/// 우편번호 창이 주소를 골랐을 때 이동하는 페이지 — 그 조각(#d=<base64 JSON>)만 결과로 받는다.
+const POSTCODE_DONE_PAGE: &str = "postcode-done.html";
 /// 배송 조회 창이 스스로를 모바일 Safari 로 알리는 값 — 네이버가 모바일 레이아웃을 내려 준다.
 const PARCEL_USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) \
      AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
@@ -81,8 +94,9 @@ const WEB_ALLOWED_HOSTS: [&str; 4] = ["www.google.com", "google.com", "search.na
 
 const RELEASES_LATEST: &str = "https://api.github.com/repos/appfle-io/tool-in-pack/releases/latest";
 
-/// 마지막으로 누른 메뉴 막대 아이콘의 사각형(물리 픽셀: x, y, w, h).
-static TRAY_RECT: Mutex<Option<(f64, f64, f64, f64)>> = Mutex::new(None);
+/// 우편번호 창이 고른 주소 — 마지막 결과 한 건.
+/// 창에서 온 결과를 이벤트로 바로 알리고, 화면이 늦게 붙었을 때도 꺼낼 수 있게 같이 남긴다(v1.15.1).
+static POSTCODE_RESULT: Mutex<Option<(i64, String)>> = Mutex::new(None);
 
 /// 메인 창의 화면이 아직 준비되기 전에 환경설정 요청이 왔는지 — 앱이 켜질 때 한 번 꺼낸다.
 static PENDING_SETTINGS: Mutex<bool> = Mutex::new(false);
@@ -1157,7 +1171,84 @@ fn open_parcel_webview(app: AppHandle, url: String, title: String) -> Result<(),
     Ok(())
 }
 
-/* --------------------------------- 실행 --------------------------------- */
+/* ------------------------- 우편번호 창 (v1.15.1) ------------------------- */
+
+/// 우편번호 창의 주소 조각(#d=base64(JSON))을 풀어 JSON 문자열로 돌려준다.
+/// 받은 값은 그대로 화면에 보여 줄 뿐 파일·명령에 쓰지 않는다.
+fn postcode_payload(url: &tauri::Url) -> Option<String> {
+    if !url.path().ends_with(POSTCODE_DONE_PAGE) {
+        return None;
+    }
+    let fragment = url.fragment()?;
+    let encoded = fragment.strip_prefix("d=")?;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+    let text = String::from_utf8(bytes).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    if !value.is_object() {
+        return None;
+    }
+    Some(text)
+}
+
+/// 한국 주소(다음 우편번호)를 별도 창에서 연다.
+/// 이 창은 capabilities 에 없어 IPC 권한이 0 이고, 초기화 스크립트가 Tauri 전역까지 지운다.
+/// 고른 주소는 postcode-done.html 로 이동할 때의 주소 조각에서 읽어 `tip://postcode-result` 로
+/// 화면에 넘긴다(웹뷰 스크립트에 아무 권한도 주지 않는 길).
+#[tauri::command]
+fn open_postcode_window(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window(POSTCODE) {
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let handle = app.clone();
+    let win = WebviewWindowBuilder::new(&app, POSTCODE, WebviewUrl::App("postcode.html".into()))
+        .title("우편번호 검색")
+        .inner_size(POSTCODE_W, POSTCODE_H)
+        .min_inner_size(420.0, 520.0)
+        .resizable(true)
+        .visible(false)
+        .initialization_script(POSTCODE_HIDE_TAURI)
+        .on_navigation(move |url| {
+            // 앱 안의 문서(우편번호·결과 안내)와 카카오 우편번호의 https 프레임만 지나가게 한다.
+            let scheme = url.scheme();
+            if scheme != "tauri" && scheme != "http" && scheme != "https" {
+                return false;
+            }
+            if let Some(payload) = postcode_payload(url) {
+                let stamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|value| value.as_millis() as i64)
+                    .unwrap_or(0);
+                if let Ok(mut slot) = POSTCODE_RESULT.lock() {
+                    *slot = Some((stamp, payload.clone()));
+                }
+                let _ = handle.emit("tip://postcode-result", payload);
+            }
+            true
+        })
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
+/// 우편번호 창을 닫는다 — 주소를 받았거나 사용자가 그만 두었을 때 화면이 부른다.
+#[tauri::command]
+fn close_postcode_window(app: AppHandle) {
+    if let Some(win) = app.get_webview_window(POSTCODE) {
+        let _ = win.close();
+    }
+}
+
+/// 마지막으로 고른 주소 한 건을 꺼낸다(한 번 꺼내면 비운다) — 이벤트를 놓쳤을 때의 보험.
+#[tauri::command]
+fn take_postcode_result() -> Option<String> {
+    POSTCODE_RESULT.lock().ok()?.take().map(|(_, json)| json)
+}
 
 /* ------------------------------ 앱 업데이트 ------------------------------ */
 
@@ -1623,11 +1714,15 @@ pub fn run() {
             open_main,
             open_tool,
             open_parcel_webview,
+            open_postcode_window,
+            close_postcode_window,
+            take_postcode_result,
             take_pending_settings,
             set_tray_visible,
             check_app_update,
             install_app_update_and_restart,
             clip::clipboard_list,
+            clip::set_clipboard_exclude_secret,
             clip::clipboard_copy,
             clip::clipboard_pin,
             clip::clipboard_delete,
@@ -1670,6 +1765,7 @@ pub fn run() {
             capture::snap_active_window,
             capture::accessibility_trusted,
             system::run_system_command,
+            system::set_system_commands,
             files::rename_files,
             autostart::get_autostart,
             autostart::set_autostart,

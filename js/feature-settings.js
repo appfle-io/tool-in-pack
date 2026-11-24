@@ -23,6 +23,9 @@ export const SYSTEM_COMMANDS = {
   shutdown: '시스템 종료',
   logout: '로그아웃',
 };
+
+/** 되돌릴 수 없는 네 명령 — 기본 OFF(v1.15.1). Rust 도 같은 기본값으로 거부한다. */
+export const RISKY_SYSTEM_COMMANDS = ['emptytrash', 'restart', 'shutdown', 'logout'];
 const SHORTCUTS_KEY = 'tip.shortcuts.v1';
 const SCOPE_KEY = 'tip.searchScope.v1';
 
@@ -178,7 +181,8 @@ export function getSystemCommandEnabled() {
   } catch { saved = {}; }
   const next = {};
   Object.keys(SYSTEM_COMMANDS).forEach((id) => {
-    next[id] = typeof saved[id] === 'boolean' ? saved[id] : true;
+    const fallback = !RISKY_SYSTEM_COMMANDS.includes(id);
+    next[id] = typeof saved[id] === 'boolean' ? saved[id] : fallback;
   });
   return next;
 }
@@ -188,7 +192,20 @@ export function setSystemCommandEnabled(id, on) {
   try {
     localStorage.setItem(SYSTEM_KEY, JSON.stringify(next));
   } catch { /* 저장하지 못하면 이번에만 */ }
+  // v1.15.1 — Rust 가 같은 값을 들고 있어야 꺼 둔 명령을 실제로 거부한다.
+  syncSystemCommands(next);
   return next;
+}
+
+/** 시스템 명령 스위치 전부를 Rust 에 밀어 준다(앱이 켜질 때·바뀔 때). */
+export async function syncSystemCommands(settings) {
+  if (!TAURI) return;
+  const values = settings || getSystemCommandEnabled();
+  try {
+    await invoke('set_system_commands', { settings: values });
+  } catch (error) {
+    console.warn('[TIP] 시스템 명령 설정을 밀지 못했습니다', error);
+  }
 }
 
 /* ------------------------------ 전역 단축키 ------------------------------ */
@@ -320,6 +337,25 @@ export async function syncShortcuts() {
  *  action : 단축키를 걸 수 있는 동작
  */
 export const MODULE_SETTINGS = {
+  // v1.15.1 — 비밀번호 관리자가 복사한 값은 기록하지 않는다(기본 ON). Rust(clip.rs)가 같은 값을 든다.
+  'clipboard-history': {
+    values: [
+      {
+        key: 'clip.excludeSecret',
+        label: '비밀번호 앱에서 복사한 항목 제외',
+        type: 'switch',
+        fallback: true,
+        hint: '1Password·Apple 암호 같은 앱이 복사한 값은 기록에 넣지 않습니다(Mac).',
+        apply: (value) => {
+          if (TAURI) {
+            invoke('set_clipboard_exclude_secret', { enabled: value !== false })
+              .catch((error) => console.warn('[TIP] 클립보드 설정을 밀지 못했습니다', error));
+          }
+        },
+      },
+    ],
+    actions: [{ key: 'clipboard-history', label: '클립보드 열기' }],
+  },
   'sticky-notes': {
     values: [
       {
@@ -392,6 +428,36 @@ export const MODULE_SETTINGS = {
     actions: [],
   },
 };
+
+/** 값이 있는 옵션의 apply 훅을 한 번 실행한다 — 앱이 켜질 때 저장값을 Rust 에 밀어 줄 때 쓴다. */
+export function applyModuleValues() {
+  Object.values(MODULE_SETTINGS).forEach((entry) => {
+    (entry.values || []).forEach((option) => {
+      if (typeof option.apply === 'function') {
+        option.apply(getFeatureValue(option.key, option.fallback));
+      }
+    });
+  });
+}
+
+/* ------------------------- 로컬 파일 검색 첫 안내 ------------------------- */
+// v1.15.1 — 파일 검색을 처음 쓴 사람에게 '홈 폴더 파일 이름을 검색한다'를 한 번만 알린다.
+
+const FILES_NOTICE_KEY = 'tip.search.filesNotice.v1';
+
+export function filesNoticePending() {
+  try {
+    return localStorage.getItem(FILES_NOTICE_KEY) !== '1';
+  } catch {
+    return true;
+  }
+}
+
+export function markFilesNoticeShown() {
+  try {
+    localStorage.setItem(FILES_NOTICE_KEY, '1');
+  } catch { /* 못 적어도 다음에 또 보여 줄 뿐이다 */ }
+}
 
 /** 설정 차례가 없는 모듈도 '모듈 열기' 단축키는 걸 수 있다. */
 export function actionsFor(moduleId) {

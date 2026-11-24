@@ -16,7 +16,9 @@ import { moduleState, syncStore } from './store.js';
 import { calculate } from './calc.js';
 import { koreanRank } from './chosung.js';
 import { findSnippets, snippetPreview } from './snippets.js';
-import { searchScopeEnabled, getSystemCommandEnabled } from './feature-settings.js';
+import {
+  searchScopeEnabled, getSystemCommandEnabled, filesNoticePending, markFilesNoticeShown,
+} from './feature-settings.js';
 import {
   parseTimerQuery, startTimer, timerState, remainingSeconds, formatClock, describeSeconds, TIMER_PRESETS,
 } from './timer-store.js';
@@ -550,6 +552,11 @@ function scheduleFiles(query) {
   }
   fileTimer = setTimeout(async () => {
     fileQuery = q;
+    // v1.15.1 — 파일 검색을 처음 쓸 때 무엇을 검색하는지 한 번만 알린다.
+    if (filesNoticePending()) {
+      markFilesNoticeShown();
+      flash('홈 폴더 파일 이름을 검색합니다 — 찾은 경로만 열 수 있습니다', 2600);
+    }
     try {
       const hits = await invoke('search_local_files', { query: q });
       if (fileQuery !== q) return;
