@@ -153,6 +153,18 @@ const MOCK = `
     sticky_delete: null,
     sticky_update: null,
     sticky_open: null,
+    // v1.16.0 — 백업 대화상자(저장·열기)
+    save_backup_file: { path: '/tmp/tip-backup-20261125.json' },
+    open_backup_file: {
+      name: 'tip-backup-20261125.json',
+      content: JSON.stringify({
+        format: 'tip-backup', version: 1, app: '1.16.0', created: '2026-11-25T00:00:00.000Z',
+        settings: { 'tip.accent': 'blue', 'tip.theme': 'dark' },
+        stickyNotes: [], clipboard: null,
+      }),
+    },
+    sticky_restore: 1,
+    clipboard_restore: 1,
   };
   window.__TAURI__ = {
     core: {
@@ -1242,6 +1254,29 @@ const broken = await tauriPage.evaluate(async () => {
 check('v1.16.0 — 깨진 JSON 은 이유만', broken.bad === false && /깨졌/.test(broken.reason || ''), broken.reason);
 check('v1.16.0 — 모르는 형식 거부', broken.wrong === false);
 check('v1.16.0 — 깨진 파일은 아무것도 안 바꿈', broken.accent === 'slate' && broken.applied === null, broken.accent);
+
+/* ---------- 설정 UI — 백업과 복원 ---------- */
+await openSettings('general');
+check('v1.16.0 — 설정에 백업과 복원', await tauriPage.locator('.backup-section').count() === 1);
+await tauriPage.locator('.backup-section .primary-btn').first().click();
+await tauriPage.waitForTimeout(500);
+const saveCall = await lastCall('save_backup_file');
+let savedBackup = null;
+try { savedBackup = JSON.parse(saveCall.args.content); } catch { savedBackup = null; }
+check('v1.16.0 — 백업 파일 만들기가 대화상자를 연다', !!saveCall && !!savedBackup && savedBackup.format === 'tip-backup', String(!!saveCall));
+check('v1.16.0 — 클립보드는 기본 제외', savedBackup && savedBackup.clipboard === null);
+check('v1.16.0 — 백업에 설정·순서·스니펫', savedBackup && savedBackup.settings['tip.settings.v1']
+  && savedBackup.settings['tip.order.v1'] && savedBackup.settings['tip.snippets.v1']);
+await tauriPage.locator('.backup-section .primary-btn.ghost').click();
+await tauriPage.waitForTimeout(400);
+check('v1.16.0 — 불러오기 미리보기', await tauriPage.locator('.backup-preview .backup-row').count() >= 5);
+check('v1.16.0 — 덮어쓰기 전 확인창', await tauriPage.locator('.confirm-dialog').count() === 1);
+const accentBefore = await tauriPage.evaluate(() => localStorage.getItem('tip.accent'));
+await tauriPage.click('.confirm-cancel');
+await tauriPage.waitForTimeout(200);
+check('v1.16.0 — 취소하면 아무것도 안 바뀜', await tauriPage.evaluate(() => localStorage.getItem('tip.accent')) === accentBefore);
+await page.keyboard.press('Escape');
+await tauriPage.waitForTimeout(300);
 
 /* ---------- 최근 사용 ---------- */
 await tauriPage.evaluate(() => { localStorage.clear(); });
