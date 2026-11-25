@@ -17,7 +17,7 @@ import {
   getSystemCommandEnabled, setSystemCommandEnabled, syncSystemCommands,
   getShortcutPrefix, setShortcutPrefix, SHORTCUT_PREFIXES, DEFAULT_PREFIX,
   setShortcutLetter, validShortcutLetter, letterForCode, getShortcutLetters, getShortcutExtras,
-  applyModuleValues, filesNoticePending, markFilesNoticeShown,
+  applyModuleValues, filesNoticePending, markFilesNoticeShown, NOTCH_TOGGLE_KEY, NOTCH_TOGGLE_LETTER,
 } from './feature-settings.js';
 import { listSnippets } from './snippets.js';
 import { tickTimer, alertTimerDone, timerState } from './timer-store.js';
@@ -1071,7 +1071,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.17.1';
+const APP_VERSION = '1.17.2';
 
 let updateBusy = false;
 
@@ -1234,6 +1234,27 @@ function notchSection(rerenderSheet) {
   ]);
 }
 
+/** ② 노치 숨기기/보이기 단축키 — 모듈 단축키와 같은 공통 조합 + 한 글자, 기본 H(v1.17.2).
+ *  단축키 표의 주인은 저장소(feature-settings.js)이고, Rust 는 등록만 한다. 누르면 Rust 가
+ *  노치를 숨기고/보이고, 바뀐 값을 tip://notch-enabled 로 이 창에 알린다(아래 시작부 리스너). */
+function notchShortcutSection(render) {
+  const letter = getShortcutLetters()[NOTCH_TOGGLE_KEY] || '';
+  return el('div', { class: 'sheet-section mb-section notch-shortcut-section' }, [
+    el('h3', { text: '노치 숨기기 단축키' }),
+    el('p', {
+      class: 'mb-note',
+      text: `모듈 단축키와 같은 공통 조합(${prettyShortcut(getShortcutPrefix())}) + 한 글자입니다. 누를 때마다 노치가 숨고 다시 나타납니다. 기본은 ${NOTCH_TOGGLE_LETTER} 입니다.`,
+    }),
+    shortcutRow({
+      key: NOTCH_TOGGLE_KEY,
+      label: '노치 숨기기/보이기',
+      hint: letter
+        ? '숨기면 알약과 판이 사라지고, 다시 누르면 숨기기 전 상태로 돌아옵니다.'
+        : '아직 글자가 없습니다. 한 글자를 정해 주세요. 전역 검색 단축키(⌥Space)는 [검색] 탭에서 따로 정합니다.',
+    }, render),
+  ]);
+}
+
 /** 라디오 묶음 — 모듈 순서 화면의 .mode-row 모양을 그대로 쓴다(v1.17.0). */
 function notchChoiceGroup({ label, options, value, onPick }) {
   const group = el('div', { class: 'mode-list', role: 'radiogroup', 'aria-label': label });
@@ -1299,7 +1320,8 @@ function notchRotationSection(rerenderSheet) {
 
   return el('div', { class: 'sheet-section mb-section notch-rotation-section' }, [
     el('h3', { text: '모듈 회전 방식' }),
-    el('p', { class: 'mb-note', text: "반원과 전체 보기의 '켜 둔 모듈'에 똑같이 적용됩니다." }),
+    // v1.17.2 — 전체 보기의 '켜 둔 모듈' 한 줄은 양 끝이 있는 가로 스크롤이라 회전이 적용되지 않는다.
+    el('p', { class: 'mb-note', text: '간단히 보기(반원) 다이얼에 적용됩니다. 전체 보기의 켜 둔 모듈 한 줄은 옆으로 이어 스크롤합니다.' }),
     notchChoiceGroup({
       label: '모듈 회전 방식',
       value: getNotchSettings().rotation,
@@ -1975,8 +1997,10 @@ function autostartSection() {
 function notchTab(render) {
   // v1.17.0 — ① 노치 아일랜드 ② 시작 화면 ③ 회전 방식·④ 모듈 순서 ⑤ 닫힌 노치 표시 ⑥ 위젯
   //           ⑦ 표시할 캘린더 ⑧ 메뉴 막대(반원 배경 불투명도)
+  // v1.17.2 — ①-2 노치 숨기기 단축키
   const parts = [sheetNote('notch')];
   parts.push(notchSection(render));
+  parts.push(notchShortcutSection(render));
   parts.push(notchStartViewSection(render));
   parts.push(notchRotationSection(render));
   parts.push(notchPillSection());
@@ -2290,6 +2314,8 @@ function shortcutPrefixSection(render) {
 
 /** 단축키 키(action key) → 사람이 읽을 이름 — 중복 안내에 쓴다. */
 function actionLabel(actionKey) {
+  // v1.17.2 — 노치 숨기기 단축키는 모듈이 아니라 중복 안내에 이름을 직접 준다.
+  if (actionKey === NOTCH_TOGGLE_KEY) return '노치 숨기기';
   for (const mod of listModules()) {
     const found = actionsFor(mod.id).find((action) => action.key === actionKey);
     if (found) return `${mod.name} ${found.label}`;
@@ -2926,6 +2952,21 @@ if (TAURI && window.__TAURI__.event) {
     if (text) toast(text.replace('[permission]', '').trim(), 3200);
   });
 
+  // v1.17.2 — 전역 단축키(공통 조합 + H)로 노치를 숨기고 보이면 Rust 가 결과를 알린다.
+  // 값의 주인은 이 창(localStorage)이므로 여기서 저장값을 맞추고, 설정 시트가 열려 있으면 다시
+  // 그려 토글도 바로 바뀌게 한다. Rust 는 창을 이미 숨기거나 보인 뒤다(화면이 늦어도 동작은 즉시).
+  window.__TAURI__.event.listen('tip://notch-enabled', (event) => {
+    const enabled = !!(event && event.payload);
+    const before = getNotchSettings().enabled;
+    // v1.17.2 — 창을 숨기거나 보인 것은 Rust 가 먼저 끝냈다. 여기서는 저장값을 그대로 맞추고
+    // 설정 시트가 열려 있으면 다시 그린다(캐시가 늦어도 값이 어긋나지 않게 늘 쓴다).
+    setNotchEnabled(enabled);
+    if (sheetRender && document.querySelector('.sheet')) sheetRender();
+    if (before !== enabled) {
+      toast(enabled ? '노치를 다시 표시합니다' : '노치를 숨겼습니다. 단축키를 다시 누르면 돌아옵니다');
+    }
+  });
+
   // 창이 뜨기 전에 누른 요청은 Rust 쪽에 남아 있다가 여기서 한 번 꺼낸다.
   // (컴팩트 도구 창은 주인공이 아니므로 꺼내지 않는다 — 메인 창이 가져간다.)
   const isToolWindow = new URLSearchParams(location.search).has('module');
@@ -2951,7 +2992,7 @@ if (TAURI && window.__TAURI__.event) {
     // v1.14.0 — 기능별 전역 단축키도 저장값 그대로 등록한다. 실패한 조합은 조용히 알린다.
     syncShortcuts().then((failures) => {
       if (failures.length) {
-        toast(`${failures.length}개 단축키를 등록하지 못했습니다. 설정 → 모듈에서 확인해 주세요`, 3600);
+        toast(`${failures.length}개 단축키를 등록하지 못했습니다. 설정 → 모듈·노치에서 확인해 주세요`, 3600);
       }
     });
 

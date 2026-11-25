@@ -511,7 +511,7 @@ check('notch.js 접힘을 높이로 판단(넓은 알약 오판 없음)', /windo
 const mediaRs = read('mac/src-tauri/src/media.rs');
 check('media.rs 곡 위치·길이 필드', /pub position: f64/.test(mediaRs) && /pub duration: f64/.test(mediaRs));
 check('media.rs Apple Music position/duration', mediaRs.includes('player position') && mediaRs.includes('duration of current track'));
-check('media.rs Spotify ms→초', /\(duration of current track\) \/ 1000/.test(mediaRs));
+check('media.rs Spotify ms→초', /\(duration of current track\) \/ \{div\}/.test(mediaRs) && /duration_div: 1000/.test(mediaRs));
 check('노치 모듈이 가운데를 비울 수 있게 metrics', /pub fn metrics\(\)/.test(read('mac/src-tauri/src/notch.rs')));
 check('Rust 알약 내용에 따라 폭 확장', /fn set_notch_pill/.test(lib) && /NOTCH_PILL_MEDIA_W/.test(lib) && /NOTCH_PILL_TIMER_W/.test(lib));
 check('Rust notch_metrics 커맨드', /fn notch_metrics\(\)/.test(lib) && lib.includes('notch_metrics,'));
@@ -733,11 +733,12 @@ check('타이머 입력값 = 표시 시간', /display\.textContent = formatClock
   && /timerChoice = timerCardSeconds\(\)/.test(notchJs));
 check('타이머 세 버튼 모양 통일', /\.timer-btn \{[\s\S]{0,160}flex: 1 1 0;/.test(notchCssV2));
 check('빠른 메모 글자 수 표시 제거', !/memo-side/.test(notchJs) && !/\$\{input\.value\.length\}자/.test(notchJs));
-// v1.17.0 — '켜 둔 모듈' 한 줄 7칸: 가로 스크롤·페이드 대신 회전 규칙(js/dial.js)과 끝 표시(aria-disabled).
+// v1.17.0 — '켜 둔 모듈' 한 줄: 양옆 화살표와 위치 표시. (v1.17.2 에서 7칸 창 넘김을 연속 스크롤로 바꿨다 —
+// 아래 v1.17.2 묶음이 스크롤 규칙을, 이 검사는 화살표·위치 표시 요소가 남아 있는지를 본다.)
 check('켜 둔 모듈 양끝 화살표', /data-launcher="prev"/.test(notchJs) && /data-launcher="next"/.test(notchJs)
   && /function paintLauncher\(/.test(notchJs) && /\.launcher-nav \{/.test(notchCssV2) && /\.launcher-nav\.is-end/.test(notchCssV2));
-check('켜 둔 모듈 한 줄 7칸·위치 표시', /rowWindow\(all, launcherStart, DIAL_SLOTS, loop\)/.test(notchJs)
-  && /rowPositionLabel\(/.test(notchJs) && /repeat\(7, minmax\(0, 1fr\)\)/.test(notchCssV2));
+check('켜 둔 모듈 위치 표시', /id="launcher-pos"/.test(notchJs) && /function paintLauncherScroll\(/.test(notchJs)
+  && /id="launcher-row"/.test(notchJs));
 check('잘린 이름은 shortName', /mod\.shortName \|\| mod\.name/.test(notchJs));
 check('새 스티커는 제목 옆 +', /id="launcher-new"/.test(notchJs) && !/launcher-tile launcher-new/.test(notchJs));
 check('README 에 v1.15.3', read('README.md').includes('| v1.15.3 |'));
@@ -1222,6 +1223,52 @@ check('README v1.17.1', read('README.md').includes('| v1.17.1 |'));
 check('settings-e2e 가 v1.17.1 세 버그를 본다', /v1\.17\.1 — 창이 펼쳐지면 휠 없이 모듈 칸이 보임/.test(read('tools/settings-e2e.mjs'))
   && /v1\.17\.1 — 커서가 창 안이면 mouseleave 로 접지 않음/.test(read('tools/settings-e2e.mjs'))
   && /v1\.17\.1 — 보관함 놓기 상자가 카드 높이를 채움/.test(read('tools/settings-e2e.mjs')));
+
+/* ================================================================
+   20. v1.17.2 — 월별 일정 넓히기 · 켜 둔 모듈 가로 스크롤 · 노치 숨기기 단축키 · Spotify · 거울
+   ================================================================ */
+
+const settingsE2e = read('tools/settings-e2e.mjs');
+check('버전 1.17.2 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 17 || (minor === 17 && patch >= 2))))(VERSION.split('.').map(Number)), VERSION);
+// ① 월별 보기 — 달력(왼쪽) · 일정(오른쪽)
+check('월별 보기 일정 묶음(HTML)', notchHtml17.includes('id="cal-day-pane"') && notchHtml17.includes('id="cal-day-list"'));
+check('월별만 좌우 배치로 바꾼다', /dom\.view\.classList\.toggle\('is-month', calView\.mode === 'month'\)/.test(notch17));
+check('월별 2열 그리드 CSS', /\.cal-view\.is-month \{[\s\S]{0,320}grid-template-columns: minmax\(0, 1fr\) minmax\(0, 0\.92fr\);/.test(notchCss17));
+check('숨긴 달력이 그리드에 밀리지 않음', /\.cal-view\.is-month\[hidden\] \{ display: none; \}/.test(notchCss17));
+check('일정 목록이 판 높이를 쓴다(칸 늘림)', /\.cal-view\.is-month \.cal-grid \{[\s\S]{0,240}repeat\(6, minmax\(44px, 1fr\)\)/.test(notchCss17)
+  && /\.cal-view\.is-month \.cal-day-pane \{/.test(notchCss17));
+// ② 켜 둔 모듈 가로 스크롤
+check('켜 둔 모듈은 가로 스크롤 한 줄', /\.wg-launcher \.launcher-row \{[\s\S]{0,420}overflow-x: auto;/.test(notchCss17)
+  && /\.wg-launcher \.launcher-tile \{ flex: none; width: 58px;/.test(notchCss17));
+check('휠은 픽셀 단위로 그대로', /row\.scrollLeft \+= delta;/.test(notch17));
+check('화살표는 부드러운 scrollBy', /scrollBy\(\{ left: direction \* page, behavior: 'smooth' \}\)/.test(notch17));
+check('위치 표시는 보이는 범위로 실시간', /function launcherVisibleRange\(/.test(notch17) && /\.addEventListener\('scroll'/.test(notch17) && /paintLauncherScroll\(/.test(notch17));
+check('7칠 창 넘김 코드 제거', !/rowWindow\(all/.test(notch17) && !/launcherStart/.test(notch17));
+// ③ 노치 숨기기 단축키(기본 H)
+check('노치 숨기기 기본 글자 H', /NOTCH_TOGGLE_KEY = 'notch:toggle'/.test(featureJs) && /NOTCH_TOGGLE_LETTER = 'H'/.test(featureJs));
+check('기본 H 는 한 번만·중복 보면 비워 둔다', /ensureNotchToggleLetter\(\)/.test(featureJs) && /tip\.shortcutMigration\.v1172/.test(featureJs)
+  && /const owner = shortcutOwner\(acceleratorForLetter\(NOTCH_TOGGLE_LETTER\)/.test(featureJs));
+check('설정 → 노치에 숨기기 단축키', /function notchShortcutSection\(/.test(appJs) && /notchShortcutSection\(render\)/.test(appJs)
+  && /key: NOTCH_TOGGLE_KEY/.test(appJs));
+check('Rust 가 단축키를 받아 숨기고/보인다', /const NOTCH_TOGGLE_KEY: &str = "notch:toggle";/.test(lib)
+  && /NOTCH_TOGGLE_KEY => toggle_notch_enabled\(app\)/.test(lib) && /fn toggle_notch_enabled\(/.test(lib)
+  && /fn apply_notch_enabled\(/.test(lib));
+check('숨김/보임을 화면에 알려 설정이 따라온다', /tip:\/\/notch-enabled/.test(lib) && /listen\('tip:\/\/notch-enabled'/.test(appJs));
+// ④ Spotify — 번들 ID · is playing · 권한에 앱 이름
+check('실행 중인 앱은 번들 ID 로 확인', /const RUNNING_SCRIPT[\s\S]{0,500}com\.spotify\.client[\s\S]{0,240}com\.apple\.Music/.test(mediaRs));
+const mediaCode = stripComments(mediaRs);
+check('tell application id 로 부른다', /tell application id/.test(mediaCode) && !/tell application "Spotify"/.test(mediaCode));
+check('player state is playing 로 판정', /if player state is playing then/.test(mediaCode) && !/player state as text/.test(mediaCode));
+check('권한 거부에 어느 앱인지 밝힌다', /denied\.push\(app\.label\)/.test(mediaRs) && /자동화 권한이 필요합니다/.test(mediaRs));
+// ⑤ 거울 높이
+check('거울은 16:9·최소 232px', /\.mirror-video\.is-live \{[\s\S]{0,220}aspect-ratio: 16 \/ 9;[\s\S]{0,120}min-height: 232px;/.test(notchCss17));
+check('README v1.17.2', read('README.md').includes('| v1.17.2 |'));
+check('settings-e2e 가 v1.17.2 다섯 가지를 본다', /v1\.17\.2 — 월별 보기는 달력·일정을 좌우로 나눈다/.test(settingsE2e)
+  && /v1\.17\.2 — 가로 휠은 픽셀 단위로 그대로 스크롤/.test(settingsE2e)
+  && /v1\.17\.2 — › 는 한 화면씩 부드럽게 넘긴다/.test(settingsE2e)
+  && /v1\.17\.2 — 설정 → 노치에 숨기기 단축키/.test(settingsE2e)
+  && /v1\.17\.2 — 권한 안내에 앱 이름\(Spotify\)/.test(settingsE2e)
+  && /v1\.17\.2 — 거울 영상 높이 232px 이상\(16:9\)/.test(settingsE2e));
 
 /* ------------------------------ 결과 ------------------------------ */
 

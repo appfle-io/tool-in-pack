@@ -100,6 +100,36 @@ export function validShortcutLetter(letter) {
   return !!codeForLetter(letter);
 }
 
+/* v1.17.2 — 노치 숨기기/보이기 단축키.
+ * 유동규 님 요청: "설정 → 노치 탭에 노치 숨기기/보이기 단축키(모듈 단축키처럼 공통 접두사 + 알파벳
+ * 1자, 기본 H, 모듈 단축키와 중복 방지)".
+ * 모듈 단축키와 같은 저장소(tip.shortcutLetters.v1)에 'notch:toggle' 키로 넣는다 — 그래서
+ * 중복 검사(shortcutOwner)·등록(syncShortcuts)·해제가 모두 기존 길을 그대로 쓴다.
+ * 기본 H 는 처음 한 번만 저장한다(지우면 다시 붙지 않는다). H 를 다른 기능이 이미 쓰고 있으면
+ * 비워 두고, 설정 화면에서 직접 고르게 한다. */
+export const NOTCH_TOGGLE_KEY = 'notch:toggle';
+export const NOTCH_TOGGLE_LETTER = 'H';
+const NOTCH_TOGGLE_MIGRATION_KEY = 'tip.shortcutMigration.v1172';
+
+function ensureNotchToggleLetter() {
+  try {
+    if (localStorage.getItem(NOTCH_TOGGLE_MIGRATION_KEY) === '1') return;
+  } catch {
+    return;   // 저장소를 못 쓰면 기본 글자도 남기지 않는다
+  }
+  const letters = readJson(LETTERS_KEY, {});
+  if (!letters[NOTCH_TOGGLE_KEY]) {
+    const owner = shortcutOwner(acceleratorForLetter(NOTCH_TOGGLE_LETTER), NOTCH_TOGGLE_KEY);
+    if (!owner) {
+      letters[NOTCH_TOGGLE_KEY] = NOTCH_TOGGLE_LETTER;
+      writeJson(LETTERS_KEY, letters);
+    }
+  }
+  try {
+    localStorage.setItem(NOTCH_TOGGLE_MIGRATION_KEY, '1');
+  } catch { /* 못 적으면 다음 실행에 다시 시도한다 */ }
+}
+
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
 function invoke(command, args) {
@@ -246,6 +276,8 @@ function migrateShortcuts() {
 }
 
 migrateShortcuts();
+// v1.17.2 — 노치 숨기기 기본 글자(H)는 옛 값 옮기기가 끝난 뒤에 채운다.
+ensureNotchToggleLetter();
 
 /** 지금 실제로 등록할 단축키 — 글자(공통 조합과 합침) + 그대로 쓴 조합. */
 export function shortcutEntries() {

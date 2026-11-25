@@ -27,7 +27,7 @@
  *     마우스를 올려 열렸을 때는 다른 앱에서 치던 글자를 가져가지 않는다.
  *   · 달력은 열기 직전 화면을 기억했다가 닫으면 그 화면(반원/전체 보기)으로 돌아간다.
  *   · 파일을 노치로 끌어 놓으면 펼치지 않고 임시 보관함에 담는다. 반원에는 개수만, 목록은 전체 보기에만.
- *   · 회전 규칙은 js/dial.js 를 반원과 '켜 둔 모듈' 한 줄이 함께 쓴다.
+ *   · 회전 규칙은 js/dial.js 를 반원이 쓴다. '켜 둔 모듈' 한 줄은 v1.17.2 부터 양 끝이 있는 가로 스크롤이다.
  */
 
 import { getModule } from '../modules/registry.js';
@@ -35,8 +35,7 @@ import { quickOrderIds } from './quickbar.js';
 import { getNotchSettings, syncStore, applyTheme, getTheme, getQuickbarOpacity } from './store.js';
 import { recentIds, getRecentEnabled } from './recent.js';
 import {
-  DIAL_SLOTS, offsetOf, clampPos, centerIndex, targetFor, atEnds,
-  clampRowStart, rowWindow, rowPositionLabel, rowAtEnds, findIndex,
+  DIAL_SLOTS, offsetOf, clampPos, centerIndex, targetFor, atEnds, findIndex,
 } from './dial.js';
 import {
   timerState, remainingSeconds, startTimer, toggleTimer, resetTimer, extendTimer,
@@ -601,10 +600,15 @@ function paintMediaCard() {
     if (progress) progress.hidden = true;
     if (stateEl) {
       stateEl.hidden = false;
+      // v1.17.2 — Rust 가 어느 앱(Spotify/Apple Music)의 자동화 권한인지 문장에 담아 준다.
+      // ("[permission] Spotify 자동화 권한이 필요합니다") 예전 문장이 오면 그대로 기본 문구.
+      const text = errorText(mediaError);
       stateEl.textContent = permission
-        ? '음악 앱 자동화 권한이 필요합니다'
+        ? (text.includes('자동화') ? text : '음악 앱 자동화 권한이 필요합니다')
         : '미디어 정보를 읽지 못했습니다';
-      stateEl.title = permission ? '시스템 설정 › 개인정보 보호 및 보안 › 자동화에서 TIP을 허용하세요' : errorText(mediaError);
+      stateEl.title = permission
+        ? `시스템 설정 › 개인정보 보호 및 보안 › 자동화에서 TIP을 허용하세요${text.includes('자동화') ? ` (${text})` : ''}`
+        : text;
     }
     if (permBtn) permBtn.hidden = !permission;
     const dot = document.getElementById('pill-dot');
@@ -1062,6 +1066,8 @@ function renderCalendarView() {
   if (!calView.open) return;
   const dom = calDom();
   dom.title.textContent = calendarTitle();
+  // v1.17.2 — 월별 보기만 달력과 일정 목록을 좌우로 나눈다(일별·주별은 위아래 그대로).
+  dom.view.classList.toggle('is-month', calView.mode === 'month');
   dom.tabs.forEach((tab) => {
     const on = tab.dataset.calMode === calView.mode;
     tab.classList.toggle('is-on', on);
@@ -1285,6 +1291,8 @@ function setCalendarMode(mode) {
   calView.mode = mode;
   renderCalendarView();
   loadCalendarView();
+  // v1.17.2 — 월별 보기는 좌우 배치라 필요한 높이가 달라진다.
+  fitPanel();
 }
 
 function selectCalendarDay(value) {
@@ -2058,12 +2066,15 @@ function recentCard() {
   return card;
 }
 
-/* 켜 둔 모듈 (v1.17.0 — 예전 '모듈 실행' 가로 스크롤을 한 줄 7칸으로 바꾼다)
-   반원과 같은 순서(quickOrderIds)·같은 회전 방식(js/dial.js)을 따른다. 머리글에 위치와 찾기 칸. */
+/* 켜 둔 모듈 (v1.17.0 → v1.17.2 — 한 줄을 연속 가로 스크롤로)
+   반원과 같은 순서(quickOrderIds)를 따른다. 머리글에 지금 보이는 범위와 찾기 칸.
+   v1.17.2 — 7칸씩 잘라 넘기던 방식을 그만두고, 타일을 모두 그린 뒤 줄을 픽셀 단위로 스크롤한다.
+   트랙패드 가로·세로 휠은 그대로 scrollLeft 에 더해 스르륵 지나가고, ‹ › 는 한 화면씩
+   scrollBy({ behavior: 'smooth' }) 로 넘긴다. 위치 표시는 스크롤할 때마다 실제로 보이는
+   칸의 첫·끝 번호(예: '3–11 / 30')로 다시 셉다. 계속 회전(loop)은 반원 다이얼에만 적용된다
+   — 한 줄은 양 끝이 있는 스크롤이라 끝에서 처음으로 이어 붙이지 않는다. */
 
-let launcherStart = 0;
 let launcherQuery = '';
-let launcherWheelAt = 0;
 
 function launcherList() {
   const ids = quickOrderIds().filter((id) => !!getModule(id));
@@ -2100,26 +2111,31 @@ function launcherCard() {
       find.value = launcherQuery;
       find.addEventListener('input', () => {
         launcherQuery = find.value.trim();
-        launcherStart = 0;
         paintLauncher();
       });
       find.addEventListener('mousedown', () => { invoke('notch_focus').catch(() => {}); });
       find.addEventListener('focus', openHeld);
     }
     const wrap = card.querySelector('#launcher-wrap');
+    const row = card.querySelector('#launcher-row');
+    if (row) {
+      // 스크롤할 때마다 위치 표시·양끝 페이드·화살표 상태를 실제 스크롤에 맞춰 다시 그린다.
+      row.addEventListener('scroll', () => paintLauncherScroll(card), { passive: true });
+    }
     if (wrap) {
       wrap.addEventListener('wheel', (event) => {
         const vertical = Math.abs(event.deltaY) >= Math.abs(event.deltaX);
         const delta = vertical ? event.deltaY : event.deltaX;
         if (!delta) return;
         // 전체 보기가 창보다 길어 스크롤할 것이 있으면, 세로 휠은 목록 스크롤에 양보한다(v1.17.0 검수 D7).
-        // 가로 휠·트랙패드 옆으로 밀기와 ‹ › 는 그대로 한 칸씩 넘긴다.
+        // 가로 휠·트랙패드 옆으로 밀기는 언제나 이 줄을 옆으로 넘긴다.
         if (vertical && widgetsEl.scrollHeight > widgetsEl.clientHeight + 1) return;
+        const row = card.querySelector('#launcher-row');
+        if (!row || row.scrollWidth <= row.clientWidth + 1) return;
         event.preventDefault();
-        const now = Date.now();
-        if (now - launcherWheelAt < 130) return;   // 한 번 굴리면 한 칸
-        launcherWheelAt = now;
-        scrollLauncher(delta > 0 ? 1 : -1);
+        // v1.17.2 — 한 칸씩 끊지 않고 휠이 준 픽셀만큼 그대로 밀어 스르륵 지나가게 한다.
+        row.scrollLeft += delta;
+        paintLauncherScroll(card);
       }, { passive: false });
     }
     paintLauncher();
@@ -2127,27 +2143,77 @@ function launcherCard() {
   return card;
 }
 
-/** 한 줄 7칸을 지금 위치로 다시 그린다 — 위치 표시와 끝 화살표도 함께. */
+/** 지금 보이는 타일의 첫·끝 번호(1부터) — 양 끝에 걸친 타일은 '보이는' 것으로 센다. */
+function launcherVisibleRange(row) {
+  const tiles = [...row.querySelectorAll('.launcher-tile')];
+  if (!tiles.length) return null;
+  const rowBox = row.getBoundingClientRect();
+  // 페이드 여백(1px)과 소수점 오차로 첫 칸이 빠지지 않게 4px 여유를 둔다.
+  const left = rowBox.left + 4;
+  const right = rowBox.right - 4;
+  let first = 0;
+  let last = 0;
+  tiles.forEach((tile, index) => {
+    const box = tile.getBoundingClientRect();
+    if (box.right > left && box.left < right) {
+      if (!first) first = index + 1;
+      last = index + 1;
+    }
+  });
+  return { first, last, total: tiles.length, scrollable: row.scrollWidth > row.clientWidth + 1 };
+}
+
+/** 위치 표시·양끝 페이드·화살표를 지금 스크롤 위치로 맞춘다(스크롤 이벤트마다). */
+function paintLauncherScroll(card) {
+  const box = card || panelEl.querySelector('.wg-launcher');
+  if (!box) return;
+  const row = box.querySelector('#launcher-row');
+  const pos = box.querySelector('#launcher-pos');
+  if (!row) return;
+  const info = launcherVisibleRange(row);
+  if (!info) {
+    if (pos) pos.textContent = '';
+    return;
+  }
+  const few = !info.scrollable;
+  if (pos) {
+    pos.textContent = few
+      ? `${info.total}개`
+      : (info.first ? `${info.first}–${info.last} / ${info.total}` : `${info.total}개`);
+  }
+  const atStart = row.scrollLeft <= 2;
+  const atEnd = row.scrollLeft >= row.scrollWidth - row.clientWidth - 2;
+  row.classList.toggle('is-fade-start', !few && !atStart);
+  row.classList.toggle('is-fade-end', !few && !atEnd);
+  [['prev', atStart], ['next', atEnd]].forEach(([dir, end]) => {
+    const btn = box.querySelector(`[data-launcher="${dir}"]`);
+    if (!btn) return;
+    btn.hidden = few;
+    btn.classList.toggle('is-end', !few && end);
+    btn.setAttribute('aria-disabled', String(few || end));
+  });
+}
+
+/** 줄을 통째로 다시 그린다 — 타일을 모두 올리고 스크롤 위치·표시를 맞춘다(v1.17.2). */
 function paintLauncher() {
   const row = panelEl.querySelector('#launcher-row');
   const card = panelEl.querySelector('.wg-launcher');
   if (!row || !card) return;
-  const loop = dialLoop();
   const all = launcherList();
-  const n = all.length;
-  launcherStart = clampRowStart(launcherStart, n, DIAL_SLOTS, loop);
 
-  const pos = card.querySelector('#launcher-pos');
-  if (pos) pos.textContent = n ? rowPositionLabel(launcherStart, n, DIAL_SLOTS, loop) : '';
+  // 다시 그려도 보던 자리를 지킨다 — 찾기 칸을 비우거나 글자를 고칠 때는 처음으로.
+  const keep = row.dataset.query === launcherQuery ? row.scrollLeft : 0;
+  row.dataset.query = launcherQuery;
 
   row.innerHTML = '';
-  if (!n) {
+  if (!all.length) {
     row.innerHTML = launcherQuery
       ? '<p class="launcher-empty">찾는 모듈이 없어요</p>'
       : '<p class="launcher-empty">켜 둔 모듈이 없습니다</p>';
   }
-  rowWindow(all, launcherStart, DIAL_SLOTS, loop).forEach((id) => {
+  all.forEach((id) => {
     const mod = getModule(id);
+    if (!mod) return;
     const btn = document.createElement('button');
     btn.className = 'launcher-tile';
     btn.type = 'button';
@@ -2158,22 +2224,20 @@ function paintLauncher() {
     row.append(btn);
   });
 
-  const few = n <= DIAL_SLOTS;
-  const [startEnd, finishEnd] = rowAtEnds(launcherStart, n, DIAL_SLOTS, loop);
-  [['prev', startEnd], ['next', finishEnd]].forEach(([dir, end]) => {
-    const btn = card.querySelector(`[data-launcher="${dir}"]`);
-    if (!btn) return;
-    btn.hidden = few;
-    btn.classList.toggle('is-end', end);
-    btn.setAttribute('aria-disabled', String(end));
-  });
+  row.scrollLeft = keep;
+  paintLauncherScroll(card);
 }
 
+/** ‹ › — 한 화면씩 부드럽게 넘긴다(칸 폭 하나는 겹쳐 보여 흐름이 끊기지 않게). */
 function scrollLauncher(direction) {
-  const n = launcherList().length;
-  if (n <= DIAL_SLOTS) return;
-  launcherStart = clampRowStart(launcherStart + direction, n, DIAL_SLOTS, dialLoop());
-  paintLauncher();
+  const row = panelEl.querySelector('#launcher-row');
+  if (!row || row.scrollWidth <= row.clientWidth + 1) return;
+  const tile = row.querySelector('.launcher-tile');
+  const step = tile ? tile.getBoundingClientRect().width + 4 : 62;
+  const page = Math.max(step, row.clientWidth - step * 0.5);
+  row.scrollBy({ left: direction * page, behavior: 'smooth' });
+  // 부드러운 이동이 끝나면 한 번 더 맞춰 둔다(스크롤 이벤트를 못 받는 경우).
+  setTimeout(() => paintLauncherScroll(), reducedMotion() ? 0 : 360);
 }
 
 /* ------------------------------ 간단히 보기 — 반원 다이얼 (v1.17.0) ------------------------------ */

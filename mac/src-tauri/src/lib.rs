@@ -95,6 +95,9 @@ const PARCEL_USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Ma
 const DEFAULT_SEARCH_SHORTCUT: &str = "Alt+Space";
 /// 전역 단축키 표에서 검색을 가리키는 키.
 const SEARCH_KEY: &str = "search";
+/// v1.17.2 — 전역 단축키 표에서 '노치 숨기기/보이기'를 가리키는 키. 화면(js/feature-settings.js)의
+/// NOTCH_TOGGLE_KEY 와 같아야 한다.
+const NOTCH_TOGGLE_KEY: &str = "notch:toggle";
 /// 열어도 되는 웹 주소 — 전역 검색의 웹 검색 두 곳과 문의 메일만.
 const WEB_ALLOWED_HOSTS: [&str; 4] = ["www.google.com", "google.com", "search.naver.com", "m.search.naver.com"];
 
@@ -764,6 +767,8 @@ fn shortcut_pressed(app: &AppHandle, shortcut: &tauri_plugin_global_shortcut::Sh
 
     match key.as_str() {
         SEARCH_KEY => toggle_search(app),
+        // v1.17.2 — 노치 숨기기/보이기(환경설정 → 노치 → 노치 숨기기 단축키, 기본 ⌃⇧H).
+        NOTCH_TOGGLE_KEY => toggle_notch_enabled(app),
         "sticky:new" => {
             if let Err(error) = sticky::create_new(app, None, None) {
                 emit_toast(app, &error);
@@ -868,18 +873,32 @@ fn read_shelf_bytes(path: &str) -> Result<tauri::ipc::Response, String> {
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// 환경설정의 '노치 아일랜드 사용' 스위치 — 끄면 창을 숨긴다.
-#[tauri::command]
-fn set_notch_enabled(app: AppHandle, enabled: bool) {
+/// 환경설정의 '노치 아일랜드 사용' 스위치 — 끄면 창을 숨기고, 켜면 다시 보인다.
+/// v1.17.2 — 전역 단축키도 같은 길을 쓰도록 본문을 `apply_notch_enabled` 로 뺐다.
+fn apply_notch_enabled(app: &AppHandle, enabled: bool) {
     NOTCH_ENABLED.store(enabled, Ordering::Relaxed);
     if enabled {
-        show_notch(&app);
+        show_notch(app);
     } else {
-        set_notch_open(&app, false);
+        set_notch_open(app, false);
         if let Some(win) = app.get_webview_window(NOTCH) {
             let _ = win.hide();
         }
     }
+}
+
+#[tauri::command]
+fn set_notch_enabled(app: AppHandle, enabled: bool) {
+    apply_notch_enabled(&app, enabled);
+}
+
+/// v1.17.2 — 전역 단축키(공통 조합 + H, 기본 Control+Shift+KeyH)로 노치를 숨기고 다시 보인다.
+/// 창은 여기서 바로 숨기거나 보이고(화면이 늦어도 동작은 즉시), 저장값의 주인인 메인 창(js/app.js)에
+/// 결과를 알려 localStorage 와 설정 스위치가 따라오게 한다.
+fn toggle_notch_enabled(app: &AppHandle) {
+    let next = !NOTCH_ENABLED.load(Ordering::Relaxed);
+    apply_notch_enabled(app, next);
+    let _ = app.emit("tip://notch-enabled", next);
 }
 
 /* --------------------------- 빠른 실행 검색 창 (v1.12.0) --------------------------- */

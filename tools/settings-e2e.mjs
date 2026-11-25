@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TIP v1.16.0 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.17.2 · 환경설정 4탭 + 노치 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
@@ -304,7 +304,7 @@ check('일반 — 업데이트 토스트', (await toastText()).includes('최신 
 
 await openSettings('notch');
 check('노치 — 탭 설명', (await page.locator('.sheet-tab-note').first().textContent()).includes('노치'));
-check('v1.17.0 — 노치 탭 묶음 순서', (await page.locator('.sheet-body .sheet-section h3').allTextContents()).join(',').startsWith('노치 아일랜드,시작 화면,모듈 회전 방식,닫힌 노치 표시,위젯'),
+check('v1.17.0 — 노치 탭 묶음 순서', (await page.locator('.sheet-body .sheet-section h3').allTextContents()).join(',').startsWith('노치 아일랜드,노치 숨기기 단축키,시작 화면,모듈 회전 방식,닫힌 노치 표시,위젯'),
   (await page.locator('.sheet-body .sheet-section h3').allTextContents()).join(','));
 check('v1.17.0 — 메뉴 막대 묶음(퀵바 이름 없음)', (await page.locator('.sheet-section h3', { hasText: '메뉴 막대' }).count()) === 1
   && (await page.locator('.sheet-section h3', { hasText: '퀵바' }).count()) === 0);
@@ -532,7 +532,7 @@ await letterInput.fill('S');
 await page.waitForTimeout(250);
 check('모듈 — 글자 저장', (await stored('tip.shortcutLetters.v1'))?.['sticky:new'] === 'S', JSON.stringify(await stored('tip.shortcutLetters.v1')));
 const shortcutCall = await lastCall('set_module_shortcuts');
-check('모듈 — 조합해 등록 호출', JSON.stringify(shortcutCall?.args.items) === JSON.stringify([['sticky:new', 'Control+Shift+KeyS']]), JSON.stringify(shortcutCall && shortcutCall.args.items));
+check('모듈 — 조합해 등록 호출', JSON.stringify((shortcutCall?.args.items || []).filter(([key]) => key === 'sticky:new')) === JSON.stringify([['sticky:new', 'Control+Shift+KeyS']]), JSON.stringify(shortcutCall && shortcutCall.args.items));
 
 // 중복 글자
 await page.click('.sheet-back');
@@ -588,7 +588,7 @@ await page.selectOption('.shortcut-prefix-select', 'Alt+Shift');
 await page.waitForTimeout(300);
 check('모듈 — 공통 조합 변경 저장', (await stored('tip.shortcutPrefix.v1')) === 'Alt+Shift');
 const recomposed = await lastCall('set_module_shortcuts');
-check('모듈 — 바뀐 조합으로 다시 등록', JSON.stringify(recomposed?.args.items) === JSON.stringify([['sticky:new', 'Alt+Shift+KeyS']]), JSON.stringify(recomposed && recomposed.args.items));
+check('모듈 — 바뀐 조합으로 다시 등록', JSON.stringify((recomposed?.args.items || []).filter(([key]) => key === 'sticky:new')) === JSON.stringify([['sticky:new', 'Alt+Shift+KeyS']]), JSON.stringify(recomposed && recomposed.args.items));
 
 // 창 분할 — 권장 단축키 채우기
 await page.click('.sheet-module-row:has-text("창 분할")');
@@ -844,35 +844,86 @@ await emptyPage.evaluate(() => { document.getElementById('timer-reset').click();
 await emptyPage.waitForTimeout(200);
 check('v1.15.2 — 초기화 뒤에도 고른 시간 표시', (await emptyPage.locator('#timer-display').textContent()) === '02:30');
 
-// v1.17.0 — 켜 둔 모듈 한 줄(7칸)·위치 표시·화살표
+// v1.17.2 — 켜 둔 모듈 한 줄: 연속 가로 스크롤·보이는 범위 표시·부드러운 화살표
 {
-const rowState = await emptyPage.evaluate(() => ({
-  tiles: document.querySelectorAll('#launcher-row .launcher-tile').length,
-  pos: document.getElementById('launcher-pos').textContent,
-  prevHidden: document.querySelector('[data-launcher="prev"]').hidden,
-}));
-check('v1.17.0 — 켜 둔 모듈 한 줄 7칸', rowState.tiles === 7, String(rowState.tiles));
-check('v1.17.0 — 위치 표시 1–7 / n', /^1–7 \/ \d+$/.test(rowState.pos), rowState.pos);
-check('v1.17.0 — 화살표 보임(7개 넘음)', !rowState.prevHidden);
-const total = Number(rowState.pos.split('/ ')[1]);
-await emptyPage.evaluate(() => { document.querySelector('[data-launcher="prev"]').click(); });
-await emptyPage.waitForTimeout(80);
-const loopPos = await emptyPage.locator('#launcher-pos').textContent();
-check('v1.17.0 — 계속 회전: 처음에서 왼쪽이면 끝으로', loopPos === `${total}–${total}, 1–6 / ${total}`, loopPos);
+const rowState = await emptyPage.evaluate(() => {
+  const row = document.getElementById('launcher-row');
+  return {
+    tiles: row.querySelectorAll('.launcher-tile').length,
+    pos: document.getElementById('launcher-pos').textContent,
+    scrollable: row.scrollWidth > row.clientWidth + 1,
+    prevHidden: document.querySelector('[data-launcher="prev"]').hidden,
+    overflowX: getComputedStyle(row).overflowX,
+    scrollLeft: row.scrollLeft,
+  };
+});
+check('v1.17.2 — 켜 둔 모듈을 모두 그린다(7칸씩 잘라 넘기지 않음)', rowState.tiles > 7 && rowState.overflowX === 'auto', JSON.stringify(rowState));
+check('v1.17.2 — 위치 표시는 지금 보이는 범위', /^1–\d+ \/ \d+$/.test(rowState.pos) && rowState.scrollLeft === 0, rowState.pos);
+check('v1.17.2 — 스크롤할 것이 있으면 화살표 보임', rowState.scrollable && !rowState.prevHidden, JSON.stringify(rowState));
+
+// 휠 — 한 칸씩 끊지 않고 준 픽셀만큼 그대로. (세로 휠은 목록이 스크롤 중이 아닐 때만 가로로 쓴다)
+const wheel = await emptyPage.evaluate(async () => {
+  const row = document.getElementById('launcher-row');
+  const widgets = document.getElementById('widgets');
+  row.scrollLeft = 0;
+  const before = row.scrollLeft;
+  row.dispatchEvent(new WheelEvent('wheel', { deltaX: 143, bubbles: true, cancelable: true }));
+  const afterX = row.scrollLeft;
+  const posX = document.getElementById('launcher-pos').textContent;
+  const fade = row.classList.contains('is-fade-start');
+  const canVertical = widgets.scrollHeight <= widgets.clientHeight + 1;
+  row.dispatchEvent(new WheelEvent('wheel', { deltaY: 90, bubbles: true, cancelable: true }));
+  const afterY = row.scrollLeft;
+  return { before, afterX, afterY, canVertical, posX, fade };
+});
+check('v1.17.2 — 가로 휠은 픽셀 단위로 그대로 스크롤', wheel.afterX - wheel.before === 143, JSON.stringify(wheel));
+check('v1.17.2 — 세로 휠도 목록이 스크롤 중이 아니면 가로로 넘긴다', wheel.canVertical ? wheel.afterY - wheel.afterX === 90 : true,
+  JSON.stringify(wheel));
+check('v1.17.2 — 스크롤하면 위치 표시·왼쪽 페이드가 따라옴', wheel.fade && !/^1–/.test(wheel.posX), JSON.stringify(wheel));
+
+// ‹ › — 부드러운 scrollBy. 중간값이 있으면 애니메이션된 것이고, 끝나면 위치 표시가 바뀐다.
+const arrowStart = await emptyPage.evaluate(async () => {
+  const row = document.getElementById('launcher-row');
+  row.scrollLeft = 0;
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  document.querySelector('[data-launcher="next"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 90));
+  const mid = row.scrollLeft;
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  return { mid, end: row.scrollLeft, pos: document.getElementById('launcher-pos').textContent };
+});
+check('v1.17.2 — › 는 한 화면씩 부드럽게 넘긴다', arrowStart.mid > 0 && arrowStart.end > arrowStart.mid,
+  JSON.stringify(arrowStart));
+check('v1.17.2 — 넘긴 뒤 위치 표시가 따라감', !/^1–/.test(arrowStart.pos), arrowStart.pos);
+
+// 끝까지 밀면 다음 화살표가 끝 표시. 가운데면 양쪽 페이드가 모두 켜진다.
+const atEnds = await emptyPage.evaluate(() => {
+  const row = document.getElementById('launcher-row');
+  row.scrollLeft = row.scrollWidth;
+  row.dispatchEvent(new Event('scroll'));
+  return {
+    pos: document.getElementById('launcher-pos').textContent,
+    nextEnd: document.querySelector('[data-launcher="next"]').classList.contains('is-end'),
+    fadeEnd: row.classList.contains('is-fade-end'),
+    fadeStart: row.classList.contains('is-fade-start'),
+  };
+});
+check('v1.17.2 — 끝에서는 › 가 끝 표시·오른쪽 페이드 없음', atEnds.nextEnd && !atEnds.fadeEnd && atEnds.fadeStart, JSON.stringify(atEnds));
+check('v1.17.2 — 끝에서도 위치 표시는 마지막 범위', /–\d+ \/ \d+$/.test(atEnds.pos), atEnds.pos);
 await emptyPage.fill('#launcher-find', '타이머');
-await emptyPage.waitForTimeout(80);
+await emptyPage.waitForTimeout(120);
 const found = await emptyPage.evaluate(() => ({
   tiles: [...document.querySelectorAll('#launcher-row .launcher-tile')].map((tile) => tile.textContent),
   pos: document.getElementById('launcher-pos').textContent,
   navHidden: document.querySelector('[data-launcher="next"]').hidden,
 }));
-check('v1.17.0 — 찾기로 거르기', found.tiles.length >= 1 && found.tiles.every((text) => text.includes('타이머')), JSON.stringify(found.tiles));
-check('v1.17.0 — 7개 이하면 개수·화살표 숨김', /^\d+개$/.test(found.pos) && found.navHidden, JSON.stringify(found));
+check('v1.17.2 — 찾기로 거르기', found.tiles.length >= 1 && found.tiles.every((text) => text.includes('타이머')), JSON.stringify(found.tiles));
+check('v1.17.2 — 한 화면에 다 들어가면 개수·화살표 숨김', /^\d+개$/.test(found.pos) && found.navHidden, JSON.stringify(found));
 await emptyPage.fill('#launcher-find', '없는모듈이름');
-await emptyPage.waitForTimeout(80);
+await emptyPage.waitForTimeout(120);
 check('v1.17.0 — 찾는 모듈 없음 안내', (await emptyPage.locator('#launcher-row').textContent()).includes('찾는 모듈이 없어요'));
 await emptyPage.fill('#launcher-find', '');
-await emptyPage.waitForTimeout(80);
+await emptyPage.waitForTimeout(120);
 }
 const newStickerBefore = await emptyPage.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'sticky_create'));
 await emptyPage.locator('#launcher-new').click();
@@ -1697,17 +1748,27 @@ const boundedEnd = await dial.evaluate(() => ({
   nextEnd: document.getElementById('dial-next').getAttribute('aria-disabled'),
 }));
 check('v1.17.0 — 멈춤: 마지막 모듈에서 멈춤', boundedEnd.center === boundedEnd.last && boundedEnd.nextEnd === 'true', JSON.stringify(boundedEnd));
-// 같은 설정이 켜 둔 모듈 한 줄에도
+// 같은 설정이 켜 둔 모듈 한 줄에도 — v1.17.2 부터는 회전 대신 양 끝이 있는 가로 스크롤
 await dial.click('#to-full');
 await dial.waitForTimeout(400);
 const rowBounded = await dial.evaluate(() => {
+  const row = document.getElementById('launcher-row');
+  row.scrollLeft = 0;
+  row.dispatchEvent(new Event('scroll'));
   document.querySelector('[data-launcher="prev"]').click();
   return {
     pos: document.getElementById('launcher-pos').textContent,
     prevEnd: document.querySelector('[data-launcher="prev"]').getAttribute('aria-disabled'),
+    scrollLeft: row.scrollLeft,
   };
 });
-check('v1.17.0 — 멈춤: 한 줄도 처음에서 멈춤', rowBounded.pos.startsWith('1–7 /') && rowBounded.prevEnd === 'true', JSON.stringify(rowBounded));
+await dial.waitForTimeout(500);
+const rowBoundedAfter = await dial.evaluate(() => ({
+  pos: document.getElementById('launcher-pos').textContent,
+  scrollLeft: Math.round(document.getElementById('launcher-row').scrollLeft),
+}));
+check('v1.17.2 — 한 줄은 왼쪽 끝에서 더 가지 않는다', rowBounded.pos.startsWith('1–') && rowBounded.prevEnd === 'true'
+  && rowBoundedAfter.scrollLeft === 0 && rowBoundedAfter.pos.startsWith('1–'), JSON.stringify({ rowBounded, rowBoundedAfter }));
 await dial.evaluate(async () => {
   const store = await import('./js/store.js');
   store.setNotchRotation('loop');
@@ -2129,6 +2190,196 @@ check('v1.17.1 — 보관함 놓기 상자가 카드 높이를 채움', shelfRow
 await leaveContext.close();
 }
 
+/* -------------------- v1.17.2 월별 일정·가로 스크롤·노치 숨기기·스포티파이·거울 -------------------- */
+{
+// 1. 월별 보기 — 달력(왼쪽) · 선택한 날의 일정(오른쪽)
+const v1172Events = JSON.stringify([
+  { title: '시우 예방접종', start: Date.now() + 3_600_000, end: Date.now() + 5_400_000, allDay: false, calendarId: 'cal-1', calendar: '개인', color: '#2E5E4E' },
+  { title: '어린이집 상담 — 오후 4시 30분 선생님과 면담', start: Date.now() + 7_200_000, end: Date.now() + 9_000_000, allDay: false, calendarId: 'cal-2', calendar: '직장', color: '#0A6CFF' },
+  { title: '종일 일정 예시', start: Date.now(), end: Date.now() + 60_000, allDay: true, calendarId: 'cal-1', calendar: '개인', color: '#C93400' },
+]);
+const v1172Context = await browser.newContext({ viewport: { width: 640, height: 600 }, locale: 'ko-KR', colorScheme: 'dark' });
+await v1172Context.addInitScript(MOCK.replace('calendar_events: [],', `calendar_events: ${v1172Events},`));
+const v1172 = await v1172Context.newPage();
+v1172.on('pageerror', (error) => consoleErrors.push(`v1172 pageerror: ${String(error)}`));
+await v1172.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
+await v1172.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('tip.notch.v1', JSON.stringify({
+    enabled: true, startView: 'full',
+    widgets: { media: false, calendar: true, shelf: true, timer: true, memo: true, mirror: true, launcher: true },
+  }));
+});
+await v1172.reload({ waitUntil: 'networkidle' });
+await v1172.waitForTimeout(900);
+await v1172.evaluate(() => { document.getElementById('cal-open').click(); });
+await v1172.waitForTimeout(700);
+const monthLayout = await v1172.evaluate(() => {
+  const view = document.getElementById('cal-view');
+  const grid = document.getElementById('cal-grid-wrap').getBoundingClientRect();
+  const pane = document.getElementById('cal-day-pane').getBoundingClientRect();
+  const list = document.getElementById('cal-day-list').getBoundingClientRect();
+  const items = [...document.querySelectorAll('#cal-day-list .cal-item')];
+  const cells = [...document.querySelectorAll('.cal-cell')];
+  return {
+    isMonth: view.classList.contains('is-month'),
+    display: getComputedStyle(view).display,
+    columns: getComputedStyle(view).gridTemplateColumns.split(' ').filter(Boolean).length,
+    grid: [Math.round(grid.x), Math.round(grid.y), Math.round(grid.width), Math.round(grid.height)],
+    pane: [Math.round(pane.x), Math.round(pane.width), Math.round(pane.height)],
+    list: [Math.round(list.width), Math.round(list.height)],
+    items: items.length,
+    itemWidths: items.map((item) => Math.round(item.getBoundingClientRect().width)),
+    itemLines: items.map((item) => Math.round(item.getBoundingClientRect().height)),
+    cellH: cells.length ? Math.round(cells[0].getBoundingClientRect().height) : 0,
+  };
+});
+check('v1.17.2 — 월별 보기는 달력·일정을 좌우로 나눈다', monthLayout.isMonth && monthLayout.display === 'grid' && monthLayout.columns === 2
+  && monthLayout.pane[0] >= monthLayout.grid[0] + monthLayout.grid[2], JSON.stringify(monthLayout));
+check('v1.17.2 — 일정 목록이 판 높이를 쓴다(넓어진 영역)', monthLayout.list[1] >= 380 && monthLayout.list[0] >= 240,
+  JSON.stringify(monthLayout.list));
+check('v1.17.2 — 일정 제목·시간이 오른쪽 칸 폭에서 읽힌다', monthLayout.items === 3
+  && monthLayout.itemWidths.every((width) => width >= 220), JSON.stringify(monthLayout.itemWidths));
+check('v1.17.2 — 달력 칸을 늘려 판 높이를 채운다', monthLayout.cellH >= 44
+  && Math.abs(monthLayout.grid[3] - monthLayout.pane[2]) <= 6, JSON.stringify({ cellH: monthLayout.cellH, grid: monthLayout.grid[3], pane: monthLayout.pane[2] }));
+
+// 주별·일별은 예전처럼 위아래 배치(넓은 목록 한 줄)
+await v1172.evaluate(() => { document.querySelector('[data-cal-mode="week"]').click(); });
+await v1172.waitForTimeout(400);
+const weekLayout = await v1172.evaluate(() => {
+  const view = document.getElementById('cal-view');
+  const list = document.getElementById('cal-day-list').getBoundingClientRect();
+  return { isMonth: view.classList.contains('is-month'), display: getComputedStyle(view).display, list: [Math.round(list.width), Math.round(list.height)] };
+});
+check('v1.17.2 — 주별 보기는 위아래 배치 그대로', !weekLayout.isMonth && weekLayout.display === 'flex' && weekLayout.list[0] > 500, JSON.stringify(weekLayout));
+await v1172.evaluate(() => { document.querySelector('[data-cal-mode="day"]').click(); });
+await v1172.waitForTimeout(350);
+check('v1.17.2 — 일별 보기도 위아래 배치', await v1172.evaluate(() => !document.getElementById('cal-view').classList.contains('is-month')));
+await v1172.evaluate(() => { document.querySelector('[data-cal-mode="month"]').click(); });
+await v1172.waitForTimeout(350);
+check('v1.17.2 — 월별로 돌아오면 다시 좌우 배치', await v1172.evaluate(() => document.getElementById('cal-view').classList.contains('is-month')));
+await v1172.evaluate(() => { document.getElementById('cal-view-close').click(); });
+await v1172.waitForTimeout(400);
+
+// 2. 웹캠 거울 — 세로 높이를 넉넉히(예전 118px → 16:9, 최소 232px)
+const mirrorBox = await v1172.evaluate(() => {
+  const video = document.getElementById('mirror-video');
+  const before = Math.round(video.getBoundingClientRect().height);
+  video.classList.add('is-live');
+  const box = video.getBoundingClientRect();
+  const card = document.querySelector('.wg-mirror').getBoundingClientRect();
+  return { before, width: Math.round(box.width), height: Math.round(box.height), card: Math.round(card.height), ratio: Number((box.width / box.height).toFixed(2)) };
+});
+check('v1.17.2 — 거울 영상 높이 232px 이상(16:9)', mirrorBox.before === 0 && mirrorBox.height >= 232 && mirrorBox.height <= 360,
+  JSON.stringify(mirrorBox));
+check('v1.17.2 — 거울은 16:9로 찌그러지지 않게', mirrorBox.ratio > 1.5 && mirrorBox.ratio < 1.9 && mirrorBox.card > mirrorBox.height, JSON.stringify(mirrorBox));
+await v1172.evaluate(() => { document.getElementById('mirror-video').classList.remove('is-live'); });
+await v1172Context.close();
+
+// 3. 스포티파이 — 권한 거부에 어느 앱인지 밝힌다
+const spotifyContext = await browser.newContext({ viewport: { width: 452, height: 560 }, locale: 'ko-KR', colorScheme: 'dark' });
+await spotifyContext.addInitScript(MOCK.replace(
+  'invoke(command, args) {',
+  "invoke(command, args) { if (command === 'media_state') return Promise.reject(new Error('[permission] Spotify 자동화 권한이 필요합니다'));",
+));
+const spotifyPage = await spotifyContext.newPage();
+spotifyPage.on('pageerror', (error) => consoleErrors.push(`v1172 spotify pageerror: ${String(error)}`));
+await spotifyPage.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
+await spotifyPage.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, widgets: { media: true, timer: false, calendar: false, shelf: false, memo: false, launcher: false } }));
+});
+await spotifyPage.reload({ waitUntil: 'networkidle' });
+await spotifyPage.waitForTimeout(1300);
+const spotifyError = await spotifyPage.evaluate(() => ({
+  state: document.getElementById('media-state')?.hidden === false ? document.getElementById('media-state').textContent : '',
+  title: document.getElementById('media-state')?.title || '',
+  perm: document.getElementById('media-perm')?.hidden === false,
+}));
+check('v1.17.2 — 권한 안내에 앱 이름(Spotify)', spotifyError.state.includes('Spotify') && spotifyError.state.includes('권한'), JSON.stringify(spotifyError));
+check('v1.17.2 — 권한 설정 버튼으로 바로 연결', spotifyError.perm, JSON.stringify(spotifyError));
+await spotifyContext.close();
+
+// 4. 노치 숨기기 단축키 — 기본 H, 중복 방지, 바꾸기, Rust 알림 반영
+const notchShortcutContext = await browser.newContext({ viewport: { width: 1100, height: 900 }, locale: 'ko-KR', colorScheme: 'light' });
+await notchShortcutContext.addInitScript(MOCK);
+const notchShortcutPage = await notchShortcutContext.newPage();
+notchShortcutPage.on('pageerror', (error) => consoleErrors.push(`v1172 settings pageerror: ${String(error)}`));
+await notchShortcutPage.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+await notchShortcutPage.evaluate(() => { localStorage.clear(); });
+await notchShortcutPage.reload({ waitUntil: 'networkidle' });
+await notchShortcutPage.click('#settings-btn');
+await notchShortcutPage.waitForTimeout(400);
+await notchShortcutPage.click('.sheet-tab[data-tab="notch"]');
+await notchShortcutPage.waitForTimeout(500);
+const notchShortcut = await notchShortcutPage.evaluate(() => {
+  const section = document.querySelector('.notch-shortcut-section');
+  const input = section ? section.querySelector('.shortcut-letter') : null;
+  const calls = window.__TIP_CALLS__.filter((call) => call.command === 'set_module_shortcuts');
+  return {
+    exists: !!section,
+    letter: input ? input.value : null,
+    chip: section ? section.querySelector('.shortcut-prefix-chip')?.textContent || '' : '',
+    stored: JSON.parse(localStorage.getItem('tip.shortcutLetters.v1') || '{}'),
+    lastItems: calls.length ? calls[calls.length - 1].args.items : [],
+  };
+});
+check('v1.17.2 — 설정 → 노치에 숨기기 단축키', notchShortcut.exists && notchShortcut.letter === 'H', JSON.stringify(notchShortcut));
+check('v1.17.2 — 공통 조합 + 기본 H 로 등록', notchShortcut.chip.includes('Ctrl') && notchShortcut.stored['notch:toggle'] === 'H'
+  && notchShortcut.lastItems.some(([key, accelerator]) => key === 'notch:toggle' && accelerator === 'Control+Shift+KeyH'),
+  JSON.stringify({ stored: notchShortcut.stored, items: notchShortcut.lastItems }));
+
+// 같은 글자를 다른 모듈이 쓰면 등록하지 않는다(H 를 타이머가 쓴 상태로 시작).
+await notchShortcutPage.evaluate(() => {
+  localStorage.setItem('tip.shortcutLetters.v1', JSON.stringify({ timer: 'H' }));
+  localStorage.removeItem('tip.shortcutMigration.v1172');
+});
+await notchShortcutPage.reload({ waitUntil: 'networkidle' });
+await notchShortcutPage.click('#settings-btn');
+await notchShortcutPage.waitForTimeout(400);
+await notchShortcutPage.click('.sheet-tab[data-tab="notch"]');
+await notchShortcutPage.waitForTimeout(450);
+const duplicateStart = await notchShortcutPage.evaluate(() => document.querySelector('.notch-shortcut-section .shortcut-letter').value);
+check('v1.17.2 — H 가 이미 쓰이면 비워 두고 직접 고르게', duplicateStart === '', duplicateStart);
+await notchShortcutPage.fill('.notch-shortcut-section .shortcut-letter', 'H');
+await notchShortcutPage.waitForTimeout(350);
+const duplicate = await notchShortcutPage.evaluate(() => ({
+  toast: document.querySelector('.toast')?.textContent || '',
+  letter: document.querySelector('.notch-shortcut-section .shortcut-letter').value,
+  stored: JSON.parse(localStorage.getItem('tip.shortcutLetters.v1') || '{}'),
+}));
+check('v1.17.2 — 다른 모듈이 쓰는 글자는 중복 등록 안 함', duplicate.letter === '' && !duplicate.stored['notch:toggle']
+  && duplicate.toast.includes('타이머'), JSON.stringify(duplicate));
+await notchShortcutPage.fill('.notch-shortcut-section .shortcut-letter', 'J');
+await notchShortcutPage.waitForTimeout(500);
+const changed = await notchShortcutPage.evaluate(() => {
+  const calls = window.__TIP_CALLS__.filter((call) => call.command === 'set_module_shortcuts');
+  return {
+    letter: document.querySelector('.notch-shortcut-section .shortcut-letter').value,
+    stored: JSON.parse(localStorage.getItem('tip.shortcutLetters.v1') || '{}'),
+    items: calls.length ? calls[calls.length - 1].args.items : [],
+  };
+});
+check('v1.17.2 — 다른 글자로 바꾸면 바로 등록', changed.letter === 'J' && changed.stored['notch:toggle'] === 'J'
+  && changed.items.some(([key, accelerator]) => key === 'notch:toggle' && accelerator === 'Control+Shift+KeyJ'),
+  JSON.stringify(changed));
+
+// Rust 가 단축키로 숨기면 알림으로 저장값·스위치가 따라온다.
+const beforeToggle = await notchShortcutPage.evaluate(() => {
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true }));
+  return JSON.parse(localStorage.getItem('tip.notch.v1')).enabled;
+});
+await notchShortcutPage.evaluate(() => { window.__TIP_LISTENERS__['tip://notch-enabled']({ payload: false }); });
+await notchShortcutPage.waitForTimeout(300);
+const afterToggle = await notchShortcutPage.evaluate(() => ({
+  enabled: JSON.parse(localStorage.getItem('tip.notch.v1') || '{}').enabled,
+  pressed: document.querySelector('.notch-section .switch')?.getAttribute('aria-pressed'),
+}));
+check('v1.17.2 — 단축키로 숨기면 저장값·설정 스위치가 따라옴', beforeToggle === true && afterToggle.enabled === false && afterToggle.pressed === 'false',
+  JSON.stringify({ beforeToggle, afterToggle }));
+await notchShortcutContext.close();
+}
+
 // 순수 규칙(js/dial.js)
 const dialRules = await page.evaluate(async () => {
   const d = await import('./js/dial.js');
@@ -2177,7 +2428,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.17.1 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.17.2 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

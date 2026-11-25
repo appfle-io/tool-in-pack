@@ -170,8 +170,11 @@
         </div>
 
         <div class="cal-grid-wrap" id="cal-grid-wrap"></div>
-        <div class="cal-day-head" id="cal-day-head"></div>
-        <ul class="cal-day-list" id="cal-day-list"></ul>
+        <!-- v1.17.2 — 월별 보기에서는 이 묶음이 달력 오른쪽으로 가 선택한 날의 일정이 넓게 보인다. -->
+        <div class="cal-day-pane" id="cal-day-pane">
+          <div class="cal-day-head" id="cal-day-head"></div>
+          <ul class="cal-day-list" id="cal-day-list"></ul>
+        </div>
       </section>
 
       <!-- v1.15.0 — 일정 추가 (EventKit). 달력·다가오는 일정 카드의 + 로 연다. -->

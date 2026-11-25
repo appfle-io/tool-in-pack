@@ -187,43 +187,83 @@ fn collect(mut child: Child, success: bool) -> Result<String, String> {
 
 /* ------------------------------ 미디어 ------------------------------ */
 
-const STATE_SCRIPT: &str = r#"
+/* v1.17.2 — Spotify(공식 installer)의 재생 정보를 못 읽던 문제.
+ *
+ * 예전 STATE_SCRIPT 는 `if application "Spotify" is running` + `tell application "Spotify"` 로,
+ * 앱 이름으로만 찾았다. 공식 installer 로 깐 Spotify 는 이름이 같아도 AppleScript 가 다른
+ * 앱(예: 웹 플레이어를 감싼 것·스토어판)을 집어 오거나, 이름 해석이 실패하면 조용히
+ * '재생 중인 곡 없음'으로 보였다. 또 `player state as text` 를 그대로 문자열로 받아
+ * "playing" 이 들어 있는지만 봤기 때문에 `is playing` 판정이 흔들렸다.
+ *
+ * 이제는 ① 실행 중인 앱을 번들 ID(com.spotify.client, com.apple.Music)로 먼저 확인하고
+ * (`is running` 은 자동화 권한이 필요 없다), ② `tell application id "..."` 로 그 앱만 정확히
+ * 부르며, ③ `player state is playing` 으로 재생 여부를 명시적으로 판정한다.
+ * 두 앱이 모두 떠 있으면 재생 중인 쪽을 고르고, 둘 다 멈춰 있으면 곡이 있는 쪽을 고른다.
+ * ④ 자동화 권한이 막혀 -1743 이 오면 어느 앱인지 밝혀 "[permission] Spotify 자동화 권한이
+ * 필요합니다" 처럼 돌려준다 — 노치 화면의 '권한 설정' 버튼이 그대로 연결된다.
+ */
+
+/// TIP 이 읽는 음악 앱 — 번들 ID 로 찾는다. `duration_div` 는 duration 단위 차이
+/// (Spotify 는 밀리초, Apple Music 은 초)를 맞추는 값이다.
+struct MediaApp {
+    key: &'static str,
+    name: &'static str,
+    label: &'static str,
+    bundle: &'static str,
+    duration_div: u32,
+}
+
+const MEDIA_APPS: [MediaApp; 2] = [
+    MediaApp { key: "spotify", name: "Spotify", label: "Spotify", bundle: "com.spotify.client", duration_div: 1000 },
+    MediaApp { key: "music", name: "Music", label: "Apple Music", bundle: "com.apple.Music", duration_div: 1 },
+];
+
+/// 실행 중인 음악 앱을 번들 ID 로 확인한다 — 없으면 빈 문자열, 있으면 "spotify,music," 처럼.
+/// `is running` 은 앱을 띄우지도, 자동화 권한을 묻지도 않는다. 앱이 설치돼 있지 않으면
+/// 그 줄이 오류가 날 수 있어 try 로 감싼다(나머지 앱은 그대로 확인한다).
+const RUNNING_SCRIPT: &str = r#"
 set out to ""
-set pos to 0
-set dur to 0
-if application "Spotify" is running then
-  tell application "Spotify"
-    set st to (player state as text)
-    set t to ""
-    set ar to ""
-    try
-      set t to name of current track
-      set ar to artist of current track
-    end try
-    try
-      set pos to player position
-      set dur to (duration of current track) / 1000
-    end try
-    set out to "Spotify" & tab & st & tab & pos & tab & dur & tab & t & tab & ar
-  end tell
-else if application "Music" is running then
-  tell application "Music"
-    set st to (player state as text)
-    set t to ""
-    set ar to ""
-    try
-      set t to name of current track
-      set ar to artist of current track
-    end try
-    try
-      set pos to player position
-      set dur to duration of current track
-    end try
-    set out to "Music" & tab & st & tab & pos & tab & dur & tab & t & tab & ar
-  end tell
-end if
+try
+  if application id "com.spotify.client" is running then set out to out & "spotify,"
+end try
+try
+  if application id "com.apple.Music" is running then set out to out & "music,"
+end try
 return out
 "#;
+
+/// 앱 하나의 재생 상태 — `player state is playing` 으로 명시적으로 판정한다.
+fn state_script(app: &MediaApp) -> String {
+    // 번들 ID·이름은 아래 상수에서만 오므로 스크립트에 그대로 넣어도 안전하다.
+    format!(
+        r#"
+set st to "stopped"
+set t to ""
+set ar to ""
+set pos to 0
+set dur to 0
+tell application id "{bundle}"
+  if player state is playing then
+    set st to "playing"
+  else if player state is paused then
+    set st to "paused"
+  end if
+  try
+    set t to name of current track
+    set ar to artist of current track
+  end try
+  try
+    set pos to player position
+    set dur to (duration of current track) / {div}
+  end try
+end tell
+return "{name}" & tab & st & tab & pos & tab & dur & tab & t & tab & ar
+"#,
+        bundle = app.bundle,
+        div = app.duration_div,
+        name = app.name
+    )
+}
 
 /// AppleScript 가 돌려준 숫자를 0 이상의 초로 맞춘다 — 값이 없거나 이상하면 0.
 fn seconds(value: Option<&&str>) -> f64 {
@@ -233,28 +273,85 @@ fn seconds(value: Option<&&str>) -> f64 {
         .unwrap_or(0.0)
 }
 
-fn read_media_state() -> Result<MediaState, String> {
-    let raw = osascript(STATE_SCRIPT, MEDIA_TIMEOUT)?;
-    if raw.trim().is_empty() {
-        return Ok(MediaState {
-            app: String::new(),
-            playing: false,
-            title: String::new(),
-            artist: String::new(),
-            position: 0.0,
-            duration: 0.0,
-        });
+/// `앱 이름\t상태\t위치\t길이\t제목\t아티스트` 한 줄을 MediaState 로. 형식이 어긋나면 None.
+fn parse_media_state(raw: &str) -> Option<MediaState> {
+    let line = raw.trim();
+    if line.is_empty() {
+        return None;
     }
-    let parts: Vec<&str> = raw.split('\t').collect();
+    let parts: Vec<&str> = line.split('\t').collect();
     let app = parts.first().copied().unwrap_or("").to_string();
-    let playing = parts.get(1).map(|state| state.contains("playing")).unwrap_or(false);
+    // v1.17.2 — `player state is playing` 으로 이미 "playing"/"paused"/"stopped" 로 정리해 온다.
+    // 예전 스크립트가 돌려주던 "playing (1)" 같은 문장도 받아 준다.
+    let playing = parts.get(1).map(|state| state.trim().starts_with("playing")).unwrap_or(false);
     let position = seconds(parts.get(2));
     let duration = seconds(parts.get(3));
     // 곡 제목에 탭이 들어 있어도 제목만 어긋나게 하고 아티스트는 끝까지 모은다.
     let title = parts.get(4).copied().unwrap_or("").to_string();
     let artist = parts.iter().skip(5).copied().collect::<Vec<_>>().join("\t");
     let position = if duration > 0.0 { position.min(duration) } else { position };
-    Ok(MediaState { app, playing, title, artist, position, duration })
+    Some(MediaState { app, playing, title, artist, position, duration })
+}
+
+fn empty_media_state() -> MediaState {
+    MediaState {
+        app: String::new(),
+        playing: false,
+        title: String::new(),
+        artist: String::new(),
+        position: 0.0,
+        duration: 0.0,
+    }
+}
+
+fn read_media_state() -> Result<MediaState, String> {
+    let running = osascript(RUNNING_SCRIPT, MEDIA_TIMEOUT)?;
+    let running = running.to_ascii_lowercase();
+
+    let mut best: Option<MediaState> = None;
+    let mut denied: Vec<&'static str> = Vec::new();
+    let mut failure: Option<String> = None;
+
+    for app in MEDIA_APPS.iter() {
+        if !running.contains(app.key) {
+            continue;
+        }
+        match osascript(&state_script(app), MEDIA_TIMEOUT) {
+            Ok(raw) => {
+                let Some(state) = parse_media_state(&raw) else { continue };
+                // 재생 중인 앱이 있으면 그것이 답이다.
+                if state.playing {
+                    return Ok(state);
+                }
+                // 아니면 곡이 있는 앱을 남겨 두고(멈춤 표시), 없으면 첫 앱을 쓴다.
+                let better = match best.as_ref() {
+                    Some(current) => current.title.is_empty() && !state.title.is_empty(),
+                    None => true,
+                };
+                if better {
+                    best = Some(state);
+                }
+            }
+            Err(error) => {
+                if is_permission_denied(&error) {
+                    denied.push(app.label);
+                } else {
+                    failure = Some(with_permission_hint(&format!("{} 자동화", app.label), error));
+                }
+            }
+        }
+    }
+
+    if let Some(state) = best {
+        Ok(state)
+    } else if !denied.is_empty() {
+        // 어느 앱의 자동화를 허용해야 하는지 그대로 알린다 — 화면이 '권한 설정' 버튼을 띄운다.
+        Err(format!("{PERMISSION_TAG} {} 자동화 권한이 필요합니다", denied.join("·")))
+    } else if let Some(error) = failure {
+        Err(error)
+    } else {
+        Ok(empty_media_state())
+    }
 }
 
 #[tauri::command]
@@ -262,7 +359,6 @@ pub async fn media_state() -> Result<MediaState, String> {
     tauri::async_runtime::spawn_blocking(read_media_state)
         .await
         .map_err(|error| format!("미디어 조회를 마치지 못했습니다: {error}"))?
-        .map_err(|error| with_permission_hint("음악 앱 자동화", error))
 }
 
 fn control_media(action: &str) -> Result<(), String> {
@@ -280,10 +376,14 @@ fn control_media(action: &str) -> Result<(), String> {
     if state.app.is_empty() {
         return Err("재생 중인 음악 앱이 없습니다".into());
     }
-    let target = if state.app == "Spotify" { "Spotify" } else { "Music" };
-    let script = format!("tell application \"{target}\" to {command}");
-    osascript(&script, MEDIA_TIMEOUT)?;
-    Ok(())
+    let Some(app) = MEDIA_APPS.iter().find(|app| app.name == state.app) else {
+        return Err("재생 중인 음악 앱이 없습니다".into());
+    };
+    // v1.17.2 — 앱 이름이 아니라 번들 ID 로 조작한다(공식 installer 로 깐 Spotify 도 같은 앱).
+    let script = format!("tell application id \"{}\" to {command}", app.bundle);
+    osascript(&script, MEDIA_TIMEOUT)
+        .map(|_| ())
+        .map_err(|error| with_permission_hint(&format!("{} 자동화", app.label), error))
 }
 
 #[tauri::command]
@@ -291,7 +391,6 @@ pub async fn media_control(action: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || control_media(&action))
         .await
         .map_err(|error| format!("미디어 조작을 마치지 못했습니다: {error}"))?
-        .map_err(|error| with_permission_hint("음악 앱 자동화", error))
 }
 
 /* ------------------------------ 캘린더 (EventKit) ------------------------------ */
