@@ -2050,8 +2050,12 @@ function launcherCard() {
     const wrap = card.querySelector('#launcher-wrap');
     if (wrap) {
       wrap.addEventListener('wheel', (event) => {
-        const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+        const vertical = Math.abs(event.deltaY) >= Math.abs(event.deltaX);
+        const delta = vertical ? event.deltaY : event.deltaX;
         if (!delta) return;
+        // 전체 보기가 창보다 길어 스크롤할 것이 있으면, 세로 휠은 목록 스크롤에 양보한다(v1.17.0 검수 D7).
+        // 가로 휠·트랙패드 옆으로 밀기와 ‹ › 는 그대로 한 칸씩 넘긴다.
+        if (vertical && widgetsEl.scrollHeight > widgetsEl.clientHeight + 1) return;
         event.preventDefault();
         const now = Date.now();
         if (now - launcherWheelAt < 130) return;   // 한 번 굴리면 한 칸

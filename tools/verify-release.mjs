@@ -296,9 +296,11 @@ check('업데이트에 verify 단계 문구', appJs.includes('verify'));
 
 const capability = read('mac/src-tauri/capabilities/default.json');
 check('capability 에 parcel 창 없음', !/"parcel"/.test(capability));
-['main', 'quickbar', 'tool', 'notch', 'search', 'sticky-*'].forEach((win) => {
+// v1.17.0 — 반원 퀵바 창(quickbar)은 노치 안으로 옮겨 창 목록에서 빠졌다.
+['main', 'tool', 'notch', 'search', 'sticky-*'].forEach((win) => {
   check(`capability 창 ${win}`, capability.includes(`"${win}"`));
 });
+check('capability 에 quickbar 창 없음(v1.17.0)', !/"quickbar"/.test(capability));
 
 const csp = conf.app?.security?.csp;
 check('CSP 설정됨', typeof csp === 'string' && csp.length > 40);
@@ -471,7 +473,7 @@ check('자동 실행 자기 실행 파일만', /fn own_executable\(/.test(read('
 
 // 5. 설정 4탭 · 문의 메일 · 주소 영문
 check('설정 탭 4개', ['general', 'notch', 'search', 'modules'].every((id) => new RegExp(`\\{ id: '${id}', label:`).test(appJs)));
-check('탭 설명 문구', /TAB_NOTES = \{/.test(appJs) && /노치 아일랜드와 메뉴 막대/.test(appJs));
+check('탭 설명 문구', /TAB_NOTES = \{/.test(appJs) && /노치의 반원과 전체 보기, 메뉴 막대 아이콘/.test(appJs));
 check('탭 안내에서 다른 탭 안내 문장 제거(v1.15.1)', !/탭에 있습니다/.test(appJs));
 check('웹 안내에 Mac 전용 항목 없음(v1.15.1)', /generalWeb:/.test(appJs) && !/generalWeb: '[^']*메뉴 막대/.test(appJs));
 check('모듈 화면 ⚙', /screen-gear/.test(appJs) && /openSheet\('modules', mod\.id\)/.test(appJs));
@@ -493,8 +495,10 @@ check('README 에 v1.15.0', read('README.md').includes('v1.15.0'));
 /* ------------------------- v1.15.0 노치 동적 음악·타이머·공통 단축키 ------------------------- */
 
 // 1. 접힌 알약 — 음악(이퀄라이저·제목·진행률) + 타이머
-check('notch.html 알약 이퀄라이저·곡 제목·진행률', read('notch.html').includes('id="pill-eq"')
-  && read('notch.html').includes('id="pill-title"') && read('notch.html').includes('id="pill-progress"'));
+// v1.17.0 — 알약에는 이퀄라이저만. 곡 제목·진행률은 반원(#dial-media)과 전체 보기 카드에서.
+check('notch.html 알약 이퀄라이저(곡 제목·진행률은 반원으로)', read('notch.html').includes('id="pill-eq"')
+  && !read('notch.html').includes('id="pill-title"') && !read('notch.html').includes('id="pill-progress"')
+  && read('notch.html').includes('id="dial-media-title"'));
 check('notch.html 알약 타이머 시간', read('notch.html').includes('id="pill-clock"') && read('notch.html').includes('id="pill-timer"'));
 check('notch.css 가운데 노치 자리(--notch-gap)', /--notch-gap:\s*0px/.test(read('css/notch.css')) && /\.pill-gap\s*\{[^}]*var\(--notch-gap/.test(read('css/notch.css')));
 check('notch.css 이퀄라이저 애니메이션', /@keyframes pill-eq/.test(read('css/notch.css')) && /prefers-reduced-motion/.test(read('css/notch.css')));
@@ -622,9 +626,12 @@ check('시트 본문만 스크롤', /\.sheet-body \{[\s\S]{0,200}overflow-y: aut
 check('탭 줄 sticky', /\.sheet\.is-fixed \.sheet-tabs \{[\s\S]{0,120}position: sticky/.test(sheetCss));
 check('app.js 가 is-fixed 를 붙인다', /class: `sheet\$\{TAURI \? ' is-fixed' : ''\}`/.test(appJs));
 check('시트 본문 컨테이너', /class: 'sheet-body'/.test(appJs));
-check('메뉴 막대·퀵바 한 묶음', /text: '메뉴 막대와 퀵바'/.test(appJs) && /function menuBarQuickbarSection/.test(appJs));
-check('일반 탭에서 메뉴 막대 묶음 제거', !/parts\.push\(menuBarSection\(\)\)/.test(appJs));
-check('메뉴 막대·퀵바에 투명도·순서', /quickbarOpacityRow\(\),\s*\n\s*orderRow,/.test(appJs));
+// v1.17.0 — '메뉴 막대와 퀵바' 묶음은 '메뉴 막대'(표시 + 반원 배경 불투명도)가 되고, 모듈 순서는 회전 방식 묶음으로 옮겼다.
+check('메뉴 막대 묶음(퀵바 이름 없음)', /text: '메뉴 막대' \}/.test(appJs) && /function menuBarSection\(\)/.test(appJs) && !/메뉴 막대와 퀵바/.test(appJs));
+check('메뉴 막대 묶음은 노치 탭에만', (appJs.match(/parts\.push\(menuBarSection\(\)\)/g) || []).length === 1
+  && /function notchTab\([\s\S]{0,700}parts\.push\(menuBarSection\(\)\)/.test(appJs));
+check('메뉴 막대에 불투명도, 모듈 순서는 회전 방식 묶음에', /toggle,\s*\n\s*\]\),\s*\n\s*quickbarOpacityRow\(\),\s*\n\s*\]\);/.test(appJs)
+  && /function notchRotationSection\([\s\S]{0,2400}orderRow,/.test(appJs));
 check('모듈 탭 검색 칸', /class: 'pt-input sheet-module-search'/.test(appJs) && /moduleQuery = search\.value/.test(appJs));
 check('모듈 탭 단축키 표시', /class: 'shortcut-chip module-shortcut'/.test(appJs) && /function moduleShortcutKeys/.test(appJs));
 check('모듈 탭 단축키 필터·정렬', /moduleFilterShortcuts/.test(appJs) && /a\.keys\.length \? -1 : 1/.test(appJs));
@@ -666,8 +673,9 @@ check('capabilities 에 모든 allow-<command> 권한', missingPerms.length === 
 check('capabilities allow- 권한 수가 커맨드 수와 같다', capabilityPerms.filter((p) => p.startsWith('allow-')).length === manifestCommands.length,
   `${capabilityPerms.filter((p) => p.startsWith('allow-')).length}/${manifestCommands.length}`);
 check('capabilities 에 deny- 권한 없음', !capabilityPerms.some((permission) => permission.startsWith('deny-')));
-check('capabilities 창 목록 그대로(앱 창만)', ['"main"', '"quickbar"', '"tool"', '"notch"', '"search"', '"sticky-*"']
-  .every((window) => capability.includes(window)) && capabilityJson.windows.length === 6, String(capabilityJson.windows.length));
+// v1.17.0 — quickbar 창이 빠져 앱 창은 5종.
+check('capabilities 창 목록 그대로(앱 창만)', ['"main"', '"tool"', '"notch"', '"search"', '"sticky-*"']
+  .every((window) => capability.includes(window)) && capabilityJson.windows.length === 5, String(capabilityJson.windows.length));
 check('postcode·parcel 창은 어떤 권한도 없다', !capabilityJson.windows.includes('postcode') && !capabilityJson.windows.includes('parcel'));
 
 // 2. 우편번호 창 저장소 분리 — incognito + localStorage 미사용
@@ -691,7 +699,9 @@ check('apps.rs 실행 허용 폴더 3곳', ['/Applications', '/System/Applicatio
 
 const notchCssV2 = read('css/notch.css');
 check('패널 최대 높이 600 이하', /max-height: min\(100%, 600px\)/.test(notchCssV2));
-check('Rust 펼친 높이 한계 300~600', /const NOTCH_OPEN_MAX_H: f64 = 600\.0;/.test(lib) && /const NOTCH_OPEN_MIN_H: f64 = 300\.0;/.test(lib));
+// v1.17.0 — 반원 판(252 + 노치 높이)까지 내려가도록 최소 높이 300 → 200, 폭 452 → 640.
+check('Rust 펼친 높이 한계 200~600', /const NOTCH_OPEN_MAX_H: f64 = 600\.0;/.test(lib) && /const NOTCH_OPEN_MIN_H: f64 = 200\.0;/.test(lib));
+check('Rust 펼친 폭 640(반원·전체 보기 같은 판)', /const NOTCH_OPEN_W: f64 = 640\.0;/.test(lib));
 check('Rust 기본 펼친 높이 540', /const NOTCH_OPEN_H: f64 = 540\.0;/.test(lib));
 check('Rust notch_resize 커맨드', /fn notch_resize\(app: AppHandle, height: f64\)/.test(lib) && /notch_resize,/.test(lib));
 check('화면이 잰 높이를 Rust 로', /invoke\('notch_resize', \{ height \}\)/.test(notchJs) && /function panelContentHeight\(/.test(notchJs));
@@ -722,9 +732,11 @@ check('타이머 입력값 = 표시 시간', /display\.textContent = formatClock
   && /timerChoice = timerCardSeconds\(\)/.test(notchJs));
 check('타이머 세 버튼 모양 통일', /\.timer-btn \{[\s\S]{0,160}flex: 1 1 0;/.test(notchCssV2));
 check('빠른 메모 글자 수 표시 제거', !/memo-side/.test(notchJs) && !/\$\{input\.value\.length\}자/.test(notchJs));
-check('모듈 실행 양끝 화살표', /data-launcher="prev"/.test(notchJs) && /data-launcher="next"/.test(notchJs)
-  && /function paintLauncherNav\(/.test(notchJs) && /\.launcher-nav \{/.test(notchCssV2));
-check('모듈 실행 양끝 페이드', /is-fade-start/.test(notchCssV2) && /is-fade-end/.test(notchCssV2) && /mask-image/.test(notchCssV2));
+// v1.17.0 — '켜 둔 모듈' 한 줄 7칸: 가로 스크롤·페이드 대신 회전 규칙(js/dial.js)과 끝 표시(aria-disabled).
+check('켜 둔 모듈 양끝 화살표', /data-launcher="prev"/.test(notchJs) && /data-launcher="next"/.test(notchJs)
+  && /function paintLauncher\(/.test(notchJs) && /\.launcher-nav \{/.test(notchCssV2) && /\.launcher-nav\.is-end/.test(notchCssV2));
+check('켜 둔 모듈 한 줄 7칸·위치 표시', /rowWindow\(all, launcherStart, DIAL_SLOTS, loop\)/.test(notchJs)
+  && /rowPositionLabel\(/.test(notchJs) && /repeat\(7, minmax\(0, 1fr\)\)/.test(notchCssV2));
 check('잘린 이름은 shortName', /mod\.shortName \|\| mod\.name/.test(notchJs));
 check('새 스티커는 제목 옆 +', /id="launcher-new"/.test(notchJs) && !/launcher-tile launcher-new/.test(notchJs));
 check('README 에 v1.15.3', read('README.md').includes('| v1.15.3 |'));
@@ -1137,7 +1149,7 @@ check('PDF — 순서 바꾸기', /function moveImage\(id, delta\)/.test(pdfSrc)
 check('PDF — A4 맞춤·원본 크기', /imageFit === 'a4'/.test(pdfSrc) && /data-fit=\"original\"/.test(pdfSrc));
 
 /* ---------- 17.12 문서·캐시 목록 ---------- */
-check('버전 1.16.0', VERSION === '1.16.0', VERSION);
+check('버전 1.16.0 이상', (([major, minor]) => major > 1 || (major === 1 && minor >= 16))(VERSION.split('.').map(Number)), VERSION);
 ['js/backup.js', 'js/recent.js', 'js/continue.js', 'js/typing.js', 'js/mosaic.js']
   .forEach((file) => check(`sw.js 프리캐시 ${file}`, read('sw.js').includes(`'./${file}'`)));
 ['text-counter', 'date-calc', 'typing-converter', 'screenshot-annotate']
@@ -1146,6 +1158,40 @@ check('README v1.16.0', read('README.md').includes('| v1.16.0 |'));
 check('README 새 도구 안내', read('README.md').includes('### 28) 글자 수 세기')
   && read('README.md').includes('### 29) 날짜 계산기') && read('README.md').includes('### 30) 한영 타자 변환'));
 check('README 백업 안내', read('README.md').includes('백업과 복원'));
+
+/* ================================================================
+   18. v1.17.0 — 반원을 노치 '간단히 보기'로 · 전체 보기 · 시작 화면·회전 설정
+   ================================================================ */
+
+const notch17 = read('js/notch.js');
+const notchCss17 = read('css/notch.css');
+const notchHtml17 = read('notch.html');
+const store17 = read('js/store.js');
+const dial17 = read('js/dial.js');
+check('버전 1.17.0 이상', (([major, minor]) => major > 1 || (major === 1 && minor >= 17))(VERSION.split('.').map(Number)), VERSION);
+check('반원 파일 정리(radial.*)', !exists('radial.html') && !exists('js/radial.js') && !exists('css/radial.css')
+  && !read('sw.js').includes('radial') && !read('mac/scripts/collect-web.sh').includes('radial'));
+check('js/dial.js 회전 규칙', /export function rowPositionLabel\(/.test(dial17) && /export function clampPos\(/.test(dial17)
+  && read('sw.js').includes("'./js/dial.js'"));
+check('노치 판은 .notch-sheet(설정 시트 .sheet 와 이름이 겹치지 않게)', notchHtml17.includes('class="notch-sheet" id="sheet"')
+  && !/^\.sheet[\s{.,:]/m.test(notchCss17.slice(notchCss17.indexOf('v1.17.0 — 반원 다이얼'))));
+check('반원·전체 보기 두 화면', notchHtml17.includes('id="dial"') && notchHtml17.includes('id="to-full"') && notchHtml17.includes('id="to-simple"'));
+check('반원 양옆 칸은 숨겨도 자리를 지킨다', /\.dial-top > \[hidden\] \{ display: flex !important; visibility: hidden; \}/.test(notchCss17));
+check('저장값 startView·rotation·pillActivity·recent', /startView: NOTCH_START_VIEWS\.includes/.test(store17)
+  && /rotation: NOTCH_ROTATIONS\.includes/.test(store17) && /pillActivity: saved\.pillActivity !== false/.test(store17)
+  && /recent: true,/.test(store17));
+check('불투명도 70~100', /QUICKBAR_OPACITY_MIN = 70;/.test(store17));
+check('메뉴 막대 아이콘 → tip://notch-tray', notch17.includes("listen('tip://notch-tray'") && /tray_toggle_notch\(tray\.app_handle\(\)\)/.test(lib));
+check('클릭·메뉴 막대로 열 때만 포커스', /openedWithKeys = via === 'click' \|\| via === 'tray';/.test(notch17));
+check('달력은 연 화면으로 돌아간다', /if \(!calView\.open\) calReturnTo = view;/.test(notch17) && /calReturnTo === 'simple' \? 'simple' : 'full'/.test(notch17));
+check('Esc: 폼 → 달력 → 노치', /if \(calForm\.open\) \{[\s\S]{0,80}closeCalendarForm\(\);[\s\S]{0,200}if \(calView\.open\) \{\s*closeCalendarView\(\);/.test(notch17));
+check('접힌 채로 보관함에 담는다', /if \(!expanded\) setPillNote\(`보관함 \+\$\{added\}`, 2000\);/.test(notch17) && !/if \(!expanded\) setExpanded\(true\);\s*\n\s*if \(!panelEl\.querySelector\('#shelf-list'\)\)/.test(notch17));
+check('알약: 멈춘 음악 5분·끝난 타이머 5초', /MEDIA_PAUSE_KEEP_MS = 5 \* 60 \* 1000/.test(notch17) && /TIMER_DONE_KEEP_MS = 5000/.test(notch17));
+check('닫힌 노치 표시 끄기', /const activity = settings\.pillActivity !== false;/.test(notch17));
+check('설정 노치 탭 묶음', /function notchStartViewSection\(/.test(appJs) && /function notchRotationSection\(/.test(appJs)
+  && /function notchPillSection\(/.test(appJs) && /function notchWidgetSection\(/.test(appJs));
+check('README v1.17.0', read('README.md').includes('| v1.17.0 |'));
+check('settings-e2e 가 v1.17.0 노치를 본다', /v1\.17\.0 — 시작 화면대로 반원/.test(read('tools/settings-e2e.mjs')));
 
 /* ------------------------------ 결과 ------------------------------ */
 

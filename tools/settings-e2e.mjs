@@ -1625,6 +1625,20 @@ check('v1.17.0 — 달력 아이콘(캘린더 위젯 켬)', sides.cal);
 check('v1.17.0 — 미디어 위젯 꺼짐이면 빈 자리', !sides.media);
 check('v1.17.0 — 타이머 없으면 빈 자리', !sides.timer);
 check('v1.17.0 — 보관함 아이콘, 0개면 배지 없음', sides.shelf && !sides.badge && sides.shelfLabel.includes('0개'), JSON.stringify(sides));
+// 검수 C6 — 양옆 칸을 숨겨도 가운데(이름·찾기)가 옆으로 밀리지 않는다.
+const hubShift = await dial.evaluate(() => {
+  const hub = () => Math.round(document.querySelector('.dial-hub').getBoundingClientRect().left);
+  const media = document.getElementById('dial-media');
+  const cal = document.getElementById('dial-cal');
+  const was = [media.hidden, cal.hidden];
+  media.hidden = true; cal.hidden = true;
+  const off = hub();
+  media.hidden = false; cal.hidden = false;
+  const on = hub();
+  [media.hidden, cal.hidden] = was;
+  return { off, on, display: getComputedStyle(document.getElementById('dial-timer')).display };
+});
+check('v1.17.0 — 양옆 칸을 숨겨도 가운데 자리 그대로(C6)', hubShift.off === hubShift.on, JSON.stringify(hubShift));
 
 // 회전 — 계속 회전: 처음에서 왼쪽 → 마지막 모듈
 const order = await dial.evaluate(() => [...document.querySelectorAll('.dial-slot')].map((slot) => slot.dataset.moduleId));

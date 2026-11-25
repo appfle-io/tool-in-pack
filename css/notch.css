@@ -85,7 +85,7 @@ html, body {
 .pill.no-notch .pill-wing-right { flex-basis: auto; }
 .pill-gap { flex: none; width: var(--notch-gap, 0px); height: 100%; }
 
-/* 음악 — 움직이는 이퀄라이저 + 짧은 곡 제목 + 진행률 */
+/* 음악 — 움직이는 이퀄라이저(v1.17.0 — 곡 제목·진행률은 반원과 전체 보기에서) */
 .pill-eq { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 11px; flex: none; }
 .pill-eq i {
   display: block;
@@ -105,41 +105,6 @@ html, body {
 }
 @media (prefers-reduced-motion: reduce) {
   .pill-eq i { animation: none; height: 7px; }
-}
-.pill-track {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  min-width: 0;
-  max-width: 152px;
-}
-.pill-title {
-  display: block;
-  max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 10px;
-  line-height: 1.1;
-  font-weight: 600;
-  color: #EDEDEF;
-}
-.pill-progress {
-  display: block;
-  width: 100%;
-  min-width: 24px;
-  height: 2px;
-  border-radius: 1px;
-  background: rgba(255, 255, 255, 0.18);
-  overflow: hidden;
-}
-.pill-progress-fill {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: #4FBF67;
-  border-radius: 1px;
 }
 
 /* 타이머 — 남은 시간 */
@@ -1252,7 +1217,8 @@ html, body {
   align-items: flex-start;
   gap: 6px;
 }
-.dial-top > [hidden] { display: flex; visibility: hidden; }
+/* app.css 의 [hidden] { display: none !important } 보다 강해야 자리를 지킨다(v1.17.0 검수 C6). */
+.dial-top > [hidden] { display: flex !important; visibility: hidden; }
 .dial-icon,
 .dial-arrow {
   position: relative;
