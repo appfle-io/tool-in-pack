@@ -398,7 +398,22 @@ export const MODULE_SETTINGS = {
       },
       { key: 'ocr.autoCopy', label: '추출한 글자 자동 복사', type: 'switch', fallback: true },
     ],
-    actions: [{ key: 'drag-ocr', label: '화면 글자 읽기', hint: '단축키를 누르고 화면을 드래그' }],
+    actions: [{ key: 'drag-ocr', label: '화면에서 글자 읽기', hint: '단축키를 누르고 화면을 드래그' }],
+  },
+  // v1.16.0 — 이미지·화면 OCR 을 '글자 추출' 하나로 합쳤다. 설정 차례도 이 id 로 옮긴다.
+  // 단축키 키(action key)는 'drag-ocr' 그대로 둔다 — 예전에 정한 글자가 그대로 살아 있다.
+  'ocr-reader': {
+    values: [
+      {
+        key: 'ocr.lang',
+        label: '글자 인식 언어',
+        type: 'select',
+        fallback: 'kor+eng',
+        options: [['kor+eng', '한국어 + 영어'], ['kor', '한국어'], ['eng', '영어'], ['jpn', '일본어']],
+      },
+      { key: 'ocr.autoCopy', label: '추출한 글자 자동 복사', type: 'switch', fallback: true },
+    ],
+    actions: [{ key: 'drag-ocr', label: '화면에서 글자 읽기', hint: '단축키를 누르고 화면을 드래그' }],
   },
   'window-snap': {
     values: [],

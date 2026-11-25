@@ -106,6 +106,7 @@ async function copyText(text) {
 
 const module = {
   id: 'color-tools',
+  accepts: ['image/*'],
   name: '색상 대비 체크',
   kind: 'tool',
   category: 'dev',
@@ -192,6 +193,19 @@ const module = {
             <div class="ct-prev-big">큰 텍스트 24px</div>
             <div class="ct-prev-small">본문 텍스트 14px. 이 배경에서 이 글자가 읽히는지 확인하세요.</div>
           </div>
+        </section>
+
+        <section class="v16-card ct-palette">
+          <div class="ct-head">
+            <span class="ct-role">사진에서 대표색</span>
+            <span class="ct-pal-hint" id="ct-pal-hint">사진을 고르면 5~8가지 대표색을 뽑습니다</span>
+          </div>
+          <div class="v16-actions">
+            <button class="v16-btn primary" type="button" id="ct-pal-browse">사진 선택</button>
+          </div>
+          <input type="file" id="ct-pal-input" class="sr-only" accept="image/*">
+          <div class="ct-pal-list" id="ct-pal-list"></div>
+          <p class="v16-note">대표색을 누르면 글자색, 옆의 [배경]을 누르면 배경색에 넣고 바로 대비를 잽니다. 사진은 기기 밖으로 나가지 않습니다.</p>
         </section>
       </div>`;
 
@@ -324,6 +338,124 @@ const module = {
         }, { signal });
       });
     }
+
+    /* --------------------------- 사진 대표색 (v1.16.0) --------------------------- */
+
+    const palInput = root.querySelector('#ct-pal-input');
+    const palList = root.querySelector('#ct-pal-list');
+    const palHint = root.querySelector('#ct-pal-hint');
+
+    /** 큰 덩어리의 색을 세어 대표색을 고른다 — 4비트씩(16단계) 칸으로 나눠 가장 많은 칸부터. */
+    function dominantColors(imageData, max = 8) {
+      const { data } = imageData;
+      const buckets = new Map();
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] < 128) continue;
+        const r = data[i] >> 4;
+        const g = data[i + 1] >> 4;
+        const b = data[i + 2] >> 4;
+        const key = (r << 8) | (g << 4) | b;
+        const found = buckets.get(key);
+        if (found) {
+          found.count += 1;
+          found.r += data[i];
+          found.g += data[i + 1];
+          found.b += data[i + 2];
+        } else {
+          buckets.set(key, { count: 1, r: data[i], g: data[i + 1], b: data[i + 2] });
+        }
+      }
+      const sorted = [...buckets.values()]
+        .sort((a, b) => b.count - a.count)
+        .map((bucket) => ({
+          r: Math.round(bucket.r / bucket.count),
+          g: Math.round(bucket.g / bucket.count),
+          b: Math.round(bucket.b / bucket.count),
+          count: bucket.count,
+        }));
+      const picked = [];
+      for (const color of sorted) {
+        if (picked.length >= max) break;
+        const near = picked.some((other) => Math.abs(other.r - color.r) + Math.abs(other.g - color.g) + Math.abs(other.b - color.b) < 48);
+        if (!near) picked.push(color);
+      }
+      return picked.slice(0, Math.max(5, Math.min(max, picked.length)));
+    }
+
+    function renderPalette(colors) {
+      palList.innerHTML = '';
+      colors.forEach((color) => {
+        const hex = rgbToHex(color);
+        const row = document.createElement('div');
+        row.className = 'ct-pal-row';
+        row.innerHTML = `
+          <button class="ct-pal-swatch" type="button" aria-label="${hex} 를 글자색으로"></button>
+          <span class="ct-pal-hex mono">${hex}</span>
+          <button class="v16-mini" type="button" data-role="bg" aria-label="${hex} 를 배경색으로">배경</button>`;
+        row.querySelector('.ct-pal-swatch').style.background = hex;
+        row.querySelector('.ct-pal-swatch').addEventListener('click', () => {
+          state.fg = { r: color.r, g: color.g, b: color.b };
+          update('fg');
+          toast(`${hex} 를 글자색으로 넣었습니다`);
+        }, { signal });
+        row.querySelector('[data-role="bg"]').addEventListener('click', () => {
+          state.bg = { r: color.r, g: color.g, b: color.b };
+          update('bg');
+          toast(`${hex} 를 배경색으로 넣었습니다`);
+        }, { signal });
+        palList.append(row);
+      });
+    }
+
+    async function readPalette(file) {
+      if (!file) return;
+      if (!/^image\//.test(file.type) && !/\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(file.name)) {
+        palHint.textContent = '이미지 파일만 넣을 수 있습니다';
+        return;
+      }
+      palHint.textContent = '대표색을 뽑는 중…';
+      const url = URL.createObjectURL(file);
+      try {
+        const image = new Image();
+        const loaded = new Promise((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = () => reject(new Error('그림을 읽지 못했습니다'));
+        });
+        image.src = url;
+        await loaded;
+        const scale = Math.min(1, 320 / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+        canvas.height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const colors = dominantColors(context.getImageData(0, 0, canvas.width, canvas.height));
+        renderPalette(colors);
+        palHint.textContent = `${colors.length}가지 대표색`;
+      } catch (error) {
+        console.error('[TIP color-tools]', error);
+        palHint.textContent = '대표색을 뽑지 못했습니다 (HEIC 사진은 이미지 컨버터로 먼저 바꿔 주세요)';
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    root.querySelector('#ct-pal-browse').addEventListener('click', () => palInput.click(), { signal });
+    palInput.addEventListener('change', () => {
+      const file = palInput.files && palInput.files[0];
+      palInput.value = '';
+      readPalette(file);
+    }, { signal });
+    root.addEventListener('dragover', (event) => {
+      if (!event.dataTransfer) return;
+      event.preventDefault();
+    }, { signal });
+    root.addEventListener('drop', (event) => {
+      const file = event.dataTransfer?.files?.[0];
+      if (!file) return;
+      event.preventDefault();
+      readPalette(file);
+    }, { signal });
 
     update('fg');
     update('bg');

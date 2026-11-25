@@ -79,9 +79,10 @@ function manifestSnippet() {
 
 const module = {
   id: 'icon-gen',
+  accepts: ['image/*'],
   name: '앱 아이콘 생성기',
   kind: 'tool',
-  category: 'dev',
+  category: 'media',
   version: '1.0.0',
   subtitle: 'PNG 7종과 manifest 스니펫',
   description: '이미지 한 장으로 앱 아이콘 크기 7종(16~1024px) PNG와 manifest 스니펫을 ZIP으로 만듭니다.',

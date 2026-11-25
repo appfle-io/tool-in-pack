@@ -38,9 +38,10 @@ function loadingEl(text) {
 
 const module = {
   id: 'doc-reader',
+  accepts: ['application/pdf', 'application/x-hwp', 'application/haansofthwp', 'application/vnd.hancom.hwpx', '.hwp', '.hwpx'],
   name: '문서 리더',
   kind: 'reader',
-  category: 'document',
+  category: 'docs',
   version: '1.0.0',
   subtitle: 'PDF, HWP, HWPX',
   description: 'PDF 와 한글(HWP, HWPX) 문서를 바로 엽니다.',

@@ -259,6 +259,49 @@ pub fn sticky_list(app: AppHandle) -> Vec<Sticky> {
     })
 }
 
+/// 백업 파일의 스티커 메모로 통째로 되돌린다(v1.16.0).
+/// 창 라벨(sticky-{id})에 쓰이는 id 는 영문·숫자·하이픈만, 색은 아는 값만 받는다.
+/// 열려 있는 스티커 창은 tip://sticky-refresh 를 받아 글자를 다시 읽는다(js/sticky.js).
+#[tauri::command]
+pub fn sticky_restore(app: AppHandle, notes: Vec<Sticky>) -> Result<usize, String> {
+    let mut clean: Vec<Sticky> = Vec::new();
+    for mut note in notes.into_iter().take(300) {
+        note.id = note.id.trim().to_string();
+        if note.id.is_empty() || note.id.len() > 40 {
+            continue;
+        }
+        if !note.id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') {
+            continue;
+        }
+        if clean.iter().any(|item| item.id == note.id) {
+            continue;
+        }
+        if !["yellow", "green", "blue", "pink", "purple", "dark"].contains(&note.color.as_str()) {
+            note.color = default_color();
+        }
+        note.w = note.w.max(STICKY_MIN_W);
+        note.h = note.h.max(STICKY_MIN_H);
+        if note.created <= 0 {
+            note.created = now_ms();
+        }
+        clean.push(note);
+    }
+
+    if clean.is_empty() {
+        return Err("되돌릴 스티커 메모가 없습니다".into());
+    }
+
+    *NOTES.lock().unwrap() = Some(clean.clone());
+    save(&app);
+    for (label, win) in app.webview_windows() {
+        if label.starts_with("sticky-") {
+            let _ = win.emit("tip://sticky-refresh", ());
+        }
+    }
+    let _ = app.emit("tip://stickies-changed", ());
+    Ok(clean.len())
+}
+
 #[tauri::command]
 pub fn sticky_get(app: AppHandle, id: String) -> Option<Sticky> {
     with_notes(&app, |notes| notes.iter().find(|note| note.id == id).cloned())

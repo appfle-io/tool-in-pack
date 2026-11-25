@@ -5,6 +5,7 @@
  */
 
 import { formatBytes, icons } from '../../js/ui.js';
+import { appendContinueBar } from '../../js/continue.js';
 
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7z"/><path d="M14 3v4h4"/><path d="M9.5 12.5h5M9.5 16h3"/><path d="M3 8v8"/><path d="M21 8v8"/></svg>`;
 
@@ -142,10 +143,11 @@ function pdfErrorHint(error) {
 
 const module = {
   id: 'pdf-tools',
+  accepts: ['application/pdf', '.pdf'],
   name: 'PDF 합치기',
   shortName: 'PDF 합치기',
   kind: 'tool',
-  category: 'document',
+  category: 'docs',
   version: '1.0.0',
   subtitle: '병합과 페이지 추출',
   description: '여러 PDF 를 순서대로 합치거나 한 PDF 에서 원하는 페이지만 새 파일로 뽑습니다.',
@@ -153,7 +155,7 @@ const module = {
   defaultEnabled: true,
   defaultPinned: false,
 
-  mount(root) {
+  mount(root, ctx) {
     const controller = new AbortController();
     const { signal } = controller;
 
@@ -167,11 +169,18 @@ const module = {
     let xTotal = 0;
     let xPages = new Set();
 
+    /* image → pdf state (v1.16.0) */
+    /** @type {{id:number,file:File}[]} */
+    let imageFiles = [];
+    let imageSeq = 0;
+    let imageFit = 'a4';
+
     root.innerHTML = `
       <div class="pt">
         <div class="ic-segment pt-modes" role="tablist" aria-label="모드">
           <button class="ic-seg" type="button" role="tab" data-mode="merge" aria-checked="true">합치기</button>
           <button class="ic-seg" type="button" role="tab" data-mode="extract" aria-checked="false">페이지 추출</button>
+          <button class="ic-seg" type="button" role="tab" data-mode="image" aria-checked="false">이미지를 PDF로</button>
         </div>
 
         <!-- 합치기 -->
@@ -227,6 +236,34 @@ const module = {
           </div>
         </section>
 
+        <!-- 이미지를 PDF로 -->
+        <section class="pt-pane" id="pt-i" aria-label="이미지를 PDF로" hidden>
+          <div class="dr-empty" id="pt-i-empty">
+            <div class="dz-icon">${ICON}</div>
+            <button class="primary-btn" type="button" id="pt-i-browse">${icons.upload} 이미지 선택</button>
+            <p>JPG·PNG·WebP 사진을 순서대로 한 PDF 로 묶습니다</p>
+          </div>
+          <input type="file" id="pt-i-input" class="sr-only" accept="image/*" multiple>
+          <div id="pt-i-body" hidden>
+            <div class="pt-files" id="pt-i-files"></div>
+            <div class="ic-options">
+              <div class="ic-row">
+                <span class="ic-label">쪽 크기</span>
+                <div class="ic-segment" id="pt-i-fit" role="radiogroup" aria-label="쪽 크기">
+                  <button class="ic-seg" type="button" role="radio" data-fit="a4" aria-checked="true">A4 맞춤</button>
+                  <button class="ic-seg" type="button" role="radio" data-fit="original" aria-checked="false">원본 크기</button>
+                </div>
+              </div>
+            </div>
+            <div class="ic-actions pt-actions">
+              <button class="primary-btn ghost" type="button" id="pt-i-add">${icons.plus} 이미지 추가</button>
+              <button class="primary-btn" type="button" id="pt-i-run">PDF 만들기</button>
+              <button class="primary-btn ghost" type="button" id="pt-i-clear">비우기</button>
+            </div>
+            <div id="pt-i-result"></div>
+          </div>
+        </section>
+
         <div id="pt-msg"></div>
       </div>`;
 
@@ -252,6 +289,13 @@ const module = {
     const xResultEl = $('#pt-x-result');
     const xRunBtn = $('#pt-x-run');
 
+    const iEmpty = $('#pt-i-empty');
+    const iBody = $('#pt-i-body');
+    const iInput = $('#pt-i-input');
+    const iFilesEl = $('#pt-i-files');
+    const iResultEl = $('#pt-i-result');
+    const iRunBtn = $('#pt-i-run');
+
     function setMode(next) {
       mode = next;
       modesEl.querySelectorAll('.ic-seg').forEach((btn) => {
@@ -259,6 +303,7 @@ const module = {
       });
       $('#pt-merge').hidden = next !== 'merge';
       $('#pt-x').hidden = next !== 'extract';
+      $('#pt-i').hidden = next !== 'image';
     }
 
     modesEl.addEventListener('click', (event) => {
@@ -414,7 +459,184 @@ const module = {
       card.querySelector('button').addEventListener('click', () => download(bytes, name), { signal });
       container.innerHTML = '';
       container.append(card);
+      // v1.16.0 — 만든 PDF 를 파일 압축으로 이어 보낸다.
+      appendContinueBar(container, ctx, [
+        { id: 'file-compress', label: '파일 압축으로', payload: { files: [new File([bytes], name, { type: 'application/pdf' })] } },
+      ]);
       return card;
+    }
+
+    /* --------------------------- 이미지를 PDF로 --------------------------- */
+
+    $('#pt-i-browse').addEventListener('click', () => iInput.click(), { signal });
+    $('#pt-i-add').addEventListener('click', () => iInput.click(), { signal });
+    iInput.addEventListener('change', () => {
+      addImages(iInput.files);
+      iInput.value = '';
+    }, { signal });
+
+    $('#pt-i-clear').addEventListener('click', () => {
+      imageFiles = [];
+      iResultEl.innerHTML = '';
+      renderImages();
+    }, { signal });
+
+    $('#pt-i-fit').addEventListener('click', (event) => {
+      const btn = event.target.closest('.ic-seg');
+      if (!btn || !btn.dataset.fit) return;
+      imageFit = btn.dataset.fit;
+      $('#pt-i-fit').querySelectorAll('.ic-seg').forEach((seg) => {
+        seg.setAttribute('aria-checked', String(seg.dataset.fit === imageFit));
+      });
+    }, { signal });
+
+    iRunBtn.addEventListener('click', runImages, { signal });
+
+    function addImages(list) {
+      const incoming = Array.from(list || []);
+      if (!incoming.length) return;
+      const bad = [];
+      incoming.forEach((file) => {
+        if (!/^image\//.test(file.type) && !/\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(file.name)) {
+          bad.push(file.name);
+          return;
+        }
+        imageFiles.push({ id: (imageSeq += 1), file });
+      });
+      msgEl.innerHTML = '';
+      if (bad.length) msgEl.append(noticeBox('warn', '이미지만 넣을 수 있습니다', `${bad.length}개 파일은 건너뛰었습니다.`));
+      iResultEl.innerHTML = '';
+      renderImages();
+    }
+
+    function moveImage(id, delta) {
+      const index = imageFiles.findIndex((entry) => entry.id === id);
+      const target = index + delta;
+      if (index < 0 || target < 0 || target >= imageFiles.length) return;
+      const [entry] = imageFiles.splice(index, 1);
+      imageFiles.splice(target, 0, entry);
+      iResultEl.innerHTML = '';
+      renderImages();
+    }
+
+    function renderImages() {
+      iFilesEl.innerHTML = '';
+      const has = imageFiles.length > 0;
+      iEmpty.hidden = has;
+      iBody.hidden = !has;
+      iRunBtn.disabled = !has;
+      imageFiles.forEach((entry, index) => {
+        const row = document.createElement('div');
+        row.className = 'pt-file';
+        row.innerHTML = `
+          <span class="pt-num">${index + 1}</span>
+          <div class="f-info">
+            <div class="f-name"></div>
+            <div class="f-meta"></div>
+          </div>
+          <button class="icon-btn" type="button" data-move="up" aria-label="앞으로">${UP}</button>
+          <button class="icon-btn" type="button" data-move="down" aria-label="뒤로">${DOWN}</button>
+          <button class="icon-btn" type="button" data-remove aria-label="빼기">${icons.close}</button>`;
+        row.querySelector('.f-name').textContent = entry.file.name;
+        row.querySelector('.f-meta').textContent = formatBytes(entry.file.size);
+        row.querySelector('[data-move="up"]').addEventListener('click', () => moveImage(entry.id, -1), { signal });
+        row.querySelector('[data-move="down"]').addEventListener('click', () => moveImage(entry.id, 1), { signal });
+        row.querySelector('[data-remove]').addEventListener('click', () => {
+          imageFiles = imageFiles.filter((item) => item.id !== entry.id);
+          iResultEl.innerHTML = '';
+          renderImages();
+        }, { signal });
+        iFilesEl.append(row);
+      });
+    }
+
+    /** 사진을 PDF 에 넣을 수 있는 JPEG/PNG 바이트로 만든다 — 나머지는 캔버스로 JPEG 변환. */
+    async function imageBytes(file) {
+      const isPng = /png$/i.test(file.type) || /\.png$/i.test(file.name);
+      const isJpg = /jpe?g$/i.test(file.type) || /\.jpe?g$/i.test(file.name);
+      if (isPng || isJpg) {
+        return { kind: isPng ? 'png' : 'jpg', bytes: new Uint8Array(await file.arrayBuffer()) };
+      }
+      const url = URL.createObjectURL(file);
+      try {
+        const image = new Image();
+        const loaded = new Promise((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = () => reject(new Error('그림을 읽지 못했습니다'));
+        });
+        image.src = url;
+        await loaded;
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth || image.width;
+        canvas.height = image.naturalHeight || image.height;
+        canvas.getContext('2d').drawImage(image, 0, 0);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+        if (!blob) throw new Error('그림을 변환하지 못했습니다');
+        return { kind: 'jpg', bytes: new Uint8Array(await blob.arrayBuffer()) };
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    async function runImages() {
+      if (!imageFiles.length) return;
+      iRunBtn.disabled = true;
+      iRunBtn.textContent = '만드는 중…';
+      iResultEl.innerHTML = '';
+      try {
+        const { PDFDocument } = pdfLib();
+        const doc = await PDFDocument.create();
+        const A4 = [595.28, 841.89];
+        const margin = 24;
+        for (const entry of imageFiles) {
+          const prepared = await imageBytes(entry.file);
+          const image = prepared.kind === 'png' ? await doc.embedPng(prepared.bytes) : await doc.embedJpg(prepared.bytes);
+          if (imageFit === 'a4') {
+            const page = doc.addPage(A4);
+            const maxW = A4[0] - margin * 2;
+            const maxH = A4[1] - margin * 2;
+            const scale = Math.min(maxW / image.width, maxH / image.height);
+            const width = image.width * scale;
+            const height = image.height * scale;
+            page.drawImage(image, {
+              x: (A4[0] - width) / 2,
+              y: (A4[1] - height) / 2,
+              width,
+              height,
+            });
+          } else {
+            const page = doc.addPage([image.width, image.height]);
+            page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+          }
+        }
+        const bytes = await doc.save();
+        const name = imageFiles.length === 1
+          ? `${baseName(imageFiles[0].file.name)}.pdf`
+          : `images-${imageFiles.length}.pdf`;
+        const card = document.createElement('div');
+        card.className = 'pt-result';
+        card.innerHTML = `
+          <div class="pt-result-icon">PDF</div>
+          <div class="f-info">
+            <div class="f-name"></div>
+            <div class="f-meta"></div>
+          </div>
+          <button class="primary-btn" type="button">저장</button>`;
+        card.querySelector('.f-name').textContent = name;
+        card.querySelector('.f-meta').textContent =
+          `${imageFiles.length}장, ${imageFit === 'a4' ? 'A4 맞춤' : '원본 크기'}, ${formatBytes(bytes.length)}`;
+        card.querySelector('button').addEventListener('click', () => download(bytes, name), { signal });
+        iResultEl.append(card);
+        appendContinueBar(iResultEl, ctx, [
+          { id: 'file-compress', label: '파일 압축으로', payload: { files: [new File([bytes], name, { type: 'application/pdf' })] } },
+        ]);
+      } catch (error) {
+        console.error('[TIP pdf-tools]', error);
+        iResultEl.append(noticeBox('bad', 'PDF 를 만들지 못했습니다', pdfErrorHint(error)));
+      } finally {
+        iRunBtn.disabled = imageFiles.length === 0;
+        iRunBtn.textContent = 'PDF 만들기';
+      }
     }
 
     /* ---------------------------- 페이지 추출 --------------------------- */
@@ -584,6 +806,10 @@ const module = {
     root.addEventListener('drop', (event) => {
       const files = Array.from(event.dataTransfer?.files || []);
       if (!files.length) return;
+      if (mode === 'image') {
+        addImages(files);
+        return;
+      }
       if (mode === 'merge') {
         addMergeFiles(files);
         return;
@@ -595,6 +821,19 @@ const module = {
         msgEl.append(noticeBox('warn', 'PDF가 아닙니다', 'PDF 파일을 끌어다 놓아 주세요.'));
       }
     }, { signal });
+
+    // v1.16.0 — '이어서 하기'로 넘어온 파일을 알맞은 모드에 넣는다(PDF 는 합치기, 사진은 이미지를 PDF로).
+    const continued = ctx?.takeContinue ? ctx.takeContinue() : null;
+    const continuedFiles = continued && Array.isArray(continued.files) ? continued.files : [];
+    const continuedPdfs = continuedFiles.filter((file) => isPdf(file));
+    const continuedImages = continuedFiles.filter((file) => /^image\//.test(file.type) || /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(file.name || ''));
+    if (continuedPdfs.length) {
+      setMode('merge');
+      addMergeFiles(continuedPdfs);
+    } else if (continuedImages.length) {
+      setMode('image');
+      addImages(continuedImages);
+    }
 
     return () => controller.abort();
   },

@@ -63,6 +63,7 @@ function noticeBox(kind, title, body) {
 
 const module = {
   id: 'video-gif',
+  accepts: ['video/*'],
   name: '동영상 자르기',
   kind: 'tool',
   category: 'media',

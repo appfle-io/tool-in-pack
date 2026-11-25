@@ -50,17 +50,21 @@ const KEYWORDS = {
   'regex-tester': '정규식 regex 테스트',
   'color-tools': '색 색상 컬러 팔레트 변환 대비',
   'icon-gen': '아이콘 icns ico 파비콘 생성',
-  'ocr-reader': 'ocr 글자 인식 이미지 텍스트 추출',
+  'ocr-reader': 'ocr 글자 인식 이미지 텍스트 추출 화면 캡처 드래그',
   'file-compress': '압축 해제 zip 용량 줄이기',
   'unit-converter': '단위 변환 길이 무게 온도',
   'currency-calc': '환율 계산 통화 달러 원',
   'sticky-notes': '스티커 메모 포스트잇 바탕화면 메모지',
   'snippets': '스니펫 문구 서명 계좌 주소 복사',
   'screen-picker': '스포이드 색 추출 화면 색상 집기 picker',
-  'drag-ocr': '드래그 화면 캡처 글자 추출 ocr',
   'window-snap': '창 분할 반쪽 배열 정렬 타일',
   'bulk-rename': '파일 이름 변경 일괄 정규식 번호',
   'timer': '타이머 시간 알람 시계 카운트다운 분 초',
+  // v1.16.0
+  'text-counter': '글자 수 세기 원고지 바이트 공백 단어 줄 카운트',
+  'date-calc': '날짜 계산 d-day 디데이 만나이 근무일 공휴일 더하기',
+  'typing-converter': '한영 변환 타자 오타 영문 한글 자판',
+  'screenshot-annotate': '스크린샷 캡처 화살표 모자이크 표시 주석',
 };
 
 const COMMANDS = [
@@ -68,7 +72,7 @@ const COMMANDS = [
   { id: 'cmd:settings', kind: 'command', name: '환경설정 열기', subtitle: '일반, 노치, 검색, 모듈 탭', keywords: '설정 환경설정 테마 색 단축키' },
   { id: 'cmd:new-sticky', kind: 'command', name: '새 스티커 메모', subtitle: '바탕화면에 메모 한 장', keywords: '스티커 메모 새로 만들기', macOnly: true },
   { id: 'cmd:pick-color', kind: 'command', name: '화면에서 색 고르기', subtitle: '클릭한 점의 색을 복사', keywords: '스포이드 색 추출', macOnly: true },
-  { id: 'cmd:drag-ocr', kind: 'command', name: '화면 글자 읽기', subtitle: '화면에서 드래그한 부분의 글자만 뽑기', keywords: '드래그 ocr 캡처 글자 추출 읽기', macOnly: true },
+  { id: 'cmd:drag-ocr', kind: 'command', name: '화면에서 글자 읽기', subtitle: '화면에서 드래그한 부분의 글자만 뽑기', keywords: '드래그 ocr 캡처 글자 추출 읽기', macOnly: true },
 ];
 
 /** 시스템 명령 — 위험한 것은 실행 전에 화면이 한 번 더 묻는다. (v1.14.0) */
@@ -514,7 +518,7 @@ async function run(item) {
       else if (item.id === 'cmd:new-sticky') await invoke('sticky_create', {});
       else if (item.id === 'cmd:pick-color') await invoke('pick_screen_color');
       else if (item.id === 'cmd:drag-ocr') {
-        await invoke('open_tool', { id: 'drag-ocr', title: '화면 글자 읽기' });
+        await invoke('open_tool', { id: 'ocr-reader', title: '글자 추출' });
       } else await invoke('open_main', { module: null, settings: false });
     } else if (item.kind === 'app') {
       await invoke('open_local_app', { path: item.path });

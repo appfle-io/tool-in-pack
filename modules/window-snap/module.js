@@ -27,7 +27,7 @@ const module = {
   name: '창 분할',
   shortName: '창 분할',
   kind: 'tool',
-  category: 'utility',
+  category: 'mac',
   version: '1.14.0',
   subtitle: '앞 창을 반쪽, 최대, 가운데로',
   description: '단축키 한 번으로 지금 쓰는 창을 화면 절반이나 가운데로 옮깁니다. 손쉬운 사용 권한이 필요합니다.',

@@ -149,6 +149,18 @@ fn notch_screen(mtm: objc2::MainThreadMarker) -> Option<(objc2_foundation::NSRec
 /// 창을 NSPanel(키 입력을 받는 TipNotchPanel)로 바꾸고 노치용 레벨·동작을 건다. 성공하면 true.
 #[cfg(target_os = "macos")]
 pub fn pin(win: &tauri::WebviewWindow) -> bool {
+    configure_panel(win)
+}
+
+/// 빠른 실행 검색 창도 같은 패널로 만든다(v1.15.5).
+/// 전체화면 앱(다른 Space) 위에서 화면 전환 없이 뜨고, 앱을 활성화하지 않은 채 키 입력을 받는다.
+#[cfg(target_os = "macos")]
+pub fn pin_search(win: &tauri::WebviewWindow) -> bool {
+    configure_panel(win)
+}
+
+#[cfg(target_os = "macos")]
+fn configure_panel(win: &tauri::WebviewWindow) -> bool {
     use objc2::runtime::AnyObject;
     use objc2_app_kit::{NSPanel, NSWindowStyleMask};
 
@@ -354,6 +366,11 @@ pub fn make_key(win: &tauri::WebviewWindow) -> bool {
 
 #[cfg(not(target_os = "macos"))]
 pub fn pin(_win: &tauri::WebviewWindow) -> bool {
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn pin_search(_win: &tauri::WebviewWindow) -> bool {
     false
 }
 

@@ -75,7 +75,7 @@ const module = {
   name: '화면 스포이드',
   shortName: '스포이드',
   kind: 'tool',
-  category: 'utility',
+  category: 'mac',
   version: '1.14.0',
   subtitle: '화면의 색을 클릭해 집기',
   description: '화면 어디든 클릭해 색을 집고 HEX, RGB, HSL 로 복사합니다. 최근 색 12개를 기억합니다.',

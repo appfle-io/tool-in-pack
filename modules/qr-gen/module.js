@@ -36,7 +36,7 @@ const module = {
   id: 'qr-gen',
   name: 'QR 생성기',
   kind: 'tool',
-  category: 'utility',
+  category: 'media',
   version: '1.0.0',
   subtitle: 'URL, 텍스트, 와이파이 QR',
   description: 'URL 이나 글자, 와이파이 접속 정보를 QR 로 만들어 PNG 나 SVG 로 저장합니다.',

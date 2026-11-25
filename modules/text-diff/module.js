@@ -82,9 +82,10 @@ function diffLines(a, b) {
 
 const module = {
   id: 'text-diff',
+  accepts: ['text/*'],
   name: '텍스트 비교',
   kind: 'tool',
-  category: 'dev',
+  category: 'docs',
   version: '1.0.0',
   subtitle: '줄 단위 비교와 글자수 세기',
   description: '두 글을 줄 단위로 비교하고 글자수와 단어수, 바이트 수를 세며 빈 줄과 중복 줄을 한 번에 정리합니다.',
@@ -352,6 +353,13 @@ const module = {
     }, { signal });
 
     updateCounts();
+
+    // v1.16.0 — '이어서 하기'로 넘어온 글자를 왼쪽(고치기 전)에 넣는다.
+    const continued = ctx?.takeContinue ? ctx.takeContinue() : null;
+    if (continued && typeof continued.text === 'string') {
+      areaA.value = continued.text;
+      areaA.dispatchEvent(new Event('input', { bubbles: true }));
+    }
 
     return () => {
       clearTimeout(compare.timer);

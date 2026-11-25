@@ -19,7 +19,7 @@ const module = {
   name: '타이머',
   shortName: '타이머',
   kind: 'tool',
-  category: 'utility',
+  category: 'calc',
   version: '1.15.0',
   subtitle: '분과 초를 정해 세는 타이머',
   description: '원하는 시간을 직접 넣거나 프리셋으로 시작합니다. 노치 알약과 메인 창이 같은 타이머를 보여 주고, 끝나면 알림과 소리로 알립니다.',

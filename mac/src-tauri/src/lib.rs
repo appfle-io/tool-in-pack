@@ -29,6 +29,7 @@ mod apps;
 mod autostart;
 mod capture;
 mod clip;
+mod dialogs;
 mod files;
 mod media;
 mod notch;
@@ -210,7 +211,9 @@ fn quickbar_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(false)
-        .focused(true);
+        // v1.16.0 — 만들 때 앱을 활성화하면 다른 앱의 전체화면 Space 에서 벗어난다.
+        // 초점은 show_quickbar 가 make_key 로 직접 준다.
+        .focused(false);
 
     #[cfg(target_os = "macos")]
     {
@@ -240,9 +243,14 @@ fn show_quickbar(app: &AppHandle) {
         }
     };
 
+    // v1.16.0 — 전체화면 앱(별도 Space) 위에서도 화면 전환 없이 메뉴 아이콘 아래에 뜨게 NSPanel 로 만든다.
+    // 검색 창과 같은 방식: orderFrontRegardless + makeKeyWindow, 앱은 활성화하지 않는다.
+    // 바깥을 누르면 Focused(false) 이벤트가 그대로 와서 창을 닫는다.
+    let _ = notch::pin_search(&win);
     place_under_tray(app, &win, QUICKBAR_W, QUICKBAR_H, 2.0);
     let _ = win.show();
-    let _ = win.set_focus();
+    let _ = notch::order_front(&win);
+    let _ = notch::make_key(&win);
     let _ = win.emit("tip://quickbar-refresh", ());
 }
 
@@ -702,7 +710,7 @@ fn shortcut_pressed(app: &AppHandle, shortcut: &tauri_plugin_global_shortcut::Sh
         }
         "drag-ocr" => match capture::capture_for_shortcut(app) {
             Ok(()) => {
-                let _ = open_tool(app.clone(), "ocr-reader".to_string(), Some("화면 텍스트 추출".to_string()));
+                let _ = open_tool(app.clone(), "ocr-reader".to_string(), Some("글자 추출".to_string()));
             }
             Err(error) => emit_toast(app, &error),
         },
@@ -826,7 +834,9 @@ fn search_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(false)
-        .focused(true)
+        // v1.15.5 — 만들 때 앱을 활성화하면 다른 앱의 전체화면 Space 에서 벗어난다.
+        // 초점은 show_search 가 make_key 로 직접 준다.
+        .focused(false)
         .build()?;
 
     // 바깥을 누르면 닫는다.
@@ -848,9 +858,14 @@ fn show_search(app: &AppHandle) {
             return;
         }
     };
+    // v1.15.5 — 전체화면 앱(별도 Space) 위에서도 화면 전환 없이 뜨고 바로 입력되게 NSPanel 로 만든다.
+    // Tauri 의 set_focus() 는 앱을 활성화해 다른 앱의 전체화면 Space 를 벗어나므로, 대신
+    // orderFrontRegardless + makeKeyWindow 로 창만 앞에 세우고 키 입력을 받는다.
+    let _ = notch::pin_search(&win);
     place_top_center(app, &win, SEARCH_W, SEARCH_H, 120.0);
     let _ = win.show();
-    let _ = win.set_focus();
+    let _ = notch::order_front(&win);
+    let _ = notch::make_key(&win);
     let _ = win.emit("tip://search-refresh", ());
 }
 
@@ -1782,6 +1797,7 @@ pub fn run() {
             clip::clipboard_clear,
             clip::clipboard_add_text,
             clip::clipboard_add_image,
+            clip::clipboard_restore,
             media::media_state,
             media::media_control,
             media::calendar_today,
@@ -1831,6 +1847,9 @@ pub fn run() {
             sticky::sticky_close,
             sticky::sticky_delete,
             sticky::sticky_open,
+            sticky::sticky_restore,
+            dialogs::save_backup_file,
+            dialogs::open_backup_file,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

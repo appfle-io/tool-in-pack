@@ -13,6 +13,8 @@
  */
 
 import { formatBytes, icons } from '../../js/ui.js';
+// v1.16.0 — 잘못 눌러 나온 영문을 한글로(또는 그 반대로) 바꿔 복사한다.
+import { autoConvert } from '../../js/typing.js';
 
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 const WEB_KEY = 'tip.clipboard.v1';
@@ -240,6 +242,9 @@ function mount(root, ctx) {
               ${icons.pin}
             </button>
             <button class="icon-btn" type="button" data-act="copy" aria-label="클립보드로 복사" title="복사">${icons.copy || COPY_ICON}</button>
+            ${item.kind !== 'image' && String(item.text || '').trim()
+              ? '<button class="icon-btn clip-convert" type="button" data-act="convert" aria-label="한영 변환해서 복사" title="한영 변환해서 복사">한/영</button>'
+              : ''}
             <button class="icon-btn clip-del" type="button" data-act="delete" aria-label="삭제" title="삭제">${icons.trash || TRASH_ICON}</button>
           </div>
         </div>
@@ -248,6 +253,10 @@ function mount(root, ctx) {
       row.querySelector('[data-act="copy"]').addEventListener('click', (event) => {
         event.stopPropagation();
         copyItem(item);
+      }, { signal });
+      row.querySelector('[data-act="convert"]')?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        convertCopy(item);
       }, { signal });
       row.querySelector('[data-act="pin"]').addEventListener('click', (event) => {
         event.stopPropagation();
@@ -303,6 +312,25 @@ function mount(root, ctx) {
     } catch (error) {
       console.error('[TIP clipboard-history] 복사하지 못했습니다', error);
       ctx.toast('클립보드에 복사하지 못했습니다');
+    }
+  }
+
+  /** 한영 타자 변환해서 복사 — 한글이 있으면 영문 글쇠로, 없으면 한글로. */
+  async function convertCopy(item) {
+    const source = String(item.text || '');
+    const converted = autoConvert(source);
+    if (!converted || converted === source) {
+      ctx.toast('바꿀 글자가 없습니다');
+      return;
+    }
+    try {
+      if (TAURI) await invoke('copy_text', { text: converted });
+      else await navigator.clipboard.writeText(converted);
+      const preview = converted.length > 24 ? `${converted.slice(0, 24)}…` : converted;
+      ctx.toast(`한영을 바꿔 복사했습니다: ${preview}`, 3200);
+    } catch (error) {
+      console.error('[TIP clipboard-history] 한영 변환 복사 실패', error);
+      ctx.toast('한영 변환해서 복사하지 못했습니다');
     }
   }
 
@@ -501,7 +529,7 @@ export default {
   description: '복사할 때마다 자동으로 모아 두고 검색하고 고정하고 다시 복사하는 일을 한 곳에서 합니다. 자동 기록은 Mac 앱에서만 됩니다.',
   icon: CLIP_ICON,
   version: '1.12.0',
-  category: 'utility',
+  category: 'mac',
   badge: 'Mac',
   defaultEnabled: true,
   defaultPinned: false,

@@ -14,6 +14,10 @@ const TABS = [
   { id: 'jwt', label: 'JWT' },
   { id: 'time', label: '타임스탬프' },
   { id: 'uuid', label: 'UUID' },
+  // v1.16.0 — 비밀번호 생성, 파일 해시, 이름 표기 변환
+  { id: 'pass', label: '비밀번호' },
+  { id: 'hash', label: '파일 해시' },
+  { id: 'case', label: '이름 표기' },
 ];
 
 const KST_OFFSET = 9 * 60 * 60 * 1000; // 한국은 서머타임이 없어 고정 +9시간으로 정확하다
@@ -122,6 +126,90 @@ async function copyText(text) {
   }
 }
 
+/* ------------------------------ MD5 (파일 해시용) ------------------------------ */
+// 브라우저 crypto.subtle 에는 MD5 가 없다. 파일 해시를 기기 안에서 계산하려고 여기 둔다.
+
+function md5Hex(bytes) {
+  const shift = [
+    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+    5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+    4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+  ];
+  const K = new Uint32Array(64);
+  for (let i = 0; i < 64; i += 1) {
+    K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) >>> 0;
+  }
+  const length = bytes.length;
+  const padded = (((length + 8) >> 6) + 1) * 64;
+  const buffer = new Uint8Array(padded);
+  buffer.set(bytes);
+  buffer[length] = 0x80;
+  const view = new DataView(buffer.buffer);
+  const bits = length * 8;
+  view.setUint32(padded - 8, bits >>> 0, true);
+  view.setUint32(padded - 4, Math.floor(bits / 4294967296), true);
+
+  let a0 = 0x67452301;
+  let b0 = 0xefcdab89;
+  let c0 = 0x98badcfe;
+  let d0 = 0x10325476;
+  const M = new Uint32Array(16);
+
+  for (let offset = 0; offset < padded; offset += 64) {
+    for (let i = 0; i < 16; i += 1) M[i] = view.getUint32(offset + i * 4, true);
+    let A = a0;
+    let B = b0;
+    let C = c0;
+    let D = d0;
+    for (let i = 0; i < 64; i += 1) {
+      let F;
+      let g;
+      if (i < 16) { F = (B & C) | (~B & D); g = i; }
+      else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+      else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+      else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+      F = (F + A + K[i] + M[g]) >>> 0;
+      A = D;
+      D = C;
+      C = B;
+      const rotate = shift[i];
+      B = (B + ((F << rotate) | (F >>> (32 - rotate)))) >>> 0;
+    }
+    a0 = (a0 + A) >>> 0;
+    b0 = (b0 + B) >>> 0;
+    c0 = (c0 + C) >>> 0;
+    d0 = (d0 + D) >>> 0;
+  }
+
+  const out = new DataView(new ArrayBuffer(16));
+  out.setUint32(0, a0, true);
+  out.setUint32(4, b0, true);
+  out.setUint32(8, c0, true);
+  out.setUint32(12, d0, true);
+  return [...new Uint8Array(out.buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** 파일 이름 → 표기별 이름 (camelCase · snake_case · kebab-case · PascalCase). */
+export function nameCases(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return { camel: '', snake: '', kebab: '', pascal: '' };
+  const words = raw
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[^A-Za-z0-9가-힣]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase());
+  const upperFirst = (word) => word.charAt(0).toUpperCase() + word.slice(1);
+  return {
+    camel: words.map((word, index) => (index === 0 ? word : upperFirst(word))).join(''),
+    snake: words.join('_'),
+    kebab: words.join('-'),
+    pascal: words.map(upperFirst).join(''),
+  };
+}
+
 /* -------------------------------- module ------------------------------- */
 
 const module = {
@@ -224,6 +312,50 @@ const module = {
           <div class="v16-status" id="dv-ts-from-status" hidden></div>
         </section>
 
+        <section class="v16-panel" id="dv-p-pass" role="tabpanel" aria-label="비밀번호" hidden>
+          <div class="v16-field">
+            <label class="v16-label" for="dv-pass-len">길이 (8~64)</label>
+            <input class="pt-input v16-input" id="dv-pass-len" type="number" inputmode="numeric" min="8" max="64" step="1" value="16">
+          </div>
+          <div class="v16-actions dv-pass-opts">
+            <label class="dv-check"><input type="checkbox" id="dv-pass-upper" checked> 대문자</label>
+            <label class="dv-check"><input type="checkbox" id="dv-pass-lower" checked> 소문자</label>
+            <label class="dv-check"><input type="checkbox" id="dv-pass-digit" checked> 숫자</label>
+            <label class="dv-check"><input type="checkbox" id="dv-pass-symbol" checked> 기호</label>
+            <label class="dv-check"><input type="checkbox" id="dv-pass-avoid"> 헷갈리는 글자 빼기 (O0Il1)</label>
+          </div>
+          <div class="v16-actions">
+            <button class="v16-btn primary" type="button" id="dv-pass-run">만들기</button>
+            <button class="v16-btn" type="button" id="dv-pass-copy">복사</button>
+          </div>
+          <div class="v16-field">
+            <label class="v16-label" for="dv-pass-out">만든 비밀번호</label>
+            <input class="pt-input v16-input mono" id="dv-pass-out" readonly autocomplete="off" spellcheck="false">
+          </div>
+          <p class="v16-note">crypto.getRandomValues 로 기기 안에서 만듭니다. 고른 글자 종류가 각각 하나 이상 들어갑니다.</p>
+        </section>
+
+        <section class="v16-panel" id="dv-p-hash" role="tabpanel" aria-label="파일 해시" hidden>
+          <div class="dr-empty">
+            <div class="dz-icon">${ICON}</div>
+            <button class="primary-btn" type="button" id="dv-hash-browse">파일 선택</button>
+            <p>파일을 고르면 SHA-256, SHA-1, MD5 를 기기 안에서 계산합니다.</p>
+          </div>
+          <input type="file" id="dv-hash-input" class="sr-only">
+          <div class="v16-status" id="dv-hash-status" hidden></div>
+          <div class="v16-kv" id="dv-hash-rows"></div>
+          <p class="v16-note">해시는 파일 지문입니다. 받은 파일이 원본과 같은지 확인할 때 씁니다.</p>
+        </section>
+
+        <section class="v16-panel" id="dv-p-case" role="tabpanel" aria-label="이름 표기" hidden>
+          <div class="v16-field">
+            <label class="v16-label" for="dv-case-in">이름</label>
+            <input class="pt-input v16-input" id="dv-case-in" placeholder="my file name 이나 myFileName" autocomplete="off">
+          </div>
+          <div class="v16-kv" id="dv-case-rows"></div>
+          <p class="v16-note">띄어쓰기, 하이픈, 밑줄, 낙타 표기를 모두 낱말로 나눠 다시 붙입니다.</p>
+        </section>
+
         <section class="v16-panel" id="dv-p-uuid" role="tabpanel" aria-label="UUID" hidden>
           <div class="v16-actions">
             <button class="v16-btn primary" type="button" id="dv-uuid-1">1개 생성</button>
@@ -252,6 +384,8 @@ const module = {
       if (id === 'time' && !root.querySelector('#dv-ts-rows').childElementCount) {
         setNow();
       }
+      // v1.16.0 — 이름 표기는 탭을 열 때 지금 값으로 한 번 그린다.
+      if (id === 'case') renderCases();
     }
 
     TABS.forEach((tab) => {
@@ -577,7 +711,151 @@ const module = {
       toast(await copyText(uuidValues.join('\n')) ? `${uuidValues.length}개 복사했습니다` : '복사하지 못했습니다');
     }, { signal });
 
+
+    /* ---------------------------- 비밀번호 ---------------------------- */
+
+    const passOut = root.querySelector('#dv-pass-out');
+    const passLen = root.querySelector('#dv-pass-len');
+
+    function randomIndex(max) {
+      const limit = Math.floor(0x100000000 / max) * max;
+      const buffer = new Uint32Array(1);
+      let value = 0;
+      do {
+        crypto.getRandomValues(buffer);
+        value = buffer[0];
+      } while (value >= limit);
+      return value % max;
+    }
+
+    function makePassword() {
+      const length = Math.max(8, Math.min(64, Math.floor(Number(passLen.value) || 16)));
+      passLen.value = String(length);
+      const avoid = root.querySelector('#dv-pass-avoid').checked;
+      const sets = [];
+      const add = (on, chars) => {
+        if (!on) return;
+        let value = chars;
+        if (avoid) value = value.replace(/[O0Il1]/g, '');
+        if (value) sets.push([...value]);
+      };
+      add(root.querySelector('#dv-pass-upper').checked, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+      add(root.querySelector('#dv-pass-lower').checked, 'abcdefghijklmnopqrstuvwxyz');
+      add(root.querySelector('#dv-pass-digit').checked, '0123456789');
+      add(root.querySelector('#dv-pass-symbol').checked, '!@#$%^&*()-_=+[]{};:,.?/');
+      if (!sets.length) {
+        toast('글자 종류를 하나 이상 골라 주세요');
+        passOut.value = '';
+        return;
+      }
+      if (length < sets.length) {
+        toast(`길이는 고른 글자 종류(${sets.length})보다 길어야 합니다`);
+        return;
+      }
+      const pool = sets.flat();
+      const chars = sets.map((set) => set[randomIndex(set.length)]);
+      while (chars.length < length) chars.push(pool[randomIndex(pool.length)]);
+      for (let i = chars.length - 1; i > 0; i -= 1) {
+        const j = randomIndex(i + 1);
+        [chars[i], chars[j]] = [chars[j], chars[i]];
+      }
+      passOut.value = chars.join('');
+    }
+
+    root.querySelector('#dv-pass-run').addEventListener('click', makePassword, { signal });
+    root.querySelector('#dv-pass-copy').addEventListener('click', async () => {
+      if (!passOut.value) return toast('먼저 비밀번호를 만드세요');
+      toast(await copyText(passOut.value) ? '복사했습니다' : '복사하지 못했습니다');
+    }, { signal });
+
+    /* ---------------------------- 파일 해시 ---------------------------- */
+
+    const hashInput = root.querySelector('#dv-hash-input');
+    const hashRows = root.querySelector('#dv-hash-rows');
+    const hashStatus = root.querySelector('#dv-hash-status');
+
+    function setHashStatus(kind, text) {
+      hashStatus.hidden = !text;
+      hashStatus.className = `v16-status${kind ? ` ${kind}` : ''}`;
+      hashStatus.textContent = text || '';
+    }
+
+    async function hexOf(kind, buffer) {
+      if (kind === 'MD5') return md5Hex(new Uint8Array(buffer));
+      const digest = await crypto.subtle.digest(kind, buffer);
+      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function hashFile(file) {
+      if (!file) return;
+      setHashStatus('warn', `${file.name} 계산 중…`);
+      hashRows.innerHTML = '';
+      try {
+        const buffer = await file.arrayBuffer();
+        const rows = [];
+        for (const kind of ['SHA-256', 'SHA-1', 'MD5']) {
+          rows.push([kind, await hexOf(kind, buffer)]);
+        }
+        hashRows.innerHTML = rows.map(([label, value]) => `
+          <div class="v16-kv-row">
+            <span class="v16-k">${label}</span>
+            <span class="v16-v mono" data-value="${escapeText(value)}">${escapeText(value)}</span>
+            <button class="v16-mini" type="button" data-copy-row="${escapeText(value)}">복사</button>
+          </div>`).join('') + `
+          <div class="v16-kv-row">
+            <span class="v16-k">크기</span>
+            <span class="v16-v">${formatBytes(buffer.byteLength)}</span>
+          </div>`;
+        hashRows.querySelectorAll('[data-copy-row]').forEach((button) => {
+          button.addEventListener('click', async () => {
+            toast(await copyText(button.dataset.copyRow) ? '복사했습니다' : '복사하지 못했습니다');
+          }, { signal });
+        });
+        setHashStatus('ok', `${file.name} 해시를 계산했습니다`);
+      } catch (error) {
+        console.error('[TIP dev-tools]', error);
+        setHashStatus('bad', '파일을 읽지 못했습니다');
+      }
+    }
+
+    root.querySelector('#dv-hash-browse').addEventListener('click', () => hashInput.click(), { signal });
+    hashInput.addEventListener('change', () => {
+      const file = hashInput.files && hashInput.files[0];
+      hashInput.value = '';
+      hashFile(file);
+    }, { signal });
+
+    /* ---------------------------- 이름 표기 ---------------------------- */
+
+    const caseIn = root.querySelector('#dv-case-in');
+    const caseRows = root.querySelector('#dv-case-rows');
+
+    function renderCases() {
+      const result = nameCases(caseIn.value);
+      const labels = [
+        ['camelCase', result.camel],
+        ['snake_case', result.snake],
+        ['kebab-case', result.kebab],
+        ['PascalCase', result.pascal],
+      ];
+      caseRows.innerHTML = labels.map(([label, value]) => `
+        <div class="v16-kv-row">
+          <span class="v16-k">${label}</span>
+          <span class="v16-v mono" data-value="${escapeText(value)}">${escapeText(value)}</span>
+          <button class="v16-mini" type="button" data-copy-row="${escapeText(value)}">복사</button>
+        </div>`).join('');
+      caseRows.querySelectorAll('[data-copy-row]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          if (!button.dataset.copyRow) return;
+          toast(await copyText(button.dataset.copyRow) ? '복사했습니다' : '복사하지 못했습니다');
+        }, { signal });
+      });
+    }
+
+    caseIn.addEventListener('input', renderCases, { signal });
+
     /* -------------------------------- init ------------------------------- */
+
 
     setNow();
 

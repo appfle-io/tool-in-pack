@@ -42,7 +42,7 @@ const module = {
   name: '스티커 메모',
   shortName: '스티커 메모',
   kind: 'tool',
-  category: 'utility',
+  category: 'mac',
   version: '1.14.0',
   subtitle: '바탕화면에 붙여 두는 메모',
   description: '여러 개를 동시에 띄워 두고 위치와 크기, 색을 그대로 기억합니다.',

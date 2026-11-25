@@ -75,8 +75,10 @@
   --accent-strong: #005BE3;
 }
 :root[data-theme='dark'][data-accent='blue'] {
-  --accent: #3D8BFF;
-  --accent-soft: rgba(61, 139, 255, 0.12);
+  /* v1.15.5 — 채움(버튼) 위 흰 글자가 4.5:1 이 되도록 #3D8BFF(3.31:1) → #2563EB(5.17:1).
+     다크에서 글자로 쓰는 자리는 --accent-ink(--accent-strong #63A2FF)가 맡는다. */
+  --accent: #2563EB;
+  --accent-soft: rgba(37, 99, 235, 0.18);
   --accent-strong: #63A2FF;
 }
 
@@ -86,19 +88,21 @@
   --accent-strong: #6517EA;
 }
 :root[data-theme='dark'][data-accent='purple'] {
-  --accent: #8B5CF6;
-  --accent-soft: rgba(139, 92, 246, 0.14);
+  /* v1.15.5 — #8B5CF6(4.23:1) → #7C3AED(5.70:1). */
+  --accent: #7C3AED;
+  --accent-soft: rgba(124, 58, 237, 0.18);
   --accent-strong: #A580F8;
 }
 
 :root[data-accent='orange'] {
-  --accent: #EA580C;
-  --accent-soft: rgba(234, 88, 12, 0.09);
+  /* v1.15.5 — #EA580C(3.56:1) → #C2410C(5.18:1). 라이트·다크 모두 같은 채움색을 쓴다. */
+  --accent: #C2410C;
+  --accent-soft: rgba(194, 65, 12, 0.09);
   --accent-strong: #C64A0A;
 }
 :root[data-theme='dark'][data-accent='orange'] {
-  --accent: #F97316;
-  --accent-soft: rgba(249, 115, 22, 0.14);
+  --accent: #C2410C;
+  --accent-soft: rgba(194, 65, 12, 0.18);
   --accent-strong: #FA893B;
 }
 
@@ -108,8 +112,9 @@
   --accent-strong: #BF193D;
 }
 :root[data-theme='dark'][data-accent='rose'] {
-  --accent: #F43F5E;
-  --accent-soft: rgba(244, 63, 94, 0.14);
+  /* v1.15.5 — #F43F5E(3.67:1) → #E11D48(4.70:1). */
+  --accent: #E11D48;
+  --accent-soft: rgba(225, 29, 72, 0.18);
   --accent-strong: #F6637C;
 }
 
@@ -3819,6 +3824,17 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
 .sheet-module-row:hover { background: var(--card-2); border-color: var(--line); }
 .sheet-module-icon { flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--accent-ink); }
 .sheet-module-icon svg { width: 17px; height: 17px; }
+.sheet-module-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sheet-module-text .sheet-module-head .sheet-module-cat {
+  margin-left: 2px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .sheet-module-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .sheet-module-text b { font-size: 12.5px; font-weight: 650; }
 .sheet-module-text span { font-size: 12px; color: var(--muted-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -4387,3 +4403,228 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
 }
 .confirm-cancel:focus-visible,
 .confirm-ok:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ======================================================================
+   v1.16.0 — 홈 파일 시작·최근 사용, 이어서 하기, 백업, 새 도구 4종,
+             카테고리 재편, 사진 대표색, 이미지를 PDF로
+   ====================================================================== */
+
+/* ---------- 홈 [파일로 시작하기] ---------- */
+.home-toolbar { display: flex; justify-content: flex-end; margin: 0 0 10px; }
+.home-file-start { height: 36px; padding: 0 14px; }
+
+/* 파일을 끌어오는 동안 화면 가장자리를 보여 준다. */
+body.is-file-drag .view {
+  outline: 2px dashed var(--accent);
+  outline-offset: -10px;
+  border-radius: var(--radius);
+}
+body.is-file-drag::after {
+  content: '여기에 파일을 놓으세요';
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 13px;
+  font-weight: 650;
+  pointer-events: none;
+  z-index: 60;
+}
+
+/* ---------- 끌어다 놓은 파일 추천 ---------- */
+.drop-overlay-sentinel { display: none; }
+.drop-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  z-index: 70;
+}
+.drop-title { margin: 0; font-size: 16px; font-weight: 700; }
+.drop-files { margin: 0; font-size: 12.5px; color: var(--muted); word-break: break-all; }
+.drop-list { display: flex; flex-direction: column; gap: 6px; }
+.drop-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.drop-item:hover { border-color: var(--accent); }
+.drop-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop-icon { display: grid; place-items: center; width: 22px; height: 22px; flex: none; }
+.drop-icon svg { width: 20px; height: 20px; }
+.drop-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.drop-text b { font-size: 13.5px; font-weight: 650; }
+.drop-text span { font-size: 12px; color: var(--muted); }
+.drop-close { align-self: flex-end; }
+
+/* ---------- 이어서 하기 ---------- */
+.continue-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+.continue-label { font-size: 12px; font-weight: 650; color: var(--muted); margin-right: 2px; }
+
+/* ---------- 설정: 최근 사용 · 백업과 복원 ---------- */
+.backup-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.backup-check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.backup-warn { color: var(--muted); }
+.backup-actions { margin-top: 8px; }
+.backup-preview {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+}
+.backup-title { margin: 0 0 6px; font-size: 12.5px; font-weight: 650; }
+.backup-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 12.5px; }
+.backup-key { color: var(--muted); }
+.backup-value { font-weight: 600; }
+.backup-note { margin: 6px 0 0; font-size: 12px; color: var(--muted-2); }
+
+/* ---------- 글자 수 세기 ---------- */
+.tc-ta { min-height: 150px; }
+.tc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tc-table th, .tc-table td { padding: 7px 10px; border-top: 1px solid var(--line); text-align: left; }
+.tc-table tr:first-child th, .tc-table tr:first-child td { border-top: 0; }
+.tc-table th { font-weight: 600; color: var(--muted); width: 45%; }
+.tc-table td { font-variant-numeric: tabular-nums; font-weight: 650; }
+.tc-live { font-size: 12px; font-weight: 600; color: var(--muted); }
+.tc-target { width: 110px; }
+.tc-unit { font-size: 12.5px; color: var(--muted); }
+.tc-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin-top: 8px; }
+.tc-bar-fill { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s ease; }
+.tc-bar.is-over .tc-bar-fill { background: var(--warn); }
+
+/* ---------- 날짜 계산기 ---------- */
+.dc .v16-panel { display: flex; flex-direction: column; gap: 10px; }
+.dc-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.dc-big { font-size: 26px; font-weight: 750; letter-spacing: -0.02em; color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+.dc-sub { font-size: 12.5px; color: var(--muted); }
+.dc-add-row { align-items: flex-end; }
+.dc-inline { flex: 1 1 140px; }
+.dc-add-row .v16-input { width: auto; min-width: 90px; }
+.dc-add-row select.v16-input { width: auto; }
+.dc .v16-k { width: 40%; }
+.dc .v16-v { font-weight: 600; }
+
+/* ---------- 한영 타자 변환 ---------- */
+.ty-modes { align-self: flex-start; }
+
+/* ---------- 스크린샷 표시 ---------- */
+.sa-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.sa-colors { display: flex; gap: 6px; }
+.sa-color {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  cursor: pointer;
+}
+.sa-color[aria-checked='true'] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.sa-thick, .sa-text { display: flex; align-items: center; gap: 8px; }
+.sa-stroke { flex: 1; }
+.sa-thick-value { font-size: 12.5px; font-weight: 650; width: 18px; text-align: right; }
+.sa-stage {
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card-2);
+  overflow: auto;
+}
+.sa-stage canvas { max-width: 100%; height: auto; touch-action: none; cursor: crosshair; display: block; }
+
+/* ---------- 개발자 툴팩 새 탭 ---------- */
+.dv-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.dv-check input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+/* ---------- 색상 대비 — 사진 대표색 ---------- */
+.ct-palette { display: flex; flex-direction: column; gap: 8px; }
+.ct-pal-hint { font-size: 12px; color: var(--muted); }
+.ct-pal-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
+.ct-pal-row { display: flex; align-items: center; gap: 8px; }
+.ct-pal-swatch {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.ct-pal-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ct-pal-hex { font-size: 12px; }
+
+/* ---------- PDF — 이미지를 PDF로 ---------- */
+.pt-num {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 700;
+  flex: none;
+}
+
+/* ---------- OCR 가져올 곳 ---------- */
+.ocr-modes { align-self: flex-start; }
+
+/* ---------- 휴대폰: 손가락 크기 ---------- */
+@media (max-width: 640px) {
+  .home-file-start { height: 44px; }
+  .drop-item { min-height: 52px; }
+  .v16-tab { height: 44px; }
+  .sheet-reset { min-height: 44px; }
+  .sa-color { width: 32px; height: 32px; }
+  .ct-pal-swatch { width: 40px; height: 40px; }
+  .tc-target { height: 44px; }
+}

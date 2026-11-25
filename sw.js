@@ -1,6 +1,6 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.15.4';
+const CACHE_VERSION = 'tip-v1.16.0';
 const APP_SHELL = [
   './',
   './index.html',
@@ -31,6 +31,11 @@ const APP_SHELL = [
   './js/snippets.js',
   './js/feature-settings.js',
   './js/timer-store.js',
+  './js/recent.js',
+  './js/continue.js',
+  './js/typing.js',
+  './js/mosaic.js',
+  './js/backup.js',
   './js/postcode.js',
   './js/postcode-done.js',
   './modules/registry.js',
@@ -63,11 +68,14 @@ const APP_SHELL = [
   './modules/address-search/romanize.js',
   './modules/sticky-notes/module.js',
   './modules/screen-picker/module.js',
-  './modules/drag-ocr/module.js',
   './modules/window-snap/module.js',
   './modules/bulk-rename/module.js',
   './modules/snippets/module.js',
   './modules/timer/module.js',
+  './modules/text-counter/module.js',
+  './modules/date-calc/module.js',
+  './modules/typing-converter/module.js',
+  './modules/screenshot-annotate/module.js',
   './vendor/heic2any.min.js',
   './vendor/pdfjs/pdf.min.js',
   './vendor/pdfjs/pdf.worker.min.js',

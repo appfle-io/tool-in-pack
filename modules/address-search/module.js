@@ -563,7 +563,7 @@ export default {
   description: '한국 주소는 다음 우편번호 서비스에서 도로명, 지번, 영문, 우편번호로 찾고 해외 주소는 OpenStreetMap 에서 찾습니다. 주소를 찾을 때만 인터넷을 씁니다.',
   icon: ICON,
   version: '1.15.4',
-  category: 'online',
+  category: 'calc',
   defaultEnabled: true,
   defaultPinned: false,
   mount,

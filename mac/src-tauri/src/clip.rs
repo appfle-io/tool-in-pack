@@ -382,3 +382,44 @@ pub fn clipboard_add_image(app: AppHandle, png: String, width: u32, height: u32)
         created: now_ms(),
     });
 }
+
+/// 백업 파일의 클립보드 기록으로 되돌린다(v1.16.0) — 글자와 그림만, 최대 100개.
+#[tauri::command]
+pub fn clipboard_restore(app: AppHandle, items: Vec<ClipItem>) -> Result<usize, String> {
+    let mut clean: Vec<ClipItem> = Vec::new();
+    for mut item in items.into_iter().take(LIMIT) {
+        item.id = if item.id.trim().is_empty() { new_id() } else { item.id.trim().to_string() };
+        if item.kind != "image" {
+            item.kind = "text".into();
+        }
+        if item.kind == "text" {
+            let text = item.text.clone().unwrap_or_default();
+            if text.trim().is_empty() {
+                continue;
+            }
+            item.png = None;
+            item.bytes = text.len();
+        } else {
+            let ok = item.png.as_deref().map(|png| !png.is_empty() && png.len() <= MAX_IMAGE_BYTES * 2).unwrap_or(false);
+            if !ok {
+                continue;
+            }
+            item.text = None;
+        }
+        if item.created <= 0 {
+            item.created = now_ms();
+        }
+        clean.push(item);
+    }
+
+    if clean.is_empty() {
+        return Err("되돌릴 클립보드 기록이 없습니다".into());
+    }
+
+    trim(&mut clean);
+    let count = clean.len();
+    *CLIP.lock().unwrap() = Some(clean);
+    save(&app);
+    notify(&app);
+    Ok(count)
+}

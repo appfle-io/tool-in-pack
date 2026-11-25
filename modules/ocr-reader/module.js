@@ -1,12 +1,18 @@
 /**
- * TIP · 이미지 텍스트 추출 (ocr-reader)
- * tesseract.js(vendor 셀프호스팅)로 이미지의 글자를 읽는다.
- * 인식 엔진(wasm)과 언어 데이터는 처음 실행할 때만 받아 CacheStorage에 넣고, 이후에는 오프라인에서도 돈다.
- * 이미지는 어디로도 전송되지 않는다.
+ * TIP · 글자 추출 (ocr-reader, v1.16.0 — 통합 OCR)
+ *
+ * v1.16.0 에서 예전 이미지 글자 인식과 Mac 전용 화면 글자 읽기(drag-ocr)를 하나로 합쳤다.
+ *   · 화면에서 — 화면의 한 영역을 드래그해 찍고 바로 읽는다. (Mac 앱 전용, 화면 기록 권한)
+ *   · 이미지에서 — PNG·JPG·WebP·BMP 이미지를 고르거나 끌어다 놓는다. (웹·Mac 공통)
+ * 인식은 tesseract.js(vendor 셀프호스팅)로 기기 안에서만 한다. 이미지는 어디로도 전송되지 않는다.
+ *
+ * 예전 주소 #/drag-ocr 은 js/app.js 가 이 모듈의 '화면에서' 모드로 보낸다.
+ * 예전 드래그 OCR 전역 단축키(feature key 'drag-ocr')와 OCR 언어 설정도 그대로 쓴다.
  */
 
 import { formatBytes, icons } from '../../js/ui.js';
 import { getFeatureValue } from '../../js/feature-settings.js';
+import { appendContinueBar } from '../../js/continue.js';
 
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 const C = TAURI ? window.__TAURI__.core : null;
@@ -17,6 +23,7 @@ const LANGS = [
   { id: 'kor+eng', label: '한국어 + 영어', data: ['kor', 'eng'], size: '약 3MB' },
   { id: 'kor', label: '한국어', data: ['kor'], size: '약 1.1MB' },
   { id: 'eng', label: '영어', data: ['eng'], size: '약 2.0MB' },
+  { id: 'jpn', label: '일본어', data: ['jpn'], size: '약 3MB' },
 ];
 
 const STATUS_KO = {
@@ -79,13 +86,15 @@ const LANG_CACHE = 'tip-ocr-lang-v1';
 
 const module = {
   id: 'ocr-reader',
-  name: '이미지 텍스트 추출',
+  name: '글자 추출',
+  shortName: '글자 추출',
   kind: 'tool',
-  category: 'utility',
-  version: '1.0.0',
-  subtitle: '한국어와 영어 글자 인식',
-  description: '이미지 속 글자를 한국어와 영어로 읽어 고치고 복사하거나 TXT 로 저장합니다.',
+  category: 'docs',
+  version: '1.16.0',
+  subtitle: '화면이나 이미지에서 글자만',
+  description: '화면의 한 영역을 드래그해 찍거나 이미지를 골라 한국어, 영어, 일본어 글자를 읽습니다. 추출한 글자는 고쳐서 복사하거나 TXT 로 저장하고, 텍스트 비교나 마크다운으로 이어서 보낼 수 있습니다.',
   icon: ICON,
+  accepts: ['image/*'],
   defaultEnabled: true,
   defaultPinned: false,
 
@@ -96,21 +105,25 @@ const module = {
 
     let file = null;
     let previewUrl = null;
-    // v1.14.0 — 설정(설정 → 모듈 → 화면 드래그 OCR)에서 고른 언어로 시작한다.
+    // v1.14.0 — 설정(설정 → 모듈 → 글자 추출)에서 고른 언어로 시작한다.
     let langId = (() => {
       const saved = getFeatureValue('ocr.lang', 'kor+eng');
       return LANGS.some((lang) => lang.id === saved) ? saved : LANGS[0].id;
     })();
+    let mode = TAURI ? 'screen' : 'image';
     let worker = null;
     let workerLangId = null;
     let busy = false;
+    let lastText = '';
 
     root.innerHTML = `
       <div class="v16 ocr">
+        <div class="ic-segment ocr-modes" id="ocr-modes" role="tablist" aria-label="글자를 가져올 곳"></div>
+
         <div class="dr-empty" id="ocr-empty">
           <div class="dz-icon">${ICON}</div>
-          <button class="primary-btn" type="button" id="ocr-browse">${icons.upload} 이미지 선택</button>
-          <p>PNG·JPG·WebP·BMP 이미지를 고르거나 끌어다 놓으세요. 글자가 또렷할수록 잘 읽습니다.</p>
+          <button class="primary-btn" type="button" id="ocr-start"></button>
+          <p id="ocr-empty-note"></p>
         </div>
         <input type="file" id="ocr-input" class="sr-only" accept="image/*">
 
@@ -133,6 +146,7 @@ const module = {
 
           <div class="v16-actions">
             <button class="v16-btn primary" type="button" id="ocr-run">텍스트 추출</button>
+            <button class="v16-btn" type="button" id="ocr-again">다시 찍기</button>
             <button class="v16-btn" type="button" id="ocr-clear">비우기</button>
           </div>
           <p class="v16-note" id="ocr-note">처음 실행할 때 인식 언어 데이터를 한 번만 기기에 저장합니다. 이후에는 오프라인에서도 동작합니다.</p>
@@ -154,11 +168,15 @@ const module = {
               <button class="v16-btn" type="button" id="ocr-copy">복사</button>
               <button class="v16-btn" type="button" id="ocr-save">TXT 저장</button>
             </div>
+            <div id="ocr-continue"></div>
           </div>
         </div>
       </div>`;
 
+    const modesEl = root.querySelector('#ocr-modes');
     const empty = root.querySelector('#ocr-empty');
+    const emptyNote = root.querySelector('#ocr-empty-note');
+    const startBtn = root.querySelector('#ocr-start');
     const input = root.querySelector('#ocr-input');
     const main = root.querySelector('#ocr-main');
     const thumb = root.querySelector('#ocr-thumb');
@@ -174,6 +192,58 @@ const module = {
     const countEl = root.querySelector('#ocr-count');
     const runBtn = root.querySelector('#ocr-run');
     const noteEl = root.querySelector('#ocr-note');
+
+    /* ---------------------------- 가져올 곳 ---------------------------- */
+
+    const MODES = [
+      ...(TAURI ? [{ id: 'screen', label: '화면에서' }] : []),
+      { id: 'image', label: '이미지에서' },
+    ];
+
+    function paintMode() {
+      MODES.forEach((item) => {
+        const button = modesEl.querySelector(`[data-mode="${item.id}"]`);
+        const selected = item.id === mode;
+        button.setAttribute('aria-selected', String(selected));
+        button.setAttribute('aria-checked', String(selected));
+        button.tabIndex = selected ? 0 : -1;
+      });
+      startBtn.innerHTML = mode === 'screen'
+        ? `${icons.fit || ''} 화면 영역 드래그해서 찍기`
+        : `${icons.upload} 이미지 선택`;
+      emptyNote.textContent = mode === 'screen'
+        ? '찍은 영역의 글자를 기기 안에서 읽습니다. 처음 한 번은 화면 기록 권한을 물어봅니다.'
+        : 'PNG·JPG·WebP·BMP 이미지를 고르거나 끌어다 놓으세요. 글자가 또렷할수록 잘 읽습니다.';
+      root.querySelector('#ocr-again').textContent = mode === 'screen' ? '다시 찍기' : '다른 이미지';
+    }
+
+    MODES.forEach((item) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ic-seg';
+      button.dataset.mode = item.id;
+      button.textContent = item.label;
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-selected', String(item.id === mode));
+      button.setAttribute('aria-checked', String(item.id === mode));
+      button.tabIndex = item.id === mode ? 0 : -1;
+      button.addEventListener('click', () => {
+        if (busy) return;
+        mode = item.id;
+        paintMode();
+      }, { signal });
+      button.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+        event.preventDefault();
+        const index = MODES.findIndex((entry) => entry.id === item.id);
+        const next = MODES[(index + (event.key === 'ArrowRight' ? 1 : MODES.length - 1)) % MODES.length];
+        mode = next.id;
+        paintMode();
+        modesEl.querySelector(`[data-mode="${next.id}"]`).focus();
+      }, { signal });
+      modesEl.append(button);
+    });
+    paintMode();
 
     LANGS.forEach((lang) => {
       const button = document.createElement('button');
@@ -281,6 +351,7 @@ const module = {
         const instance = await getWorker(lang);
         const { data } = await instance.recognize(file);
         const text = (data.text || '').replace(/\n{4,}/g, '\n\n\n').trim();
+        lastText = text;
         textEl.value = text;
         updateCount();
         // v1.14.0 — 설정에서 켜 두면 추출한 글자를 바로 복사한다(드래그 OCR 단축키 흐름).
@@ -296,6 +367,7 @@ const module = {
         } else {
           const confidence = Math.round(data.confidence || 0);
           setProgress(1, `완료, 평균 신뢰도 ${confidence}%`);
+          paintContinue();
         }
       } catch (error) {
         console.error('[TIP ocr-reader]', error);
@@ -306,6 +378,15 @@ const module = {
         runBtn.disabled = false;
         runBtn.textContent = '텍스트 추출';
       }
+    }
+
+    /** v1.16.0 — 결과를 텍스트 비교·마크다운 편집기로 이어 보낸다(저장소에 남기지 않음). */
+    function paintContinue() {
+      const text = textEl.value.trim();
+      appendContinueBar(root.querySelector('#ocr-continue'), ctx, text ? [
+        { id: 'text-diff', label: '텍스트 비교', payload: { text } },
+        { id: 'md-editor', label: '마크다운으로 쓰기', payload: { text } },
+      ] : []);
     }
 
     function loadFile(nextFile) {
@@ -327,15 +408,66 @@ const module = {
       hideProgress();
     }
 
-    root.querySelector('#ocr-browse').addEventListener('click', () => input.click(), { signal });
+    /** v1.16.0 — 화면에서: macOS 의 screencapture 로 한 영역을 찍어 바로 읽는다. */
+    async function captureFromScreen() {
+      if (!TAURI || busy) return;
+      const label = startBtn.textContent;
+      busy = true;
+      startBtn.disabled = true;
+      startBtn.textContent = '영역을 고르세요…';
+      setError('');
+      try {
+        const capture = await C.invoke('capture_region');
+        if (!capture || !capture.png) throw new Error('찍은 화면이 없습니다');
+        const binary = atob(capture.png);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        loadFile(new File([bytes], 'screen-shot.png', { type: 'image/png' }));
+        await run();
+      } catch (error) {
+        const message = typeof error === 'string' ? error : (error && error.message) || '';
+        if (message === '취소' || /취소/.test(message)) {
+          toast('화면 찍기를 취소했습니다');
+        } else if (message.includes('[permission]')) {
+          setError(message.replace('[permission]', '').trim());
+          const button = document.createElement('button');
+          button.className = 'v16-btn';
+          button.type = 'button';
+          button.textContent = '화면 기록 설정 열기';
+          button.addEventListener('click', () => {
+            C.invoke('open_privacy_settings', { kind: 'screen-recording' }).catch(() => {});
+          }, { signal });
+          root.querySelector('#ocr-main').prepend(button);
+        } else {
+          console.error('[TIP ocr-reader]', error);
+          toast('화면을 찍지 못했습니다');
+        }
+      } finally {
+        busy = false;
+        startBtn.disabled = false;
+        startBtn.textContent = label;
+      }
+    }
+
+    startBtn.addEventListener('click', () => {
+      if (mode === 'screen') captureFromScreen();
+      else input.click();
+    }, { signal });
     input.addEventListener('change', () => {
       loadFile(input.files && input.files[0]);
       input.value = '';
     }, { signal });
     runBtn.addEventListener('click', run, { signal });
+    root.querySelector('#ocr-again').addEventListener('click', () => {
+      if (mode === 'screen') captureFromScreen();
+      else input.click();
+    }, { signal });
     root.querySelector('#ocr-clear').addEventListener('click', () => {
       resultEl.hidden = true;
       textEl.value = '';
+      lastText = '';
       setError('');
       hideProgress();
     }, { signal });
@@ -347,6 +479,7 @@ const module = {
       empty.hidden = false;
       resultEl.hidden = true;
       textEl.value = '';
+      lastText = '';
       setError('');
       hideProgress();
       if (worker) {
@@ -355,7 +488,10 @@ const module = {
         workerLangId = null;
       }
     }, { signal });
-    textEl.addEventListener('input', updateCount, { signal });
+    textEl.addEventListener('input', () => {
+      updateCount();
+      if (textEl.value.trim() !== lastText) paintContinue();
+    }, { signal });
     root.querySelector('#ocr-copy').addEventListener('click', async () => {
       if (!textEl.value) return toast('복사할 텍스트가 없습니다');
       try {
@@ -371,8 +507,7 @@ const module = {
       download(new Blob([textEl.value], { type: 'text/plain;charset=utf-8' }), name);
     }, { signal });
 
-    /* v1.14.0 — 전역 단축키로 찍어 둔 화면이 있으면 이 창이 열리자마자 불러와 읽는다.
-     * (drag-ocr 모듈은 handoff 로 넘기고, 단축키는 Rust 가 찍은 뒤 이 창을 연다.) */
+    /* v1.14.0 — 전역 단축키로 찍어 둔 화면이 있으면 이 창이 열리자마자 불러와 읽는다. */
     async function takePendingShot() {
       if (!C) return;
       try {
@@ -385,13 +520,28 @@ const module = {
           bytes[index] = binary.charCodeAt(index);
         }
         const image = new File([bytes], 'screen-shot.png', { type: 'image/png' });
+        mode = 'screen';
+        paintMode();
         loadFile(image);
         run();
       } catch (error) {
         console.warn('[TIP ocr-reader] 찍어 둔 화면을 불러오지 못했습니다', error);
       }
     }
-    takePendingShot();
+
+    // v1.16.0 — 앞 모듈(화면 글자 읽기 주소·전역 단축키)이나 '이어서 하기'로 온 값.
+    if (ctx?.intent?.mode === 'screen' && TAURI) {
+      mode = 'screen';
+      paintMode();
+    }
+    const continued = ctx?.takeContinue ? ctx.takeContinue() : null;
+    if (continued && continued.file) {
+      mode = 'image';
+      paintMode();
+      loadFile(continued.file);
+    } else {
+      takePendingShot();
+    }
 
     ['dragenter', 'dragover'].forEach((type) =>
       root.addEventListener(type, (event) => {
@@ -405,7 +555,11 @@ const module = {
       }, { signal }));
     root.addEventListener('drop', (event) => {
       const dropped = event.dataTransfer?.files?.[0];
-      if (dropped) loadFile(dropped);
+      if (dropped) {
+        mode = 'image';
+        paintMode();
+        loadFile(dropped);
+      }
     }, { signal });
 
     return () => {

@@ -9,6 +9,7 @@
  */
 
 import { formatBytes, icons } from '../../js/ui.js';
+import { appendContinueBar } from '../../js/continue.js';
 import { encodeBMP, encodeICO, encodePDF, canvasToBlob, browserEncodes } from './encoders.js';
 
 const ACCEPT = '.jpg,.jpeg,.png,.webp,.gif,.bmp,.svg,.avif,.ico,.heic,.heif';
@@ -148,6 +149,7 @@ function noticeBox(kind, title, body) {
 
 const module = {
   id: 'img-converter',
+  accepts: ['image/*'],
   name: '이미지 컨버터',
   kind: 'tool',
   category: 'media',
@@ -158,7 +160,7 @@ const module = {
   defaultEnabled: true,
   defaultPinned: false,
 
-  mount(root) {
+  mount(root, ctx) {
     const controller = new AbortController();
     const { signal } = controller;
     let files = [];
@@ -377,6 +379,13 @@ const module = {
         row.querySelector('button').addEventListener('click', () => download(r.blob, r.name), { signal: controller.signal });
         wrap.append(row);
       }
+
+      // v1.16.0 — 변환한 그림을 파일 압축·사진 모자이크로 이어 보낸다.
+      const asFiles = () => results.map((r) => new File([r.blob], r.name, { type: r.blob.type || 'image/png' }));
+      appendContinueBar(wrap, ctx, [
+        { id: 'file-compress', label: '용량 줄이기', payload: { files: asFiles() } },
+        { id: 'photo-privacy', label: '사진 모자이크', payload: { files: asFiles().slice(0, 1) } },
+      ]);
       resultsEl.append(wrap);
     }
 

@@ -177,7 +177,7 @@ const module = {
   name: '단위 변환기',
   shortName: '단위 변환',
   kind: 'tool',
-  category: 'utility',
+  category: 'calc',
   version: '1.0.0',
   subtitle: '길이, 무게, 평, 온도 바로 변환',
   description: '숫자 하나를 넣으면 같은 종류의 모든 단위로 동시에 바꿔 보여 줍니다.',

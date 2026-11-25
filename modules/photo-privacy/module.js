@@ -6,6 +6,8 @@
 
 import { formatBytes, icons } from '../../js/ui.js';
 import { parseMetadata, describeMetadata } from './exif.js';
+// v1.16.0 — 모자이크 계산은 js/mosaic.js 로 옮겨 스크린샷 표시와 함께 쓴다.
+import { clampRect, pixelate } from '../../js/mosaic.js';
 
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="16" height="13" rx="2.5"/><circle cx="7.5" cy="8" r="1.5"/><path d="M18.5 12.5l3.2 1.2v3.6c0 2.2-2 3.9-3.2 4.3-1.2-.4-3.2-2.1-3.2-4.3v-3.6z"/></svg>`;
 
@@ -60,34 +62,6 @@ async function decodeFile(file) {
 
 /* --------------------------- pixel operations --------------------------- */
 
-function clampRect(x, y, w, h, maxW, maxH) {
-  const left = Math.max(0, Math.min(Math.floor(x), maxW - 1));
-  const top = Math.max(0, Math.min(Math.floor(y), maxH - 1));
-  const right = Math.max(left + 1, Math.min(Math.ceil(x + w), maxW));
-  const bottom = Math.max(top + 1, Math.min(Math.ceil(y + h), maxH));
-  return { x: left, y: top, w: right - left, h: bottom - top };
-}
-
-/** 모자이크(픽셀화) — 영역을 작게 줄였다가 확대해 픽셀 블록으로 만든다. */
-function pixelate(ctx, scratch, canvas, rect, block) {
-  const area = clampRect(rect.x, rect.y, rect.w, rect.h, canvas.width, canvas.height);
-  const size = Math.max(2, Math.round(block));
-  const bw = Math.max(1, Math.ceil(area.w / size));
-  const bh = Math.max(1, Math.ceil(area.h / size));
-  if (scratch.width !== bw || scratch.height !== bh) {
-    scratch.width = bw;
-    scratch.height = bh;
-  }
-  const sctx = scratch.getContext('2d');
-  sctx.imageSmoothingEnabled = true;
-  sctx.imageSmoothingQuality = 'high';
-  sctx.clearRect(0, 0, bw, bh);
-  sctx.drawImage(canvas, area.x, area.y, area.w, area.h, 0, 0, bw, bh);
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(scratch, 0, 0, bw, bh, area.x, area.y, bw * size, bh * size);
-  ctx.imageSmoothingEnabled = true;
-}
-
 /** 박스 블러 (가로·세로 각 1회) — Safari에서도 동작하는 순수 JS 구현 */
 function boxBlur(data, width, height, radius) {
   const r = Math.max(1, Math.round(radius));
@@ -140,6 +114,7 @@ function blurArea(ctx, canvas, rect, radius) {
 
 const module = {
   id: 'photo-privacy',
+  accepts: ['image/*'],
   name: '사진 모자이크',
   shortName: '사진 모자이크',
   kind: 'tool',
@@ -151,7 +126,7 @@ const module = {
   defaultEnabled: true,
   defaultPinned: false,
 
-  mount(root) {
+  mount(root, mountCtx) {
     const controller = new AbortController();
     const { signal } = controller;
 
@@ -664,6 +639,12 @@ const module = {
         loadFile(picked);
       }
     }, { signal });
+
+    // v1.16.0 — '이어서 하기'로 넘어온 그림 한 장을 바로 연다.
+    const continued = mountCtx?.takeContinue ? mountCtx.takeContinue() : null;
+    if (continued && Array.isArray(continued.files) && continued.files.length) {
+      loadFile(continued.files[0]);
+    }
 
     return () => controller.abort();
   },

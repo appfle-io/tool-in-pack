@@ -31,6 +31,7 @@
     "allow-clipboard-clear",
     "allow-clipboard-add-text",
     "allow-clipboard-add-image",
+    "allow-clipboard-restore",
     "allow-media-state",
     "allow-media-control",
     "allow-calendar-today",
@@ -79,6 +80,9 @@
     "allow-sticky-set-pin",
     "allow-sticky-close",
     "allow-sticky-delete",
-    "allow-sticky-open"
+    "allow-sticky-open",
+    "allow-sticky-restore",
+    "allow-save-backup-file",
+    "allow-open-backup-file"
   ]
 }

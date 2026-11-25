@@ -156,46 +156,49 @@ check('notch.js 설정 지문 비교', /function settingsSignature\(\)/.test(not
 check('notch.js 캐시 무효화(syncStore)', /import \{[^}]*syncStore/.test(notchJs) && /syncStore\(\);\n  const \{ widgets \}/.test(notchJs));
 check('store.js syncStore 가 notchCache 를 비운다', /function syncStore\(\)[\s\S]{0,240}notchCache = null;/.test(store));
 
-/* ------------------------------ 7. 카테고리 ------------------------------ */
+/* ------------------------------ 7. 카테고리 (v1.16.0 재편) ------------------------------ */
 
 const registry = read('modules/registry.js');
 const CATS = [
-  ['document', '문서'],
-  ['media', '미디어'],
-  ['dev', '개발'],
-  ['utility', '유틸리티'],
-  ['online', '온라인'],
+  ['docs', '문서·글'],
+  ['media', '사진·영상'],
+  ['file', '파일'],
+  ['calc', '계산·조회'],
+  ['dev', '개발·디자인'],
+  ['mac', 'Mac 화면 도구'],
 ];
 CATS.forEach(([id, label]) => {
-  check(`CATEGORIES ${id}`, registry.includes(`{ id: '${id}', label: '${label}' }`));
+  check(`CATEGORIES ${id}`, registry.includes(`{ id: '${id}', label: '${label}'`));
 });
-check('CATEGORIES 정확히 5개', (registry.match(/\{ id: '[a-z]+', label: '/g) || []).length === 5);
+check('CATEGORIES 정확히 6개', (registry.match(/\{ id: '[a-z]+', label: '/g) || []).length === 6);
+check('Mac 분류는 mac 플래그', /\{ id: 'mac', label: 'Mac 화면 도구', mac: true \}/.test(registry));
+check('웹에서 Mac 분류를 숨기는 visibleCategories', /export function visibleCategories\(\)[\s\S]{0,160}category\.mac \|\| TAURI/.test(registry));
+check('홈이 visibleCategories 를 쓴다', /visibleCategories\(\)\.forEach/.test(read('js/app.js')));
 
-const ORDER = ['document', 'media', 'dev', 'utility', 'online'];
+const ORDER = ['pinned', 'docs', 'media', 'file', 'calc', 'dev', 'mac'];
 const orderLine = (store.match(/ORDER_SECTIONS = \[([^\]]+)\]/) || [, ''])[1];
 ORDER.forEach((id) => check(`ORDER_SECTIONS ${id}`, orderLine.includes(`'${id}'`)));
-check('ORDER_SECTIONS 옛 이름 호환', /ORDER_SECTION_ALIASES = \{ docs: 'document'/.test(store));
-check('categoryOf 옛 이름 호환', /CATEGORY_ALIASES = \{ docs: 'document' \}/.test(registry));
+check('ORDER_SECTIONS 옛 이름 호환', /ORDER_SECTION_ALIASES = \{ docs: 'docs', document: 'docs'/.test(store));
+check('옛 utility·online 순서를 새 분류로 옮긴다', /LEGACY_ORDER_TARGETS/.test(store)
+  && /'clipboard-history': 'mac'/.test(store) && /'file-compress': 'file'/.test(store));
+check('categoryOf 옛 이름 호환', /CATEGORY_ALIASES = \{[\s\S]{0,160}document: 'docs'/.test(registry));
 
 const EXPECTED = {
-  document: ['doc-reader', 'pdf-tools', 'md-editor'],
-  media: ['img-converter', 'photo-privacy', 'video-gif', 'video-mosaic'],
-  dev: ['dev-tools', 'text-diff', 'regex-tester', 'color-tools', 'icon-gen'],
-  utility: [
-    'clipboard-history', 'qr-gen', 'file-compress', 'ocr-reader', 'unit-converter',
-    // v1.14.0
-    'sticky-notes', 'snippets', 'screen-picker', 'drag-ocr', 'window-snap', 'bulk-rename',
-    // v1.15.0
-    'timer',
-  ],
-  online: ['address-search', 'parcel-tracker', 'currency-calc'],
+  docs: ['doc-reader', 'pdf-tools', 'md-editor', 'text-diff', 'ocr-reader', 'text-counter', 'typing-converter'],
+  media: ['img-converter', 'photo-privacy', 'video-gif', 'video-mosaic', 'icon-gen', 'qr-gen'],
+  file: ['file-compress', 'bulk-rename'],
+  calc: ['unit-converter', 'currency-calc', 'address-search', 'parcel-tracker', 'timer', 'date-calc'],
+  dev: ['dev-tools', 'regex-tester', 'color-tools', 'snippets'],
+  mac: ['screen-picker', 'window-snap', 'sticky-notes', 'clipboard-history', 'screenshot-annotate'],
 };
 
 // registry 목록에 적힌 모듈만 센다(파일 시스템 탐색에 기대지 않는다).
 const listed = [...registry.matchAll(/^import\s+(\w+)\s+from\s+'\.\/([^/]+)\/module\.js';/gm)].map((m) => m[2]);
 const total = Object.values(EXPECTED).flat();
-check('registry 모듈 27개', listed.length === 27 && total.length === 27, `${listed.length}/${total.length}`);
-check('registry 가 27개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
+check('registry 모듈 30개', listed.length === 30 && total.length === 30, `${listed.length}/${total.length}`);
+check('registry 가 30개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
+check('모든 모듈이 정확히 한 분류', new Set(total).size === total.length && listed.every((id) => total.filter((entry) => entry === id).length === 1));
+check('registry 에 drag-ocr 없음(OCR 하나로 합침)', !listed.includes('drag-ocr') && !exists('modules/drag-ocr/module.js'));
 
 Object.entries(EXPECTED).forEach(([category, ids]) => {
   ids.forEach((id) => {
@@ -207,6 +210,15 @@ Object.entries(EXPECTED).forEach(([category, ids]) => {
     check(`${id} → ${category}`, value === category, String(value));
   });
 });
+
+// v1.16.0 — OCR 하나로 합치기
+const ocrSrc = read('modules/ocr-reader/module.js');
+check('OCR 이 화면·이미지 두 방식', ocrSrc.includes("label: '화면에서'") && ocrSrc.includes("label: '이미지에서'"));
+check('OCR 모드 저장·안내', ocrSrc.includes('id="ocr-modes"') && /captureFromScreen/.test(ocrSrc));
+check('예전 #/drag-ocr 주소가 통합 OCR 로', /raw === 'drag-ocr' \? 'ocr-reader'/.test(read('js/app.js')));
+check('예전 드래그 OCR 단축키 키를 그대로', /actions: \[\{ key: 'drag-ocr', label: '화면에서 글자 읽기'/.test(read('js/feature-settings.js')));
+check('OCR 언어·자동 복사 설정이 ocr-reader 로', /'ocr-reader': \{[\s\S]{0,400}ocr\.lang/.test(read('js/feature-settings.js')));
+check('Rust 단축키가 통합 OCR 창을 연다', /"drag-ocr" => match capture::capture_for_shortcut\(app\)[\s\S]{0,200}open_tool\(app\.clone\(\), "ocr-reader"/.test(lib));
 
 /* ------------------------------ 8. 캘린더(EventKit) ------------------------------ */
 
@@ -811,7 +823,9 @@ check('모든 모듈 이름이 다르다', new Set(names).size === names.length,
 check('모듈 부제·설명에서 어려운 용어 제거', jargon.length === 0, jargon.join(', '));
 check('홈·검색·설정이 같은 이름(mod.name)', !/mod\.shortName \|\| mod\.name/.test(stripComments(appJs))
   && !/mod\.shortName \|\| mod\.name/.test(stripComments(read('js/search.js'))));
-check('분류 이름에 · 없음', !/label: '[^']*·/.test(registry));
+// v1.16.0 — '문서·글' 같은 섹션 제목의 · 는 허용한다. 모듈 문구에는 여전히 없다.
+const categoryBlock = registry.slice(registry.indexOf('export const CATEGORIES'), registry.indexOf('export const FALLBACK_CATEGORY'));
+check('분류 이름의 · 는 섹션 제목에서만', !/label: '[^']*·/.test(registry.replace(categoryBlock, '')));
 check('"기기 안에서만" 안내는 설정 한 곳', (stripComments(appJs).match(/기기 안에서만/g) || []).length === 1
   && !moduleFiles.some((id) => stripComments(read(`modules/${id}/module.js`)).includes('기기 안에서만')));
 check('네트워크 모듈에만 인터넷 안내', ['address-search', 'parcel-tracker', 'currency-calc']
@@ -913,16 +927,15 @@ check('화면 문구에 줄표(—) 없음', dashedUi.length === 0, dashedUi.sli
 check('빈 값은 줄표 대신 없음', read('modules/address-search/module.js').includes("'없음'")
   && !read('modules/address-search/module.js').includes("'—'"));
 
-/* ---------- 16.3 화면 글자 읽기 ---------- */
-const dragOcr = read('modules/drag-ocr/module.js');
-check('drag-ocr 이름 화면 글자 읽기', /^  name: '화면 글자 읽기',$/m.test(dragOcr));
-check('drag-ocr shortName 글자 읽기', /^  shortName: '글자 읽기',$/m.test(dragOcr));
-check('drag-ocr 모듈 안내도 같은 이름', !/화면 드래그 OCR/.test(dragOcr));
-check('검색도 같은 이름', /name: '화면 글자 읽기'/.test(searchJs) && !/화면 드래그 OCR/.test(searchJs));
+/* ---------- 16.3 글자 추출(통합 OCR) 이름 ---------- */
+const ocrSrc16 = read('modules/ocr-reader/module.js');
+check('OCR 이름 글자 추출', /^  name: '글자 추출',$/m.test(ocrSrc16));
+check('OCR shortName 글자 추출', /^  shortName: '글자 추출',$/m.test(ocrSrc16));
+check('예전 이름이 남아 있지 않다', !/화면 드래그 OCR/.test(ocrSrc16) && !/이미지 텍스트 추출/.test(ocrSrc16));
+check('검색도 같은 이름', /name: '화면에서 글자 읽기'/.test(searchJs) && !/화면 드래그 OCR/.test(searchJs));
 const featureSrc = read('js/feature-settings.js');
-check('설정도 같은 이름', /label: '화면 글자 읽기'/.test(featureSrc));
-check('검색 창 제목도 같은 이름', !/title: '화면 드래그 OCR'/.test(searchJs));
-check('README 도 같은 이름', read('README.md').includes('### 23) 화면 글자 읽기') && !read('README.md').includes('| 화면 드래그 OCR `Mac` |'));
+check('설정도 같은 이름', /label: '화면에서 글자 읽기'/.test(featureSrc));
+check('README 에 글자 추출 안내', read('README.md').includes('글자 추출'));
 
 /* ---------- 16.4 GIF나 ---------- */
 check('GIF나 띄어쓰기', read('modules/video-gif/module.js').includes("subtitle: 'GIF나 짧은 클립으로 자르기'")
@@ -952,6 +965,186 @@ check('README 에 이름 변경 안내', read('README.md').includes('화면 글�
 check('README 에 다크 대비 안내', read('README.md').includes('#3F7D68'));
 check('settings-e2e 가 v1.15.4 다크 대비를 잰다', /v1\.15\.4 \u2014 다크 모드 주요 버튼 대비/.test(read('tools/settings-e2e.mjs')));
 check('settings-e2e 가 v1.15.4 44px 를 잰다', /v1\.15\.4 \u2014 휴대폰 검색창·색 선택 44px/.test(read('tools/settings-e2e.mjs')));
+
+/* ================================================================
+   17. v1.16.0 — 강조색 12조합 · 전체화면 패널 · 카테고리 · 백업 ·
+        최근 사용 · 파일 추천 · 이어서 하기 · 새 도구 4종 · 확장 3종
+   ================================================================ */
+
+/* ---------- 17.1 강조색 12조합(6색 × 라이트/다크) 4.5:1 ---------- */
+function accentBlock(theme, id) {
+  if (id === 'green') return theme === 'dark' ? darkVars : lightVars;
+  const selector = theme === 'dark'
+    ? `:root[data-theme='dark'][data-accent='${id}']`
+    : `:root[data-accent='${id}']`;
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return (appCss.match(new RegExp(`${escaped} \\{([\\s\\S]*?)\\n\\}`)) || [, ''])[1];
+}
+const ACCENT_IDS = ['green', 'blue', 'purple', 'orange', 'rose', 'slate'];
+const ACCENT_EXPECT = {
+  light: { green: '#2E5E4E', blue: '#0A6CFF', purple: '#7C3AED', orange: '#C2410C', rose: '#E11D48', slate: '#475569' },
+  dark: { green: '#3F7D68', blue: '#2563EB', purple: '#7C3AED', orange: '#C2410C', rose: '#E11D48', slate: '#64748B' },
+};
+ACCENT_IDS.forEach((id) => {
+  ['light', 'dark'].forEach((theme) => {
+    const value = varOf(accentBlock(theme, id), 'accent').toUpperCase();
+    const ratio = value ? contrast(value, '#FFFFFF') : 0;
+    check(`${theme} ${id} --accent ${ACCENT_EXPECT[theme][id]}`, value === ACCENT_EXPECT[theme][id], value || '없음');
+    check(`${theme} ${id} 채움 위 흰 글자 4.5:1`, ratio >= 4.5, ratio.toFixed(2));
+  });
+});
+check('다크는 --accent 를 글자로 쓰지 않는다(--accent-ink)', /--accent-ink:\s*var\(--accent-strong\)/.test(darkVars)
+  && !/(?<!-)\bcolor: var\(--accent\);/.test(appCss));
+const swatchBlock = (appJs.match(/const SWATCH_COLORS = \{([\s\S]*?)\n\};/) || [, ''])[1];
+ACCENT_IDS.forEach((id) => {
+  const pair = (swatchBlock.match(new RegExp(`${id}: \\['(#[0-9A-Fa-f]{6})', '(#[0-9A-Fa-f]{6})'\\]`)) || []);
+  check(`미리보기 ${id} 실제 값`, pair[1] && pair[1].toUpperCase() === ACCENT_EXPECT.light[id]
+    && pair[2] && pair[2].toUpperCase() === ACCENT_EXPECT.dark[id], `${pair[1]}/${pair[2]}`);
+});
+
+/* ---------- 17.2 전체화면 앱 위 검색·퀵바 패널 ---------- */
+const notchRs16 = read('mac/src-tauri/src/notch.rs');
+check('notch.rs pin_search', /pub fn pin_search\(win: &tauri::WebviewWindow\)/.test(notchRs16));
+check('검색·노치가 같은 패널 설정', /fn configure_panel\(win: &tauri::WebviewWindow\)/.test(notchRs16)
+  && /pub fn pin\(win: &tauri::WebviewWindow\) -> bool \{\s*configure_panel\(win\)/.test(notchRs16));
+check('NonactivatingPanel + 모든 Space + 전체화면', /NSWindowStyleMask::NonactivatingPanel/.test(notchRs16)
+  && /CanJoinAllSpaces/.test(notchRs16) && /FullScreenAuxiliary/.test(notchRs16));
+check('창 레벨 27', /const NOTCH_WINDOW_LEVEL: objc2_app_kit::NSWindowLevel = 27;/.test(notchRs16));
+check('orderFrontRegardless', /window\.orderFrontRegardless\(\)/.test(notchRs16));
+const showSearchBlock = (lib.match(/fn show_search\(app: &AppHandle\) \{[\s\S]*?\n\}/) || [''])[0];
+check('검색 창을 패널로', /notch::pin_search\(&win\)/.test(showSearchBlock));
+check('검색 창은 앱을 활성화하지 않는다', !/win\.set_focus\(\)/.test(showSearchBlock)
+  && /notch::order_front\(&win\)/.test(showSearchBlock) && /notch::make_key\(&win\)/.test(showSearchBlock));
+check('검색 창은 만들어질 때 초점을 잡지 않음', /\.visible\(false\)(\s*\n\s*\/\/[^\n]*)*\n\s*\.focused\(false\)/.test(lib));
+const showQuickBlock = (lib.match(/fn show_quickbar\(app: &AppHandle\) \{[\s\S]*?\n\}/) || [''])[0];
+check('퀵바도 같은 패널로', /notch::pin_search\(&win\)/.test(showQuickBlock));
+check('퀵바는 앱을 활성화하지 않는다', !/win\.set_focus\(\)/.test(showQuickBlock)
+  && /notch::order_front\(&win\)/.test(showQuickBlock) && /notch::make_key\(&win\)/.test(showQuickBlock));
+check('퀵바 바깥 클릭이면 닫힌다', /WindowEvent::Focused\(false\)[\s\S]{0,120}handle\.hide\(\)/.test(lib));
+
+/* ---------- 17.3 백업과 복원 ---------- */
+const backupJs = read('js/backup.js');
+check('backup.js 형식·판', /BACKUP_FORMAT = 'tip-backup'/.test(backupJs) && /BACKUP_VERSION = 1/.test(backupJs));
+check('설정 키 화이트리스트', /tip\.settings\.v1/.test(backupJs) && /tip\.order\.v1/.test(backupJs)
+  && /tip\.snippets\.v1/.test(backupJs) && /tip\.shortcutLetters\.v1/.test(backupJs));
+check('클립보드는 기본 제외', /includeClipboard = false/.test(backupJs));
+check('백업 파일 이름', /tip-backup-\$\{date\.getFullYear\(\)\}/.test(backupJs));
+check('모르는 형식은 이유만', /data\.format !== BACKUP_FORMAT/.test(backupJs) && /formatVersion|version > BACKUP_VERSION/.test(backupJs));
+check('적용 전에 전부 검사', /아무것도 바꾸지 않았습니다/.test(backupJs));
+check('스티커·클립보드 되돌리기', /sticky_restore/.test(backupJs) && /clipboard_restore/.test(backupJs));
+check('설정에 백업과 복원', /function backupSection\(\)/.test(appJs) && /text: '백업 파일 만들기'/.test(appJs)
+  && /text: '백업 파일 불러오기'/.test(appJs));
+check('미리보기 뒤 확인창', /readBackup\(text\)/.test(appJs) && /title: '백업 파일 불러오기'/.test(appJs)
+  && /confirmDialog\(\{/.test(appJs));
+check('클립보드 포함 경고', /클립보드 기록에는 비밀번호나 개인 정보가 들어 있을 수 있습니다/.test(appJs));
+check('Mac 은 저장·열기 대화상자', /invokeTauri\('save_backup_file'/.test(appJs) && /invokeTauri\('open_backup_file'/.test(appJs));
+check('웹은 내려받기·파일 선택', /function downloadText\(/.test(appJs) && /type: 'file', id: 'backup-file'/.test(appJs));
+const dialogsRs = read('mac/src-tauri/src/dialogs.rs');
+check('dialogs.rs NSSavePanel·NSOpenPanel', /NSSavePanel/.test(dialogsRs) && /NSOpenPanel/.test(dialogsRs));
+check('대화상자는 메인 스레드에서', /run_on_main_thread/.test(dialogsRs));
+check('백업 파일 12MB 제한', /MAX_BACKUP_BYTES: usize = 12 \* 1024 \* 1024/.test(dialogsRs));
+check('Cargo 에 NSSavePanel·NSOpenPanel', /"NSSavePanel",/.test(read('mac/src-tauri/Cargo.toml'))
+  && /"NSOpenPanel",/.test(read('mac/src-tauri/Cargo.toml')));
+
+/* ---------- 17.4 최근 사용 ---------- */
+const recentJs = read('js/recent.js');
+check('recent.js 기록·최대 6', /tip\.recent\.v1/.test(recentJs) && /recentIds\(limit = 6\)/.test(recentJs));
+check('같은 모듈은 한 번만', /filter\(\(item\) => item !== value\)/.test(recentJs));
+check('홈 고정됨 아래 최근 사용', /homeSection\('recent', '최근 사용'/.test(appJs)
+  && /enabled\.find\(\(\{ mod \}\) => mod\.id === id\)[\s\S]{0,80}filter\(\(entry\) => entry && !entry\.state\.pinned\)/.test(appJs));
+check('모듈을 열면 기록', /recordRecent\(mod\.id\)/.test(appJs));
+check('설정에서 켜고 끄기·기록 지우기', /setRecentEnabled\(next\)/.test(appJs) && /text: '기록 지우기'/.test(appJs));
+
+/* ---------- 17.5 파일 끌어다 놓기 추천 ---------- */
+const acceptsCount = total.filter((id) => /^  accepts: \[/m.test(read(`modules/${id}/module.js`))).length;
+check('accepts 를 선언한 모듈 15개 이상', acceptsCount >= 15, String(acceptsCount));
+[['pdf-tools', 'application/pdf'], ['img-converter', 'image/*'], ['video-gif', 'video/*'], ['file-compress', '*/*']]
+  .forEach(([id, pattern]) => check(`${id} accepts ${pattern}`, read(`modules/${id}/module.js`).includes(`accepts: ['${pattern}'`)));
+check('여러 파일만 받는 도구 표시', /acceptsMultiOnly: true/.test(read('modules/bulk-rename/module.js')));
+check('파일 종류별 추천 차례', /const DROP_PRIORITY = \[/.test(appJs) && /'pdf-tools', 'doc-reader'/.test(appJs));
+check('받을 도구가 없으면 안내', /이 파일을 열 수 있는 도구가 없어요/.test(appJs));
+check('고르면 파일을 얹어 연다', /function handoffFiles\(moduleId, files\)/.test(appJs) && /localStorage\.setItem\('tip\.handoff\.v1'/.test(appJs));
+check('여러 파일 핸드오프', /Array\.isArray\(handoff\.files\)/.test(appJs) && /files\.forEach\(\(file\) => transfer\.items\.add\(file\)\)/.test(appJs));
+check('홈 [파일로 시작하기]', /text: '파일로 시작하기'/.test(appJs) && /id: 'home-file-input'/.test(appJs) && /readFile|input\.click\(\)/.test(appJs));
+check('스크린 리더 안내', /id=\"drop-live\"/.test(indexHtml) && /aria-live=\"assertive\"/.test(indexHtml));
+
+/* ---------- 17.6 이어서 하기 ---------- */
+const continueJs = read('js/continue.js');
+check('저장소에 남기지 않음', !/localStorage/.test(continueJs) && /let pending = null;/.test(continueJs));
+check('한 번 꺼내면 지운다', /export function takeContinue\(moduleId\)[\s\S]{0,160}pending = null;/.test(continueJs));
+check('OCR 결과 → 텍스트 비교·마크다운', /id: 'text-diff', label: '텍스트 비교'/.test(read('modules/ocr-reader/module.js'))
+  && /id: 'md-editor', label: '마크다운으로 쓰기'/.test(read('modules/ocr-reader/module.js')));
+check('이미지 컨버터 → 압축·모자이크', /id: 'file-compress', label: '용량 줄이기'/.test(read('modules/img-converter/module.js'))
+  && /id: 'photo-privacy', label: '사진 모자이크'/.test(read('modules/img-converter/module.js')));
+check('PDF 결과 → 파일 압축', /id: 'file-compress', label: '파일 압축으로'/.test(read('modules/pdf-tools/module.js')));
+['text-diff', 'md-editor', 'file-compress', 'photo-privacy']
+  .forEach((id) => check(`${id} 가 넘어온 값 적용`, /takeContinue\(\)/.test(read(`modules/${id}/module.js`))));
+
+/* ---------- 17.7 새 도구 — 글자 수 세기 ---------- */
+const counterSrc = read('modules/text-counter/module.js');
+check('글자 수 — 공백 포함·제외', /withSpace/.test(counterSrc) && /withoutSpace/.test(counterSrc));
+check('글자 수 — 단어·줄', /words: words\(text\)/.test(counterSrc) && /lines: lines\(text\)/.test(counterSrc));
+check('글자 수 — UTF-8·EUC-KR', /new TextEncoder\(\)/.test(counterSrc) && /eucKrBytes/.test(counterSrc));
+check('글자 수 — 원고지 200자', /Math\.ceil\(all\.length \/ 200\)/.test(counterSrc));
+check('글자 수 — Intl.Segmenter', /Intl\.Segmenter/.test(counterSrc) && /granularity: 'grapheme'/.test(counterSrc));
+check('글자 수 — 목표·진행 막대', /counter\.target/.test(counterSrc) && /role=\"progressbar\"/.test(counterSrc));
+
+/* ---------- 17.8 새 도구 — 날짜 계산기 ---------- */
+const dateSrc = read('modules/date-calc/module.js');
+check('날짜 — D-day·더하기·만 나이·근무일', /id: 'dday'/.test(dateSrc) && /id: 'add'/.test(dateSrc)
+  && /id: 'age'/.test(dateSrc) && /id: 'work'/.test(dateSrc));
+check('날짜 — 공휴일 2024~2027', /2024: \[/.test(dateSrc) && /2027: \[/.test(dateSrc));
+check('날짜 — 대체공휴일 포함', /2026-05-25/.test(dateSrc) && /2025-10-08/.test(dateSrc));
+check('날짜 — 주말·공휴일 제외 근무일', /export function businessDays\(start, end\)/.test(dateSrc) && /weekend \+= 1/.test(dateSrc)
+  && /holiday \+= 1/.test(dateSrc));
+check('날짜 — 어느 해까지 반영했는지 표시', /HOLIDAY_RANGE_LABEL/.test(dateSrc) && /공휴일 자료/.test(dateSrc));
+check('날짜 — 임시공휴일 제외 안내', /임시공휴일은 넣지 않았습니다/.test(dateSrc));
+
+/* ---------- 17.9 새 도구 — 한영 타자 변환 ---------- */
+const typingJs = read('js/typing.js');
+check('한영 — 겹받침·이중모음 표', /JONG_COMBINE/.test(typingJs) && /JUNG_COMBINE/.test(typingJs));
+check('한영 — 양방향', /export function koToEn/.test(typingJs) && /export function enToKo/.test(typingJs));
+check('한영 — 자동 판별', /export function autoConvert/.test(typingJs));
+check('한영 — 독립 모듈', /id: 'typing-converter'/.test(read('modules/typing-converter/module.js')));
+check('한영 — 클립보드에서 변환해 복사', /한영 변환해서 복사/.test(read('modules/clipboard-history/module.js'))
+  && /autoConvert\(source\)/.test(read('modules/clipboard-history/module.js')));
+
+/* ---------- 17.10 새 도구 — 스크린샷 표시 ---------- */
+const shotSrc = read('modules/screenshot-annotate/module.js');
+check('스크린샷 — Mac 전용', /macOnly: true/.test(shotSrc) && /badge: 'Mac'/.test(shotSrc));
+check('스크린샷 — 영역 캡처·권한 안내', /capture_region/.test(shotSrc) && /화면 기록 설정 열기/.test(shotSrc));
+check('스크린샷 — 화살표·사각형·글자·모자이크', /id: 'arrow'/.test(shotSrc) && /id: 'rect'/.test(shotSrc)
+  && /id: 'text'/.test(shotSrc) && /id: 'mosaic'/.test(shotSrc));
+check('스크린샷 — 모자이크 코드 재사용', /import \{ pixelate \} from '..\/..\/js\/mosaic.js'/.test(shotSrc)
+  && /export function pixelate/.test(read('js/mosaic.js')));
+check('스크린샷 — 복사·저장', /id=\"sa-copy\"/.test(shotSrc) && /id=\"sa-save\"/.test(shotSrc));
+
+/* ---------- 17.11 기존 모듈 확장 ---------- */
+const devSrc = read('modules/dev-tools/module.js');
+check('툴팩 — 비밀번호 탭', /id: 'pass', label: '비밀번호'/.test(devSrc) && /crypto\.getRandomValues/.test(devSrc));
+check('툴팩 — 파일 해시 탭', /id: 'hash', label: '파일 해시'/.test(devSrc) && /SHA-256/.test(devSrc)
+  && /SHA-1/.test(devSrc) && /md5Hex/.test(devSrc));
+check('툴팩 — 이름 표기 탭', /id: 'case', label: '이름 표기'/.test(devSrc) && /camelCase/.test(devSrc)
+  && /snake_case/.test(devSrc) && /kebab-case/.test(devSrc) && /PascalCase/.test(devSrc));
+const colorSrc = read('modules/color-tools/module.js');
+check('색상 — 사진 대표색 5~8', /function dominantColors\(imageData, max = 8\)/.test(colorSrc)
+  && /picked\.slice\(0, Math\.max\(5, Math\.min\(max, picked\.length\)\)\)/.test(colorSrc));
+check('색상 — 누르면 대비 검사로', /state\.fg = \{ r: color\.r/.test(colorSrc) && /state\.bg = \{ r: color\.r/.test(colorSrc));
+const pdfSrc = read('modules/pdf-tools/module.js');
+check('PDF — 이미지를 PDF로', /data-mode=\"image\"/.test(pdfSrc) && /label: '이미지를 PDF로'|이미지를 PDF로/.test(pdfSrc));
+check('PDF — 순서 바꾸기', /function moveImage\(id, delta\)/.test(pdfSrc));
+check('PDF — A4 맞춤·원본 크기', /imageFit === 'a4'/.test(pdfSrc) && /data-fit=\"original\"/.test(pdfSrc));
+
+/* ---------- 17.12 문서·캐시 목록 ---------- */
+check('버전 1.16.0', VERSION === '1.16.0', VERSION);
+['js/backup.js', 'js/recent.js', 'js/continue.js', 'js/typing.js', 'js/mosaic.js']
+  .forEach((file) => check(`sw.js 프리캐시 ${file}`, read('sw.js').includes(`'./${file}'`)));
+['text-counter', 'date-calc', 'typing-converter', 'screenshot-annotate']
+  .forEach((id) => check(`sw.js 프리캐시 ${id}`, read('sw.js').includes(`'./modules/${id}/module.js'`)));
+check('README v1.16.0', read('README.md').includes('| v1.16.0 |'));
+check('README 새 도구 안내', read('README.md').includes('### 28) 글자 수 세기')
+  && read('README.md').includes('### 29) 날짜 계산기') && read('README.md').includes('### 30) 한영 타자 변환'));
+check('README 백업 안내', read('README.md').includes('백업과 복원'));
 
 /* ------------------------------ 결과 ------------------------------ */
 

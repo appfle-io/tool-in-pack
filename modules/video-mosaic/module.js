@@ -68,6 +68,7 @@ function noticeBox(kind, title, body) {
 
 const module = {
   id: 'video-mosaic',
+  accepts: ['video/*'],
   name: '영상 모자이크',
   shortName: '영상 모자이크',
   kind: 'tool',

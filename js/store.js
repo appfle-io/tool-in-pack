@@ -72,12 +72,38 @@ export function resetSettings() {
 
 const ORDER_KEY = 'tip.order.v1';
 /* 홈 섹션 id — modules/registry.js 의 CATEGORIES 순서와 같아야 한다.
-   v1.12.2 — 'docs' 를 'document' 로 바꾸고 개발(dev)·조회(online) 두 묶음을 더했다.
-   예전 저장값(tip.order.v1 = { docs: [...] })은 읽을 때 document 로 옮겨 준다. */
-export const ORDER_SECTIONS = ['pinned', 'document', 'media', 'dev', 'utility', 'online'];
+   v1.16.0 — 여섯 묶음(docs·media·file·calc·dev·mac)으로 개편했다.
+   예전 저장값(tip.order.v1 = { document: [...], utility: [...], online: [...] })은
+   읽을 때 새 분류로 옮겨 담는다 — 핀과 모듈별 순서가 그대로 남는다. */
+export const ORDER_SECTIONS = ['pinned', 'docs', 'media', 'file', 'calc', 'dev', 'mac'];
 
-/* v1.12.2 이전 섹션 id → 지금 id. 저장된 순서를 잃지 않게 읽을 때 옮긴다. */
-const ORDER_SECTION_ALIASES = { docs: 'document', utilities: 'utility' };
+/* v1.16.0 이전 섹션 id → 지금 id. (이름만 바뀐 것) */
+const ORDER_SECTION_ALIASES = { docs: 'docs', document: 'docs', media: 'media', dev: 'dev' };
+
+/* 옛 분류에 섞여 있던 모듈이 새 분류에서 찾아갈 자리.
+   'utility' 와 'online' 은 여러 새 분류로 흩어졌기 때문에 모듈 id 로 하나씩 정한다.
+   표에 없는 id 는 default 로 간다. */
+const LEGACY_ORDER_TARGETS = {
+  document: { default: 'docs' },
+  media: { default: 'media' },
+  dev: { default: 'dev', 'text-diff': 'docs', 'icon-gen': 'media' },
+  utility: {
+    default: 'calc',
+    'clipboard-history': 'mac',
+    'qr-gen': 'media',
+    'file-compress': 'file',
+    'ocr-reader': 'docs',
+    'drag-ocr': 'docs',
+    'sticky-notes': 'mac',
+    snippets: 'dev',
+    'screen-picker': 'mac',
+    'window-snap': 'mac',
+    'bulk-rename': 'file',
+    timer: 'calc',
+    'unit-converter': 'calc',
+  },
+  online: { default: 'calc' },
+};
 
 let orderCache = null;
 
@@ -103,6 +129,18 @@ function readOrder() {
       if (typeof id === 'string' && !merged.includes(id)) merged.push(id);
     });
     next[newId] = merged;
+  });
+  // v1.16.0 — 옛 'utility'·'online'·'dev' 목록을 모듈별 새 분류로 나눠 담는다.
+  Object.entries(LEGACY_ORDER_TARGETS).forEach(([oldId, table]) => {
+    const list = parsed && Array.isArray(parsed[oldId]) ? parsed[oldId] : [];
+    if (!list.length) return;
+    list.forEach((rawId) => {
+      if (typeof rawId !== 'string') return;
+      const id = rawId === 'drag-ocr' ? 'ocr-reader' : rawId;
+      const target = table[id] || table.default;
+      if (!next[target] || next[target].includes(id)) return;
+      next[target].push(id);
+    });
   });
   orderCache = next;
   return orderCache;

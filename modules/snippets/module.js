@@ -19,7 +19,7 @@ const module = {
   name: '스니펫',
   shortName: '스니펫',
   kind: 'tool',
-  category: 'utility',
+  category: 'dev',
   version: '1.14.0',
   subtitle: '자주 쓰는 문구 한 번에 복사',
   description: '이메일이나 계좌, 주소 같은 문구를 별칭과 함께 저장하고 전역 검색에서 바로 복사합니다.',

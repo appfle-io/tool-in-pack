@@ -35,6 +35,7 @@ const APP_COMMANDS: &[&str] = &[
     "clipboard_clear",
     "clipboard_add_text",
     "clipboard_add_image",
+    "clipboard_restore",
     // 미디어·캘린더
     "media_state",
     "media_control",
@@ -92,6 +93,10 @@ const APP_COMMANDS: &[&str] = &[
     "sticky_close",
     "sticky_delete",
     "sticky_open",
+    "sticky_restore",
+    // 백업 파일 저장·열기 대화상자 (v1.16.0)
+    "save_backup_file",
+    "open_backup_file",
 ];
 
 fn main() {

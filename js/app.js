@@ -1,6 +1,6 @@
 /* TIP app shell — hash routing, home hub, theme, PWA install/SW plumbing. */
 
-import { listModules, getModule, CATEGORIES, categoryOf } from '../modules/registry.js';
+import { listModules, getModule, visibleCategories, categoryOf } from '../modules/registry.js';
 import {
   moduleState, setModuleState, getTheme, setTheme, applyTheme, getAccent, setAccent, ACCENTS,
   getSectionOrder, setSectionOrder, hasSectionOrder, resetSectionOrder, resetRadialOrder,
@@ -21,7 +21,12 @@ import {
 } from './feature-settings.js';
 import { listSnippets } from './snippets.js';
 import { tickTimer, alertTimerDone, timerState } from './timer-store.js';
-import { el, toast, icons } from './ui.js';
+import { recordRecent, recentIds, getRecentEnabled, setRecentEnabled, clearRecent } from './recent.js';
+import { takeContinue } from './continue.js';
+import {
+  collectBackup, backupFileName, readBackup, describeBackup, applyBackup,
+} from './backup.js';
+import { el, toast, icons, confirmDialog } from './ui.js';
 
 /* Mac 앱(Tauri) 안에서 실행 중인지 — 메뉴 막대 퀵바와 창을 주고받는 데 쓴다. */
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
@@ -52,8 +57,18 @@ function renderHome() {
   // 고정된 모듈이 있을 때만 맨 위에 '고정됨' 섹션을 만든다.
   if (pinned.length) sections.append(homeSection('pinned', '고정됨', pinned, true));
 
-  // 나머지는 registry 의 CATEGORIES 순서(문서 → 미디어 → 개발 → 유틸리티 → 온라인)대로 묶는다.
-  CATEGORIES.forEach(({ id, label }) => {
+  // v1.16.0 — '고정됨' 아래 '최근 사용' 줄. 이미 고정된 모듈은 빼고 최대 6개.
+  // 설정에서 끄거나 [기록 지우기]를 누르면 이 줄이 사라진다.
+  if (getRecentEnabled()) {
+    const recent = recentIds(6)
+      .map((id) => enabled.find(({ mod }) => mod.id === id))
+      .filter((entry) => entry && !entry.state.pinned);
+    if (recent.length) sections.append(homeSection('recent', '최근 사용', recent, false, false));
+  }
+
+  // 나머지는 registry 의 CATEGORIES 순서(문서·글 → 사진·영상 → 파일 → 계산·조회 → 개발·디자인 → Mac 화면 도구)대로 묶는다.
+  // 웹(PWA)에는 'Mac 화면 도구' 섹션이 아예 나오지 않는다(visibleCategories).
+  visibleCategories().forEach(({ id, label }) => {
     const entries = ordered(rest.filter(({ mod }) => categoryOf(mod) === id), id);
     if (entries.length) sections.append(homeSection(id, label, entries, true));
   });
@@ -61,9 +76,228 @@ function renderHome() {
   // 꺼진 모듈이 1개 이상일 때만 맨 아래에 모은다. 스위치를 켜면 원래 묶음으로 돌아간다.
   if (off.length) sections.append(homeSection('off', '꺼진 모듈', off));
 
-  view.append(sections);
+  view.append(homeToolbar(), sections);
   syncEditButton();
 }
+
+/* ------------------- 홈 파일로 시작하기 · 끌어다 놓기 (v1.16.0) ------------------- */
+
+/** 파일 종류별로 먼저 보여 줄 모듈 차례 — 레지스트리 순서와 별개로 추천 순서를 정한다. */
+const DROP_PRIORITY = [
+  'pdf-tools', 'doc-reader', 'img-converter', 'photo-privacy', 'ocr-reader', 'icon-gen',
+  'video-gif', 'video-mosaic', 'text-diff', 'md-editor', 'text-counter', 'typing-converter',
+  'bulk-rename', 'file-compress', 'color-tools', 'screenshot-annotate',
+];
+
+const EXT_TYPES = {
+  pdf: 'application/pdf',
+  hwp: 'application/x-hwp',
+  hwpx: 'application/vnd.hancom.hwpx',
+  md: 'text/markdown',
+  markdown: 'text/markdown',
+  txt: 'text/plain',
+  csv: 'text/csv',
+  json: 'application/json',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+  gif: 'image/gif', heic: 'image/heic', heif: 'image/heif', bmp: 'image/bmp', svg: 'image/svg+xml',
+  mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', avi: 'video/x-msvideo',
+  zip: 'application/zip',
+};
+
+function fileTypeOf(file) {
+  if (file.type) return file.type;
+  const ext = String(file.name || '').split('.').pop().toLowerCase();
+  return EXT_TYPES[ext] || '';
+}
+
+function acceptsFile(mod, file) {
+  const accepts = Array.isArray(mod.accepts) ? mod.accepts : [];
+  if (!accepts.length) return false;
+  const type = fileTypeOf(file);
+  const ext = `.${String(file.name || '').split('.').pop().toLowerCase()}`;
+  return accepts.some((pattern) => {
+    if (pattern === '*/*') return true;
+    if (pattern.startsWith('.')) return ext === pattern;
+    if (pattern.endsWith('/*')) return type.startsWith(pattern.slice(0, -1));
+    return type === pattern;
+  });
+}
+
+/** 이 파일들을 받을 수 있는 모듈 — 모든 파일을 받을 수 있어야 후보가 된다. */
+function dropCandidates(files) {
+  if (!files.length) return [];
+  const enabled = listModules().filter((mod) => moduleState(mod).enabled);
+  return enabled
+    .filter((mod) => mod.accepts && mod.accepts.length)
+    .filter((mod) => (mod.acceptsMultiOnly ? files.length > 1 : true))
+    .filter((mod) => files.every((file) => acceptsFile(mod, file)))
+    .sort((a, b) => {
+      const ai = DROP_PRIORITY.indexOf(a.id);
+      const bi = DROP_PRIORITY.indexOf(b.id);
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+    });
+}
+
+function homeToolbar() {
+  const input = el('input', { type: 'file', id: 'home-file-input', class: 'sr-only', multiple: true });
+  input.addEventListener('change', () => {
+    const files = Array.from(input.files || []);
+    input.value = '';
+    showDropChooser(files);
+  });
+  const button = el('button', {
+    class: 'v16-btn home-file-start',
+    type: 'button',
+    text: '파일로 시작하기',
+    'aria-label': '파일로 시작하기. 파일을 골라 맞는 도구를 찾습니다',
+  });
+  button.addEventListener('click', () => input.click());
+  return el('div', { class: 'home-toolbar' }, [button, input]);
+}
+
+/** 끌어다 놓은 파일을 잠시 들고 있는 곳 — 어느 모듈을 고를 때까지. */
+let droppedFiles = [];
+
+function announceDrop(text) {
+  const live = document.getElementById('drop-live');
+  if (live) live.textContent = text;
+}
+
+function closeDropChooser() {
+  document.querySelector('.drop-overlay')?.remove();
+  droppedFiles = [];
+}
+
+/** 파일을 놓으면 받을 수 있는 모듈을 골라 준다. 없으면 이유를 알린다. */
+function showDropChooser(files) {
+  const list = (files || []).filter((file) => file && file.name);
+  closeDropChooser();
+  if (!list.length) return;
+  droppedFiles = list;
+
+  const candidates = dropCandidates(list);
+  if (!candidates.length) {
+    const message = '이 파일을 열 수 있는 도구가 없어요';
+    toast(message, 3200);
+    announceDrop(message);
+    droppedFiles = [];
+    return;
+  }
+
+  const panel = el('div', {
+    class: 'drop-panel',
+    role: 'dialog',
+    'aria-modal': 'true',
+    'aria-label': '파일로 무엇을 할까요',
+  });
+  const title = el('h2', { class: 'drop-title', text: '이 파일로 무엇을 할까요?' });
+  const names = el('p', {
+    class: 'drop-files',
+    text: list.length > 1 ? `${list.length}개 파일: ${list.slice(0, 3).map((file) => file.name).join(', ')}${list.length > 3 ? ' 외' : ''}` : list[0].name,
+  });
+  const buttons = el('div', { class: 'drop-list' });
+
+  candidates.forEach((mod) => {
+    const button = el('button', { class: 'drop-item', type: 'button' }, [
+      el('span', { class: 'drop-icon', html: mod.icon || '', 'aria-hidden': 'true' }),
+      el('span', { class: 'drop-text' }, [
+        el('b', { text: mod.name }),
+        el('span', { text: mod.subtitle || '' }),
+      ]),
+      el('span', { class: 'sheet-menu-arrow', text: '›', 'aria-hidden': 'true' }),
+    ]);
+    button.addEventListener('click', () => {
+      handoffFiles(mod.id, droppedFiles);
+      closeDropChooser();
+    });
+    buttons.append(button);
+  });
+
+  const close = el('button', { class: 'v16-btn drop-close', type: 'button', text: '닫기' });
+  close.addEventListener('click', closeDropChooser);
+  panel.append(title, names, buttons, close);
+  document.body.append(panel);
+  announceDrop(`${list.length}개 파일을 받을 도구 ${candidates.length}개를 찾았습니다`);
+  requestAnimationFrame(() => buttons.querySelector('button')?.focus({ preventScroll: true }));
+
+  const onKey = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeDropChooser();
+    }
+  };
+  document.addEventListener('keydown', onKey, true);
+  const observer = new MutationObserver(() => {
+    if (!document.body.contains(panel)) {
+      document.removeEventListener('keydown', onKey, true);
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.body, { childList: true });
+}
+
+/** 고른 파일을 그 모듈로 넘기고 화면을 옮긴다 — 기기 안 localStorage 를 잠깐 거친다. */
+async function handoffFiles(moduleId, files) {
+  const MAX_TOTAL = 40 * 1024 * 1024;
+  let total = 0;
+  const entries = [];
+  try {
+    for (const file of files) {
+      total += file.size;
+      if (total > MAX_TOTAL) throw new Error('파일이 너무 큽니다');
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('읽지 못함'));
+        reader.readAsDataURL(file);
+      });
+      entries.push({ name: file.name, type: file.type || fileTypeOf(file), dataUrl });
+    }
+    localStorage.setItem('tip.handoff.v1', JSON.stringify({
+      moduleId,
+      files: entries,
+      created: Date.now(),
+    }));
+  } catch (error) {
+    console.error('[TIP drop]', error);
+    toast(files.length > 1 ? '파일이 너무 커서 한 번에 넘기지 못했습니다' : '파일을 읽지 못했습니다');
+    return;
+  }
+  location.hash = `#/${moduleId}`;
+}
+
+/* 홈에서 파일을 끌어다 놓으면 추천을 띄운다. 다른 화면에서는 모듈이 직접 받는다. */
+function homeDropReady() {
+  const hash = (location.hash || '#/').replace(/^#\/?/, '').replace(/\/+$/, '');
+  return !hash;
+}
+
+let dropDepth = 0;
+document.addEventListener('dragenter', (event) => {
+  if (!homeDropReady() || !event.dataTransfer) return;
+  if (!Array.from(event.dataTransfer.types || []).includes('Files')) return;
+  event.preventDefault();
+  dropDepth += 1;
+  document.body.classList.add('is-file-drag');
+});
+document.addEventListener('dragover', (event) => {
+  if (!homeDropReady() || !event.dataTransfer) return;
+  if (!Array.from(event.dataTransfer.types || []).includes('Files')) return;
+  event.preventDefault();
+});
+document.addEventListener('dragleave', () => {
+  dropDepth = Math.max(0, dropDepth - 1);
+  if (!dropDepth) document.body.classList.remove('is-file-drag');
+});
+document.addEventListener('drop', (event) => {
+  document.body.classList.remove('is-file-drag');
+  dropDepth = 0;
+  if (!homeDropReady()) return;
+  const files = Array.from(event.dataTransfer?.files || []);
+  if (!files.length) return;
+  event.preventDefault();
+  showDropChooser(files);
+});
 
 /** 저장된 순서(tip.order.v1)대로 정렬한다. 목록에 없는 모듈은 원래 순서대로 뒤에 붙는다(안정 정렬). */
 function ordered(entries, sectionId) {
@@ -74,9 +308,9 @@ function ordered(entries, sectionId) {
   return entries.slice().sort((a, b) => place(a) - place(b));
 }
 
-function homeSection(id, label, entries, sortable = false) {
+function homeSection(id, label, entries, sortable = false, showControls = true) {
   const list = el('div', { class: 'module-list' });
-  entries.forEach(({ mod, state }) => list.append(moduleRow(mod, state, { sectionId: id, sortable })));
+  entries.forEach(({ mod, state }) => list.append(moduleRow(mod, state, { sectionId: id, sortable, showControls })));
   return el('section', { class: 'home-section', 'data-section': id, 'aria-label': label }, [
     el('h2', { class: 'home-section-title' }, [
       el('span', { text: label }),
@@ -86,7 +320,7 @@ function homeSection(id, label, entries, sortable = false) {
   ]);
 }
 
-function moduleRow(mod, state, { sectionId = null, sortable = false } = {}) {
+function moduleRow(mod, state, { sectionId = null, sortable = false, showControls = true } = {}) {
   const row = el('article', {
     class: `module-card${state.enabled ? '' : ' is-off'}`,
     role: 'button',
@@ -168,7 +402,8 @@ function moduleRow(mod, state, { sectionId = null, sortable = false } = {}) {
       ]),
       el('p', { text: mod.subtitle }),
     ]),
-    el('div', { class: 'module-controls' }, [pinBtn, toggle, openBtn]),
+    // v1.16.0 — '최근 사용' 줄은 실행만 한다(같은 모듈의 핀·켜기가 두 번 보이지 않게).
+    showControls ? el('div', { class: 'module-controls' }, [pinBtn, toggle, openBtn]) : null,
   );
 
   row.addEventListener('click', open);
@@ -472,12 +707,14 @@ function moveByKeyboard(event, row, handle, sectionId) {
 
 let activeCleanup = null;
 
-function renderModule(mod) {
+function renderModule(mod, intent = null) {
   if (activeCleanup) {
     try { activeCleanup(); } catch { /* keep going */ }
     activeCleanup = null;
   }
   view.innerHTML = '';
+  // v1.16.0 — 최근 사용에 남긴다(홈 '최근 사용' 줄).
+  recordRecent(mod.id);
 
   const back = el('button', { class: 'back-btn', type: 'button', 'aria-label': '뒤로', html: icons.back });
   back.addEventListener('click', () => { location.hash = '#/'; });
@@ -512,6 +749,10 @@ function renderModule(mod) {
     goHome: () => { location.hash = '#/'; },
     goModule: (id) => { location.hash = `#/${id}`; },
     openSettings: (moduleId) => openSheet('modules', moduleId || mod.id),
+    // v1.16.0 — 주소(#/drag-ocr)나 홈 빠른 실행이 알려 주는 시작 방식.
+    intent,
+    // v1.16.0 — 앞 모듈의 결과를 한 번 꺼낸다(저장소에 남기지 않음).
+    takeContinue: () => takeContinue(mod.id),
     toast,
     icons,
   }) || null;
@@ -530,21 +771,26 @@ function deliverHandoff(mod, root) {
   } catch {
     handoff = null;
   }
-  if (!handoff || handoff.moduleId !== mod.id || !handoff.dataUrl) return;
+  if (!handoff || handoff.moduleId !== mod.id) return;
+  // v1.16.0 — 여러 파일(파일 이름 변경·압축)도 한 번에 넘긴다.
+  const entries = Array.isArray(handoff.files)
+    ? handoff.files
+    : (handoff.dataUrl ? [{ name: handoff.name, type: handoff.type, dataUrl: handoff.dataUrl }] : []);
+  if (!entries.length) return;
   const age = Date.now() - Number(handoff.created || 0);
   try { localStorage.removeItem(HANDOFF_KEY); } catch { /* 지우지 못해도 한 번은 넘긴다 */ }
   if (age > 5 * 60 * 1000) return;
 
-  fetch(handoff.dataUrl)
+  Promise.all(entries.map((entry) => fetch(entry.dataUrl)
     .then((response) => response.blob())
-    .then((blob) => {
-      const file = new File([blob], handoff.name || 'file', { type: handoff.type || blob.type });
+    .then((blob) => new File([blob], entry.name || 'file', { type: entry.type || blob.type }))))
+    .then((files) => {
       const transfer = new DataTransfer();
-      transfer.items.add(file);
+      files.forEach((file) => transfer.items.add(file));
       root.dispatchEvent(new DragEvent('drop', {
         bubbles: true, cancelable: true, dataTransfer: transfer,
       }));
-      toast(`${file.name}을(를) 불러왔습니다`);
+      toast(files.length > 1 ? `${files.length}개 파일을 불러왔습니다` : `${files[0].name}을(를) 불러왔습니다`);
     })
     .catch((error) => {
       console.error('[TIP handoff]', error);
@@ -555,16 +801,19 @@ function deliverHandoff(mod, root) {
 /* -------------------------------- router ------------------------------- */
 
 function route() {
-  const hash = (location.hash || '#/').replace(/^#\/?/, '').replace(/\/+$/, '');
-  if (!hash) {
+  const raw = (location.hash || '#/').replace(/^#\/?/, '').replace(/\/+$/, '');
+  if (!raw) {
     renderHome();
     return;
   }
   // 모듈 화면으로 가면 편집 모드를 끝낸다.
   homeEditing = false;
+  // v1.16.0 — 예전 드래그 OCR 주소는 통합 OCR 의 '화면에서'로 보낸다(단축키·북마크 호환).
+  const hash = raw === 'drag-ocr' ? 'ocr-reader' : raw;
+  const intent = raw === 'drag-ocr' ? { mode: 'screen' } : null;
   const mod = getModule(hash);
   if (mod && moduleState(mod).enabled) {
-    renderModule(mod);
+    renderModule(mod, intent);
   } else {
     renderHome();
     if (mod) toast(`${mod.name}이(가) 사용 중지되어 있습니다. 편집에서 스위치를 켠 뒤 실행하세요.`);
@@ -587,12 +836,14 @@ let sheet = null;
 const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
 const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
 
+/* v1.15.5 — 미리보기 색은 css/app.css 의 실제 --accent 값과 같아야 한다(초록 다크 포함).
+   12조합(6색 × 라이트/다크) 모두 채움 위 흰 글자가 4.5:1 이상이다. */
 const SWATCH_COLORS = {
-  green: ['#2E5E4E', '#4A8E77'],
-  blue: ['#0A6CFF', '#3D8BFF'],
-  purple: ['#7C3AED', '#8B5CF6'],
-  orange: ['#EA580C', '#F97316'],
-  rose: ['#E11D48', '#F43F5E'],
+  green: ['#2E5E4E', '#3F7D68'],
+  blue: ['#0A6CFF', '#2563EB'],
+  purple: ['#7C3AED', '#7C3AED'],
+  orange: ['#C2410C', '#C2410C'],
+  rose: ['#E11D48', '#E11D48'],
   slate: ['#475569', '#64748B'],
 };
 
@@ -818,7 +1069,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.15.4';
+const APP_VERSION = '1.16.0';
 
 let updateBusy = false;
 
@@ -1571,6 +1822,8 @@ function generalTab(render) {
   }
 
   parts.push(updateSection());
+  parts.push(recentSection());
+  parts.push(backupSection());
   parts.push(dataSection());
 
   if (hasSectionOrder()) {
@@ -1846,10 +2099,15 @@ function modulesTab(render) {
           title: keys.map((key) => prettyShortcut(key)).join(', '),
         })
         : null;
+      // v1.16.0 — 어느 묶음(문서·글 등)에 있는 모듈인지도 함께 보여 준다.
+      const categoryLabel = visibleCategories().find((category) => category.id === categoryOf(mod))?.label || '';
       const row = el('button', { class: 'sheet-module-row', type: 'button' }, [
         el('span', { class: 'sheet-module-icon', html: mod.icon || '' }),
         el('span', { class: 'sheet-module-text' }, [
-          el('b', { text: mod.name }),
+          el('span', { class: 'sheet-module-head' }, [
+            el('b', { text: mod.name }),
+            categoryLabel ? el('span', { class: 'sheet-module-cat', text: categoryLabel }) : null,
+          ]),
           el('span', { text: mod.subtitle || '' }),
         ]),
         badge,
@@ -2286,6 +2544,194 @@ async function openInquiry() {
   } catch {
     toast(`문의 주소: ${MAIL_TO}`, 4000);
   }
+}
+
+/** 일반 탭 — 최근 사용 (v1.16.0). */
+function recentSection() {
+  const toggle = sheetSwitch(getRecentEnabled(), '최근 사용한 모듈 보기', (next) => {
+    setRecentEnabled(next);
+    rerenderHome();
+    toast(next ? '최근 사용한 모듈을 홈에 보여 줍니다' : '최근 사용한 모듈을 홈에서 감췄습니다');
+  });
+
+  return el('div', { class: 'sheet-section mb-section' }, [
+    el('h3', { text: '최근 사용' }),
+    el('p', {
+      class: 'mb-note',
+      text: '홈 위쪽에 최근에 연 모듈을 최대 6개 보여 줍니다. 이미 고정한 모듈은 빼고 보여 줍니다.',
+    }),
+    el('div', { class: 'mb-row' }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: '최근 사용한 모듈 보기' }),
+        el('i', { class: 'notch-hint', text: '기록은 이 기기에만 남습니다' }),
+      ]),
+      toggle,
+    ]),
+    el('div', { class: 'mb-row' }, [
+      el('span', { class: 'mb-label' }, el('i', { class: 'notch-hint', text: '지우면 다시 열 때부터 새로 쌓입니다' })),
+      el('button', {
+        class: 'sheet-reset',
+        type: 'button',
+        text: '기록 지우기',
+        onclick: () => {
+          clearRecent();
+          rerenderHome();
+          toast('최근 사용 기록을 지웠습니다');
+        },
+      }),
+    ]),
+  ]);
+}
+
+/** 백업 파일을 웹에서 내려받는다. (Mac 은 Rust 저장 대화상자를 쓴다) */
+function downloadText(text, name) {
+  const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/** 일반 탭 맨 아래 — 백업과 복원 (v1.16.0). */
+function backupSection() {
+  const includeClip = el('input', { type: 'checkbox', id: 'backup-include-clip' });
+  const fileInput = el('input', { type: 'file', id: 'backup-file', accept: 'application/json,.json', class: 'sr-only' });
+  const statusEl = el('div', { class: 'v16-status', hidden: true, 'aria-live': 'polite' });
+  const previewEl = el('div', { class: 'backup-preview', hidden: true });
+  const makeBtn = el('button', { class: 'primary-btn', type: 'button', text: '백업 파일 만들기' });
+  const loadBtn = el('button', { class: 'primary-btn ghost', type: 'button', text: '백업 파일 불러오기' });
+
+  function setStatus(text, kind = '') {
+    statusEl.hidden = !text;
+    statusEl.className = `v16-status${text ? ` ${kind}` : ''}`;
+    statusEl.textContent = text || '';
+  }
+
+  async function makeBackup() {
+    makeBtn.disabled = true;
+    setStatus('백업 파일을 만드는 중…', 'warn');
+    try {
+      const text = await collectBackup({
+        includeClipboard: TAURI && includeClip.checked,
+        version: APP_VERSION,
+      });
+      const name = backupFileName();
+      if (TAURI) {
+        const result = await invokeTauri('save_backup_file', { name, content: text });
+        if (result && result.path) {
+          setStatus(`저장했습니다: ${result.path}`, 'ok');
+          toast('백업 파일을 저장했습니다', 3200);
+        } else {
+          setStatus('');
+          toast('백업 저장을 취소했습니다');
+        }
+      } else {
+        downloadText(text, name);
+        setStatus(`${name} 을(를) 내려받았습니다`, 'ok');
+        toast('백업 파일을 내려받았습니다', 3200);
+      }
+    } catch (error) {
+      console.error('[TIP backup]', error);
+      setStatus(typeof error === 'string' ? error : '백업 파일을 만들지 못했습니다', 'bad');
+    } finally {
+      makeBtn.disabled = false;
+    }
+  }
+
+  async function handleText(text, name = '') {
+    const parsed = readBackup(text);
+    if (!parsed.ok) {
+      previewEl.hidden = true;
+      setStatus(`이 파일은 열지 않았습니다. ${parsed.error}`, 'bad');
+      return;
+    }
+    previewEl.replaceChildren();
+    previewEl.append(el('p', { class: 'backup-title', text: name ? `${name} 안에 있는 것` : '이 파일 안에 있는 것' }));
+    parsed.summary.forEach(({ label, value }) => {
+      previewEl.append(el('div', { class: 'backup-row' }, [
+        el('span', { class: 'backup-key', text: label }),
+        el('span', { class: 'backup-value', text: value }),
+      ]));
+    });
+    if (parsed.ignored) {
+      previewEl.append(el('p', { class: 'backup-note', text: `이 앱이 모르는 항목 ${parsed.ignored}개는 건너뜁니다.` }));
+    }
+    previewEl.hidden = false;
+    setStatus('', '');
+
+    const summary = parsed.summary.map((item) => `${item.label} ${item.value}`).join(', ');
+    const ok = await confirmDialog({
+      title: '백업 파일 불러오기',
+      message: `${describeBackup(parsed)}. ${summary}. 지금 설정을 덮어씁니다. 되돌릴 수 없습니다.`,
+      okText: '덮어쓰기',
+    });
+    if (!ok) {
+      setStatus('불러오기를 취소했습니다. 아무것도 바뀌지 않았습니다.', 'warn');
+      return;
+    }
+    const result = await applyBackup(parsed);
+    if (!result.ok) {
+      setStatus(result.error, 'bad');
+      return;
+    }
+    setStatus(result.warning || '되돌렸습니다. 화면을 새로 고칩니다…', result.warning ? 'warn' : 'ok');
+    toast(result.warning || '백업을 되돌렸습니다. 화면을 새로 고칩니다', 3200);
+    setTimeout(() => location.reload(), 800);
+  }
+
+  makeBtn.addEventListener('click', makeBackup);
+  loadBtn.addEventListener('click', async () => {
+    setStatus('', '');
+    if (!TAURI) {
+      fileInput.click();
+      return;
+    }
+    try {
+      const result = await invokeTauri('open_backup_file');
+      if (!result || !result.content) return;
+      await handleText(result.content, result.name || '');
+    } catch (error) {
+      console.error('[TIP backup]', error);
+      setStatus(typeof error === 'string' ? error : '백업 파일을 열지 못했습니다', 'bad');
+    }
+  });
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    try {
+      await handleText(await file.text(), file.name);
+    } catch (error) {
+      console.error('[TIP backup]', error);
+      setStatus('파일을 읽지 못했습니다', 'bad');
+    }
+  });
+
+  const parts = [
+    el('h3', { text: '백업과 복원' }),
+    el('p', {
+      class: 'mb-note',
+      text: '설정, 홈 카드 순서, 고정한 모듈, 스니펫, 단축키를 JSON 한 파일로 만듭니다. 만든 파일은 이 기기에만 두세요.',
+    }),
+  ];
+
+  if (TAURI) {
+    parts.push(el('label', { class: 'backup-check', for: 'backup-include-clip' }, [
+      includeClip,
+      el('span', { text: '클립보드 기록도 포함' }),
+    ]));
+    parts.push(el('p', {
+      class: 'mb-note backup-warn',
+      text: '클립보드 기록에는 비밀번호나 개인 정보가 들어 있을 수 있습니다. 넣으면 파일을 안전한 곳에 두세요.',
+    }));
+  }
+
+  parts.push(el('div', { class: 'v16-actions backup-actions' }, [makeBtn, loadBtn]));
+  parts.push(fileInput, statusEl, previewEl);
+
+  return el('div', { class: 'sheet-section mb-section backup-section' }, parts);
 }
 
 /** 일반 탭 맨 아래 — 데이터 처리 안내(이 문장이 앱에서 유일한 '기기 안' 안내다)와 문의. */

@@ -119,10 +119,11 @@ function canvasToBlob(canvas, type, quality) {
 
 const module = {
   id: 'file-compress',
+  accepts: ['*/*'],
   name: '파일 압축',
   shortName: '파일 압축',
   kind: 'tool',
-  category: 'utility',
+  category: 'file',
   version: '1.0.0',
   subtitle: '이미지와 PDF 용량 줄이기, ZIP 묶기',
   description: '이미지와 PDF 용량을 줄이고 여러 파일을 ZIP 으로 묶거나 풀어서 저장합니다.',
@@ -929,6 +930,12 @@ const module = {
     renderZipList();
     renderImageList();
     setTab('image');
+
+    // v1.16.0 — '이어서 하기'로 넘어온 파일이 있으면 바로 목록에 넣는다.
+    const continued = ctx?.takeContinue ? ctx.takeContinue() : null;
+    if (continued && Array.isArray(continued.files) && continued.files.length) {
+      routeFiles(continued.files);
+    }
 
     return () => {
       controller.abort();

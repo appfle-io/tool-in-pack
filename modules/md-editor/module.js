@@ -86,10 +86,11 @@ function loadDraft() {
 
 const module = {
   id: 'md-editor',
+  accepts: ['text/markdown', 'text/plain', '.md'],
   name: '마크다운 편집기',
   shortName: '마크다운',
   kind: 'tool',
-  category: 'document',
+  category: 'docs',
   version: '1.0.0',
   subtitle: '표와 체크박스까지 바로 그려집니다',
   description: '마크다운을 쓰면서 표, 체크박스, 코드까지 바로 미리 보고 .md 나 .html 로 저장하거나 인쇄합니다.',
@@ -390,6 +391,14 @@ ${body}
     }
     renderPreview();
     renderStats();
+
+    // v1.16.0 — '이어서 하기'로 넘어온 글자로 마크다운을 시작한다.
+    const continued = ctx?.takeContinue ? ctx.takeContinue() : null;
+    if (continued && typeof continued.text === 'string') {
+      editor.value = continued.text;
+      onInput();
+      editor.focus({ preventScroll: true });
+    }
 
     return () => {
       clearTimeout(saveTimer);

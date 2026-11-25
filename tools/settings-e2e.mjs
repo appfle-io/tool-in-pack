@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TIP v1.15.4 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.16.0 · 환경설정 4탭 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
@@ -216,7 +216,7 @@ await page.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
 
-check('홈이 그려짐(모듈 27)', await page.locator('.module-card').count() === 27, String(await page.locator('.module-card').count()));
+check('홈이 그려짐(모듈 30)', await page.locator('.module-card').count() === 30, String(await page.locator('.module-card').count()));
 check('Mac 환경에서 설정 버튼 있음', await page.locator('#settings-btn').count() === 1);
 
 await openSettings();
@@ -421,7 +421,7 @@ check('모듈 — 공통 조합 기본값 Control+Shift', (await prefixSelect.in
 const prefixOptions = await prefixSelect.locator('option').allTextContents();
 check('모듈 — 공통 조합 6가지', prefixOptions.length === 6, String(prefixOptions.length));
 const moduleRows = await page.locator('.sheet-module-row').count();
-check('모듈 — 모듈 목록 27개', moduleRows === 27, String(moduleRows));
+check('모듈 — 모듈 목록 30개', moduleRows === 30, String(moduleRows));
 // v1.15.1 — 탭을 바꿔도 시트 높이가 튀지 않는다.
 const sheetHeightModules = (await page.locator('.sheet').boundingBox())?.height || 0;
 check('모듈 — 탭을 바꿔도 시트 높이 고정', Math.abs(sheetHeightGeneral - sheetHeightModules) < 2, `${Math.round(sheetHeightGeneral)} → ${Math.round(sheetHeightModules)}`);
@@ -844,7 +844,7 @@ const homeRest = await mobile.evaluate(() => ({
   handles: document.querySelectorAll('.drag-handle').length,
   editVisible: !!document.getElementById('edit-btn')?.offsetParent,
 }));
-check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 27 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
+check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 30 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
 check('v1.15.3 — 편집 버튼은 홈에만', homeRest.editVisible);
 
 await mobile.click('#edit-btn');
@@ -1121,6 +1121,326 @@ check('v1.15.3 — 빠른 메모 포커스 유지', memoFocus.active === 'memo-i
 await emptyPage.keyboard.type('메모');
 check('v1.15.3 — 클릭 뒤 바로 타이핑', (await emptyPage.locator('#memo-input').inputValue()).includes('메모'));
 
+
+/* ================================================================
+   v1.16.0 — 강조색 12조합 · 웹 카테고리 · 마이그레이션 · 백업 ·
+             최근 사용 · 파일 추천 · 이어서 하기 · 새 도구
+   ================================================================ */
+
+await resetSettings();
+await page.evaluate(() => { location.hash = '#/'; });
+await page.waitForTimeout(200);
+
+/* ---------- 12조합 강조색 대비 ---------- */
+for (const [accent, theme] of [
+  ['green', 'light'], ['green', 'dark'], ['blue', 'light'], ['blue', 'dark'],
+  ['purple', 'light'], ['purple', 'dark'], ['orange', 'light'], ['orange', 'dark'],
+  ['rose', 'light'], ['rose', 'dark'], ['slate', 'light'], ['slate', 'dark'],
+]) {
+  await page.evaluate(([id, mode]) => {
+    localStorage.setItem('tip.accent', id);
+    localStorage.setItem('tip.theme', mode);
+  }, [accent, theme]);
+  await page.reload({ waitUntil: 'networkidle' });
+  const logo = await measureContrast(page, '.brand-mark');
+  check(`v1.16.0 — 강조색 ${accent}/${theme} 채움 위 흰 글자 4.5:1`, !!logo && logo.ratio >= 4.5, JSON.stringify(logo));
+}
+await page.evaluate(() => { localStorage.removeItem('tip.accent'); localStorage.removeItem('tip.theme'); });
+await page.reload({ waitUntil: 'networkidle' });
+
+/* ---------- 웹(PWA)에서는 Mac 분류 숨김 ---------- */
+const webContext = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'ko-KR' });
+const webPage = await webContext.newPage();
+await webPage.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+await webPage.evaluate(() => localStorage.clear());
+await webPage.reload({ waitUntil: 'networkidle' });
+const webSections = await webPage.locator('.home-section').evaluateAll((nodes) => nodes.map((node) => node.dataset.section));
+check('v1.16.0 — 웹 모듈 25개(Mac 5종 제외)', await webPage.locator('.module-card').count() === 25,
+  String(await webPage.locator('.module-card').count()));
+check('v1.16.0 — 웹에 Mac 화면 도구 섹션 없음', !webSections.includes('mac'), webSections.join(','));
+check('v1.16.0 — 여섯 분류 순서', webSections.filter((id) => id !== 'pinned').join(',') === 'docs,media,file,calc,dev',
+  webSections.join(','));
+await webPage.close();
+await webContext.close();
+
+/* ---------- 옛 설정 마이그레이션 — 핀·순서 유지 ---------- */
+const tauriPage = page;
+await tauriPage.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('tip.settings.v1', JSON.stringify({
+    modules: { timer: { pinned: true }, 'qr-gen': { pinned: true } },
+  }));
+  localStorage.setItem('tip.order.v1', JSON.stringify({
+    document: ['md-editor', 'doc-reader', 'pdf-tools'],
+    utility: ['timer', 'qr-gen', 'file-compress', 'ocr-reader'],
+    online: ['currency-calc', 'address-search'],
+  }));
+});
+await tauriPage.reload({ waitUntil: 'networkidle' });
+const migrated = await tauriPage.evaluate(() => {
+  const ids = (section) => [...document.querySelectorAll(`.home-section[data-section="${section}"] .module-card`)].map((node) => node.dataset.moduleId);
+  return {
+    pinned: ids('pinned'),
+    docs: ids('docs'),
+    file: ids('file'),
+    media: ids('media'),
+    calc: ids('calc'),
+  };
+});
+check('v1.16.0 — 옛 핀이 그대로', migrated.pinned.includes('timer') && migrated.pinned.includes('qr-gen'), migrated.pinned.join(','));
+check('v1.16.0 — 옛 문서 순서 유지', migrated.docs[0] === 'md-editor' && migrated.docs.indexOf('pdf-tools') > 0
+  && migrated.pinned.includes('doc-reader'), migrated.docs.join(','));
+check('v1.16.0 — 옛 유틸리티가 새 분류로', migrated.file.includes('file-compress')
+  && migrated.pinned.includes('qr-gen') && migrated.pinned.includes('timer') && migrated.docs.includes('ocr-reader'),
+  JSON.stringify(migrated));
+check('v1.16.0 — 순서가 새 섹션 안에 옮겨짐', migrated.calc.indexOf('currency-calc') < migrated.calc.indexOf('address-search'), migrated.calc.join(','));
+
+/* ---------- 백업 → 삭제 → 복원 ---------- */
+const backupRound = await tauriPage.evaluate(async () => {
+  const b = await import('/js/backup.js');
+  localStorage.setItem('tip.snippets.v1', JSON.stringify([{ id: 's1', label: '메일', alias: '/mail', body: '서명' , created: 1, updated: 1 }]));
+  localStorage.setItem('tip.accent', 'rose');
+  localStorage.setItem('tip.shortcutLetters.v1', JSON.stringify({ 'text-diff': 'D' }));
+  const text = await b.collectBackup({ includeClipboard: false, version: '1.16.0' });
+  const parsed = b.readBackup(text);
+  // 지운다
+  localStorage.setItem('tip.snippets.v1', '[]');
+  localStorage.setItem('tip.accent', 'green');
+  localStorage.removeItem('tip.shortcutLetters.v1');
+  const applied = await b.applyBackup(parsed);
+  return {
+    ok: parsed.ok,
+    fileHasFormat: JSON.parse(text).format === 'tip-backup',
+    summary: parsed.summary,
+    applied,
+    snippets: localStorage.getItem('tip.snippets.v1'),
+    accent: localStorage.getItem('tip.accent'),
+    letters: localStorage.getItem('tip.shortcutLetters.v1'),
+  };
+});
+check('v1.16.0 — 백업 파일 형식', backupRound.fileHasFormat && backupRound.ok);
+check('v1.16.0 — 미리보기 항목', Array.isArray(backupRound.summary) && backupRound.summary.length >= 6, JSON.stringify(backupRound.summary));
+check('v1.16.0 — 복원 뒤 스니펫 일치', (backupRound.snippets || '').includes('메일'), backupRound.snippets);
+check('v1.16.0 — 복원 뒤 색·단축키 일치', backupRound.accent === 'rose' && (backupRound.letters || '').includes('D'),
+  `${backupRound.accent}/${backupRound.letters}`);
+
+const broken = await tauriPage.evaluate(async () => {
+  const b = await import('/js/backup.js');
+  localStorage.setItem('tip.accent', 'slate');
+  const bad = b.readBackup('{oops');
+  const wrong = b.readBackup(JSON.stringify({ format: 'other', version: 1, settings: {} }));
+  const applied = bad.ok ? await b.applyBackup(bad) : null;
+  return { bad: bad.ok, wrong: wrong.ok, reason: bad.error, accent: localStorage.getItem('tip.accent'), applied };
+});
+check('v1.16.0 — 깨진 JSON 은 이유만', broken.bad === false && /깨졌/.test(broken.reason || ''), broken.reason);
+check('v1.16.0 — 모르는 형식 거부', broken.wrong === false);
+check('v1.16.0 — 깨진 파일은 아무것도 안 바꿈', broken.accent === 'slate' && broken.applied === null, broken.accent);
+
+/* ---------- 최근 사용 ---------- */
+await tauriPage.evaluate(() => { localStorage.clear(); });
+await tauriPage.reload({ waitUntil: 'networkidle' });
+for (const id of ['text-counter', 'date-calc', 'text-counter']) {
+  await tauriPage.evaluate((moduleId) => { location.hash = `#/${moduleId}`; }, id);
+  await tauriPage.waitForTimeout(180);
+}
+await tauriPage.evaluate(() => { location.hash = '#/'; });
+await tauriPage.waitForTimeout(250);
+const recentIds = await tauriPage.evaluate(() => [...document.querySelectorAll('.home-section[data-section="recent"] .module-card')].map((node) => node.dataset.moduleId));
+check('v1.16.0 — 최근 사용 순서·중복 제거', recentIds.slice(0, 2).join(',') === 'text-counter,date-calc', recentIds.join(','));
+check('v1.16.0 — 최근 사용은 실행만(핀·스위치 없음)',
+  await tauriPage.locator('.home-section[data-section="recent"] .pin-btn').count() === 0);
+const recentStored = await tauriPage.evaluate(() => JSON.parse(localStorage.getItem('tip.recent.v1') || '[]'));
+check('v1.16.0 — 최근 사용 기록 저장', recentStored[0] === 'text-counter' && new Set(recentStored).size === recentStored.length, JSON.stringify(recentStored));
+
+/* ---------- 파일 끌어다 놓기 추천 ---------- */
+const miniPdf = await tauriPage.evaluate(async () => {
+  const doc = await window.PDFLib.PDFDocument.create();
+  doc.addPage([200, 200]);
+  const bytes = await doc.save();
+  return Array.from(bytes);
+});
+await tauriPage.evaluate((bytes) => {
+  const dt = new DataTransfer();
+  dt.items.add(new File([new Uint8Array(bytes)], 'a.pdf', { type: 'application/pdf' }));
+  document.querySelector('#view').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+}, miniPdf);
+await tauriPage.waitForTimeout(250);
+const dropNames = await tauriPage.locator('.drop-panel .drop-item b').allTextContents();
+check('v1.16.0 — PDF 추천 목록', dropNames.includes('PDF 합치기') && dropNames.includes('문서 리더')
+  && dropNames.includes('파일 압축'), dropNames.join(','));
+check('v1.16.0 — 추천 차례(PDF 합치기 먼저)', dropNames[0] && /PDF/.test(dropNames[0]), dropNames.join(','));
+await tauriPage.locator('.drop-panel .drop-item', { hasText: 'PDF' }).first().click();
+await tauriPage.waitForTimeout(450);
+const preloaded = await tauriPage.evaluate(() => ({
+  hash: location.hash,
+  names: [...document.querySelectorAll('#pt-m-files .f-name')].map((node) => node.textContent),
+}));
+check('v1.16.0 — 고른 모듈이 파일을 얹고 열림', preloaded.hash === '#/pdf-tools' && preloaded.names.includes('a.pdf'), JSON.stringify(preloaded));
+
+await tauriPage.evaluate(() => {
+  const settings = JSON.parse(localStorage.getItem('tip.settings.v1') || '{}');
+  settings.modules = { ...(settings.modules || {}), 'file-compress': { enabled: false }, 'bulk-rename': { enabled: false } };
+  localStorage.setItem('tip.settings.v1', JSON.stringify(settings));
+  location.hash = '#/';
+});
+await tauriPage.reload({ waitUntil: 'networkidle' });
+await tauriPage.evaluate(() => {
+  const dt = new DataTransfer();
+  dt.items.add(new File([new TextEncoder().encode('x')], 'x.bin', { type: 'application/x-unknown' }));
+  document.querySelector('#view').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+});
+await tauriPage.waitForTimeout(200);
+const noTool = await tauriPage.evaluate(() => document.getElementById('toast')?.textContent || '');
+check('v1.16.0 — 받을 도구가 없으면 안내', noTool.includes('이 파일을 열 수 있는 도구가 없어요'), noTool);
+await tauriPage.evaluate(() => {
+  const settings = JSON.parse(localStorage.getItem('tip.settings.v1') || '{}');
+  delete settings.modules['file-compress'];
+  delete settings.modules['bulk-rename'];
+  localStorage.setItem('tip.settings.v1', JSON.stringify(settings));
+});
+await tauriPage.reload({ waitUntil: 'networkidle' });
+
+/* ---------- 이어서 하기 ---------- */
+await tauriPage.evaluate(async () => {
+  const c = await import('/js/continue.js');
+  c.setContinue('text-diff', { text: '넘긴 글' });
+  location.hash = '#/text-diff';
+});
+await tauriPage.waitForTimeout(300);
+check('v1.16.0 — 이어서 하기 전달', (await tauriPage.locator('#td-a').inputValue()) === '넘긴 글');
+await tauriPage.evaluate(() => { location.hash = '#/'; });
+await tauriPage.waitForTimeout(150);
+await tauriPage.evaluate(() => { location.hash = '#/text-diff'; });
+await tauriPage.waitForTimeout(250);
+check('v1.16.0 — 이어서 하기는 한 번만', (await tauriPage.locator('#td-a').inputValue()) === '');
+
+/* ---------- 글자 수 세기 ---------- */
+await tauriPage.evaluate(() => { location.hash = '#/text-counter'; });
+await tauriPage.waitForTimeout(250);
+await tauriPage.fill('#tc-text', '안녕 하세요\n둘째 줄');
+await tauriPage.waitForTimeout(150);
+const counts = await tauriPage.evaluate(() => ({
+  withSpace: document.getElementById('tc-with').textContent,
+  withoutSpace: document.getElementById('tc-without').textContent,
+  words: document.getElementById('tc-words').textContent,
+  lines: document.getElementById('tc-lines').textContent,
+  sheets: document.getElementById('tc-sheets').textContent,
+}));
+check('v1.16.0 — 글자 수 정확도(공백 포함 11, 줄바꿈 포함)', counts.withSpace === '11', JSON.stringify(counts));
+check('v1.16.0 — 글자 수 정확도(공백 제외 8·단어 4·줄 2)', counts.withoutSpace === '8' && counts.words === '4' && counts.lines === '2', JSON.stringify(counts));
+check('v1.16.0 — 원고지 매수', counts.sheets === '1매', counts.sheets);
+await tauriPage.fill('#tc-text', '😀😀');
+await tauriPage.waitForTimeout(120);
+check('v1.16.0 — 이모지는 한 글자', (await tauriPage.locator('#tc-with').textContent()) === '2');
+
+/* ---------- 날짜 계산기 ---------- */
+await tauriPage.evaluate(() => { location.hash = '#/date-calc'; });
+await tauriPage.waitForTimeout(250);
+await tauriPage.click('#dc-tabs [data-tab="work"]');
+await tauriPage.fill('#dc-work-start', '2026-05-25');
+await tauriPage.fill('#dc-work-end', '2026-05-29');
+await tauriPage.click('#dc-work-run');
+await tauriPage.waitForTimeout(150);
+const workText = await tauriPage.evaluate(() => ({
+  big: document.querySelector('#dc-work-out .dc-big').textContent,
+  rows: document.getElementById('dc-work-rows').textContent,
+}));
+check('v1.16.0 — 근무일(대체공휴일 뺀 4일)', workText.big === '4일', JSON.stringify(workText));
+check('v1.16.0 — 공휴일 1일·반영한 해 표시', workText.rows.includes('공휴일') && workText.rows.includes('2024~2027년'), workText.rows);
+await tauriPage.click('#dc-tabs [data-tab="dday"]');
+await tauriPage.waitForTimeout(100);
+check('v1.16.0 — D-day 표시', /D[-+]|D-day/.test(await tauriPage.locator('#dc-dday-out .dc-big').textContent()));
+
+/* ---------- 한영 타자 변환 ---------- */
+await tauriPage.evaluate(() => { location.hash = '#/typing-converter'; });
+await tauriPage.waitForTimeout(250);
+await tauriPage.fill('#ty-in', '안녕하세요');
+await tauriPage.waitForTimeout(120);
+check('v1.16.0 — 한글 → 영문 글쇠', (await tauriPage.locator('#ty-out').inputValue()) === 'dkssudgktpdy');
+await tauriPage.click('#ty-swap');
+await tauriPage.waitForTimeout(120);
+check('v1.16.0 — 영문 → 한글 왕복', (await tauriPage.locator('#ty-out').inputValue()) === '안녕하세요');
+
+/* ---------- 비밀번호·파일 해시·이름 표기 ---------- */
+await tauriPage.evaluate(() => { location.hash = '#/dev-tools'; });
+await tauriPage.waitForTimeout(250);
+await tauriPage.click('#dv-tabs [data-tab="pass"]');
+await tauriPage.click('#dv-pass-run');
+await tauriPage.waitForTimeout(120);
+const pass = await tauriPage.locator('#dv-pass-out').inputValue();
+check('v1.16.0 — 비밀번호 길이·글자 종류', pass.length === 16 && /[A-Z]/.test(pass) && /[a-z]/.test(pass)
+  && /[0-9]/.test(pass) && /[^A-Za-z0-9]/.test(pass), pass);
+await tauriPage.click('#dv-tabs [data-tab="hash"]');
+await tauriPage.setInputFiles('#dv-hash-input', { name: 'abc.txt', mimeType: 'text/plain', buffer: Buffer.from('abc') });
+await tauriPage.waitForTimeout(400);
+const hashText = await tauriPage.evaluate(() => document.getElementById('dv-hash-rows').textContent);
+check('v1.16.0 — 파일 해시 SHA-256', hashText.includes('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'), hashText.slice(0, 60));
+check('v1.16.0 — 파일 해시 MD5', hashText.includes('900150983cd24fb0d6963f7d28e17f72'));
+await tauriPage.click('#dv-tabs [data-tab="case"]');
+await tauriPage.fill('#dv-case-in', 'my file name');
+await tauriPage.waitForTimeout(120);
+const caseText = await tauriPage.evaluate(() => document.getElementById('dv-case-rows').textContent);
+check('v1.16.0 — 이름 표기 4종', ['myFileName', 'my_file_name', 'my-file-name', 'MyFileName'].every((word) => caseText.includes(word)), caseText);
+
+/* ---------- 색상 대비 — 사진 대표색 ---------- */
+await tauriPage.evaluate(() => { location.hash = '#/color-tools'; });
+await tauriPage.waitForTimeout(250);
+const redPng = await tauriPage.evaluate(() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 60; canvas.height = 20;
+  const context = canvas.getContext('2d');
+  ['#E11D48', '#2563EB', '#2E5E4E', '#C2410C', '#7C3AED', '#111111'].forEach((color, index) => {
+    context.fillStyle = color;
+    context.fillRect(index * 10, 0, 10, 20);
+  });
+  return canvas.toDataURL('image/png').split(',')[1];
+});
+await tauriPage.setInputFiles('#ct-pal-input', { name: 'red.png', mimeType: 'image/png', buffer: Buffer.from(redPng, 'base64') });
+await tauriPage.waitForTimeout(500);
+const palette = await tauriPage.evaluate(() => ({
+  count: document.querySelectorAll('#ct-pal-list .ct-pal-row').length,
+  first: document.querySelector('#ct-pal-list .ct-pal-swatch')?.style.background || '',
+}));
+check('v1.16.0 — 사진 대표색 5~8', palette.count >= 5 && palette.count <= 8, String(palette.count));
+check('v1.16.0 — 대표색 첫 색', /rgb\(/.test(palette.first), palette.first);
+if (palette.count) {
+  await tauriPage.click('#ct-pal-list .ct-pal-swatch');
+  await tauriPage.waitForTimeout(120);
+  check('v1.16.0 — 글자색에 들어감', /^#[0-9A-F]{6}$/.test((await tauriPage.locator('#ct-fg-hex').inputValue()).toUpperCase()),
+    await tauriPage.locator('#ct-fg-hex').inputValue());
+}
+
+/* ---------- PDF — 이미지를 PDF로 ---------- */
+await tauriPage.evaluate(() => { location.hash = '#/pdf-tools'; });
+await tauriPage.waitForTimeout(250);
+await tauriPage.click('.pt-modes [data-mode="image"]');
+await tauriPage.setInputFiles('#pt-i-input', { name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from(redPng, 'base64') });
+await tauriPage.waitForTimeout(300);
+check('v1.16.0 — 이미지를 PDF로 목록', await tauriPage.locator('#pt-i-files .f-name').count() === 1);
+await tauriPage.click('#pt-i-run');
+await tauriPage.waitForTimeout(800);
+const pdfResult = await tauriPage.evaluate(() => document.querySelector('#pt-i-result .pt-result .f-name')?.textContent || '');
+check('v1.16.0 — 이미지 PDF 결과', pdfResult === 'shot.pdf', pdfResult);
+check('v1.16.0 — PDF 에 이어서 하기', await tauriPage.locator('#pt-i-result .continue-bar').count() === 1);
+
+/* ---------- 글자 추출 — 두 방식 ---------- */
+await tauriPage.evaluate(() => { location.hash = '#/drag-ocr'; });
+await tauriPage.waitForTimeout(300);
+const ocrView = await tauriPage.evaluate(() => ({
+  hash: location.hash,
+  modes: [...document.querySelectorAll('#ocr-modes .ic-seg')].map((node) => ({ text: node.textContent, on: node.getAttribute('aria-selected') })),
+}));
+check('v1.16.0 — 예전 주소가 통합 OCR 로', ocrView.hash === '#/drag-ocr' && ocrView.modes.some((mode) => mode.text === '화면에서'),
+  JSON.stringify(ocrView.modes));
+check('v1.16.0 — 화면에서가 선택됨', ocrView.modes.find((mode) => mode.text === '화면에서')?.on === 'true', JSON.stringify(ocrView.modes));
+
+/* ---------- 스크린샷 표시 ---------- */
+await tauriPage.evaluate(() => { location.hash = '#/screenshot-annotate'; });
+await tauriPage.waitForTimeout(250);
+const shotTools = await tauriPage.evaluate(() => [...document.querySelectorAll('#sa-tool-list .ic-seg')].map((node) => node.textContent));
+check('v1.16.0 — 스크린샷 도구 4종', shotTools.join(',') === '화살표,사각형,글자,모자이크', shotTools.join(','));
+check('v1.16.0 — 스크린샷 영역 캡처 버튼', await tauriPage.locator('#sa-capture').count() === 1);
+
 /* ------------------------------ 결과 ------------------------------ */
 
 const errors = consoleErrors.filter((line) => !/favicon|service worker|ERR_FILE/i.test(line));
@@ -1130,7 +1450,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.15.4 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.16.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

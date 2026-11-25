@@ -27,10 +27,13 @@ function pad(number, digits) {
 
 const module = {
   id: 'bulk-rename',
+  accepts: ['*/*'],
+  // 여러 파일을 한꺼번에 바꾸는 도구 — 파일을 하나만 놓았을 때는 추천하지 않는다.
+  acceptsMultiOnly: true,
   name: '파일 이름 일괄 변경',
   shortName: '이름 변경',
   kind: 'tool',
-  category: 'utility',
+  category: 'file',
   version: '1.14.0',
   subtitle: '찾아 바꾸기, 일련번호, ZIP 저장',
   description: '여러 파일 이름을 미리 보며 한 번에 바꿉니다. Mac 앱은 원본 이름을, 웹은 ZIP 사본을 만듭니다.',
