@@ -72,6 +72,12 @@ let notchInfo = { hasNotch: false, notchWidth: 0, notchHeight: 0 };
 let settingsRev = 0;          // 설정이 바뀔 때마다 +1 — 화면에 그린 마지막 상태와 비교한다
 let renderedSignature = '';   // 마지막으로 그린 설정(저장값) — 펼칠 때마다 달라졌는지 싼 값으로 본다
 let dragHeld = false;         // Finder 파일을 끌고 노치 위에 있는 동안에는 접지 않는다
+/* v1.17.1 — '방금 열었다' 보호. 알약·메뉴 막대를 누르면 커서가 판 바깥(위쪽 노치 자리)에 있는 채로
+   판이 아래로 펼쳐져 DOM mouseleave 가 한 번 올 수 있다. 오픈한 지 1.5초 안에 커서가 판 안에
+   들어온 적이 없으면 접지 않는다 — 마우스를 올려 연 경우에는 기다리지 않는다. */
+let openedAt = 0;
+let openedVia = 'click';      // 'click' | 'tray' | 'hover'
+let enteredSinceOpen = false;
 
 /* v1.17.0 — 펼친 판의 화면 */
 const sheetEl = document.getElementById('sheet');
@@ -230,6 +236,7 @@ function reducedMotion() {
 function openNotch(via = 'click') {
   view = getNotchSettings().startView;
   openedWithKeys = via === 'click' || via === 'tray';
+  openedVia = via;
   if (expanded) {
     applyView();
     focusForView();
@@ -247,6 +254,8 @@ function setExpanded(next, { animate = true } = {}) {
 
   if (next) {
     hintCounted = false;
+    openedAt = Date.now();
+    enteredSinceOpen = false;
     // 화면 전환(판 그리기)을 먼저 끝내고 다음 프레임에 창 크기를 바꾼다.
     // 창 리사이즈와 위젯 조회가 같은 순간에 몰려 멈추지 않도록 조회는 startWidgets 가 미룬다.
     if (renderedSignature !== settingsSignature()) renderWidgets();
@@ -271,6 +280,13 @@ function setExpanded(next, { animate = true } = {}) {
     closeCalendarForm();
     heldOpen = false;
     openedWithKeys = false;
+    cancelCollapse();
+    // v1.17.1 — 접을 때 안쪽 입력칸의 초점을 놓는다. 초점이 남아 있으면 syncHold 가 계속
+    // '입력 중'으로 알려 Rust 커서 감시가 펼친 판을 영영 접지 않았다(마우스를 치워도 그대로).
+    const active = document.activeElement;
+    if (active && active !== document.body && notchEl.contains(active) && typeof active.blur === 'function') {
+      active.blur();
+    }
     const find = document.getElementById('dial-find');
     if (find) find.value = '';
   }
@@ -331,13 +347,39 @@ function paintPanelHint() {
   }
 }
 
-/** Rust 의 커서 감시에 '지금은 접지 마라'를 알린다 — 입력 중·드래그 중·거울이 켜진 동안(v1.12.4). */
+/** Rust 의 커서 감시에 '지금은 접지 마라'를 알린다 — 입력 중·드래그 중·거울이 켜진 동안(v1.12.4).
+ *  v1.17.1 — 초점이 있다는 것만으로는 '입력 중'이 아니다. 클릭으로 열면 찾기 칸이 저절로
+ *  초점을 가져가는데, 그 상태를 계속 입력 중으로 보면 마우스를 치워도 판이 접히지 않았다. */
 function syncHold() {
   if (!TAURI) return;
-  const active = document.activeElement;
-  const typing = !!(active && active.matches && active.matches('#notch input, #notch textarea'));
-  const hold = !!(notchHeld() || typing);
+  const hold = !!(notchHeld() || typingNow());
   invoke('notch_hover_hold', { hold }).catch(() => {});
+}
+
+/** 지금 글자를 치는 중인가 — 방금(3초) 고쳤거나, 쓰던 글이 남아 있거나, 고르기 창이 열리는 칸. */
+const TYPING_KEEP_MS = 3000;
+let typedAt = 0;
+let typingTimer = null;
+
+function typingNow() {
+  const active = document.activeElement;
+  if (!expanded || !active || active === document.body || !notchEl.contains(active) || !active.matches) return false;
+  if (active.matches('select')) return true;                                        // 고르기 목록이 펼쳐진다
+  if (active.matches('input[type="date"], input[type="time"]')) return true;        // 날짜·시간 고르기 창
+  if (!active.matches('input, textarea')) return false;
+  if (Date.now() - typedAt < TYPING_KEEP_MS) return true;                           // 방금 쳤다
+  return String(active.value || '').trim().length > 0;                              // 쓰던 글이 그대로 있다
+}
+
+/** 글자를 칠 때마다 '입력 중' 시계를 다시 건다 — 멈추면 3초 뒤 스스로 풀린다(그때 접힘도 다시 본다). */
+function noteTyping() {
+  typedAt = Date.now();
+  clearTimeout(typingTimer);
+  typingTimer = setTimeout(() => {
+    syncHold();
+    if (expanded) scheduleCollapse();   // 커서가 이미 밖이면 Rust 감시가 0.7초 뒤 접는다
+  }, TYPING_KEEP_MS + 50);
+  syncHold();
 }
 
 /** 접지 않아야 하는 이유들 — 펼친 뒤 잠깐(openHeld), 파일 드래그, 웹캠 거울. */
@@ -345,13 +387,30 @@ function notchHeld() {
   return heldOpen || dragHeld || !!mirrorStream;
 }
 
+/** 커서가 정말 창 밖에 있는지 — Mac 앱에서는 Rust 가 실제 창 사각형과 커서 위치로 본다(v1.17.1).
+ *  창 크기가 바뀌는 순간이나 투명 여백을 지날 때 DOM mouseleave 가 이벤트 없이 와도,
+ *  커서가 창 안이면 접지 않는다. 브라우저 미리보기에서는 DOM 판정만 쓴다. */
+async function cursorOutside() {
+  if (TAURI) {
+    try {
+      const inside = await invoke('notch_cursor_inside');
+      if (typeof inside === 'boolean') return !inside;
+    } catch { /* 못 물으면 DOM 판정으로 물러선다 */ }
+  }
+  return true;
+}
+
 function scheduleCollapse() {
   clearTimeout(collapseTimer);
-  collapseTimer = setTimeout(() => {
-    if (heldOpen) return;
-    if (dragHeld) return;
+  collapseTimer = setTimeout(async () => {
+    if (!expanded) return;
+    if (notchHeld()) return;
     if (document.querySelector('.mirror-video.is-live')) return;
-    if (notchEl.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return;
+    if (typingNow()) return;
+    if (!(await cursorOutside())) return;   // v1.17.1 — 커서가 창 안이면 접지 않는다(영역 오판 방지)
+    if (!expanded) return;
+    // 방금 열었고 커서가 한 번도 판 안에 들어오지 않았다 — 마우스가 알약(노치 자리)에 있다.
+    if (openedVia !== 'hover' && !enteredSinceOpen && Date.now() - openedAt < 1500) return;
     setExpanded(false);
   }, 650);
 }
@@ -2174,15 +2233,30 @@ function renderDial({ keepCenter = true } = {}) {
   layoutDial();
 }
 
+/* v1.17.1 — 모듈 칸을 놓을 수 있는 최소 폭.
+ * 메뉴 막대 아이콘·마우스 올리기로 열면 창이 아직 알약 폭(92)일 때 한 번 그린다. 그때는
+ * cx(46) - 82 가 음수라 호 계산이 뒤집혀 **모든 칸이 hidden** 이 되고, 창이 펼쳐진 뒤에도
+ * 다시 그리지 않아 빈 판(흰 화면)만 남았다(휠을 굴려야 layoutDial 이 다시 돌아 나타났다).
+ * 폭이 모자라면 그리지 않고 칸을 숨겨 두었다가, 창이 커지면 다시 그린다. */
+const DIAL_MIN_W = 200;
+
 function layoutDial() {
   const n = dialItems.length;
   paintDialHub();
   if (!n) return;
+  const width = dialEl.clientWidth;
+  if (width < DIAL_MIN_W) {
+    dialItems.forEach((item) => {
+      item.el.style.visibility = 'hidden';
+      item.el.style.opacity = '0';
+    });
+    return;
+  }
   const loop = dialLoop();
-  const width = dialEl.clientWidth || 628;
   const cx = width / 2;
   const top = dialOffset();
-  const x3 = Math.min(DIAL_GEO.x3, cx - 82);
+  // 3칸 옆(가장 바깥) 타일의 x — 창이 좁아도 0 아래로 내려가지 않게 한다.
+  const x3 = Math.min(DIAL_GEO.x3, Math.max(24, cx - 82));
   const step = Math.asin(x3 / DIAL_GEO.arc) / 3;
   const yc = top + DIAL_GEO.centerY - DIAL_GEO.arc;
   const inner = ((DIAL_SLOTS - 1) / 2) * step;
@@ -2221,6 +2295,24 @@ function layoutDial() {
     if (isCenter) item.el.setAttribute('aria-current', 'true');
     else item.el.removeAttribute('aria-current');
   });
+}
+
+/* v1.17.1 — 다이얼을 놓는 자리와 크기 감시.
+ * 판(창) 크기가 바뀌면 다이얼을 다시 놓는다. 창 크기는 Rust 가 바꾸는데(notch_expand), JS 는
+ * 이미 '펼침' 상태라 resize 리스너의 syncLayout 이 아무것도 하지 않았다. 그래서 알약 폭에서
+ * 그린 칸이 그대로 남았다. 판의 실제 크기를 지켜보다가 폭·높이가 달라지면 다시 그리고,
+ * 첫 크기가 들어오면 그때 처음 그린다. */
+let dialBox = '';
+function watchDialSize() {
+  if (typeof ResizeObserver !== 'function') return;
+  const observer = new ResizeObserver(() => {
+    const box = `${dialEl.clientWidth}x${dialEl.clientHeight}`;
+    if (box === dialBox) return;
+    dialBox = box;
+    if (!expanded) return;
+    layoutDial();
+  });
+  observer.observe(dialEl);
 }
 
 /** 가운데 모듈의 이름·설명과 양쪽 화살표(끝에 닿으면 흐리게). */
@@ -2475,10 +2567,10 @@ function stopWidgets() {
   }
 }
 
-function openHeld() {
+function openHeld(ms = 1200) {
   heldOpen = true;
   cancelCollapse();
-  setTimeout(() => { heldOpen = false; syncHold(); }, 1200);
+  setTimeout(() => { heldOpen = false; syncHold(); }, ms);
   syncHold();
 }
 
@@ -2503,7 +2595,11 @@ dialEl.addEventListener('click', (event) => {
 });
 notchEl.addEventListener('mouseenter', cancelCollapse);
 notchEl.addEventListener('mouseleave', scheduleCollapse);
+// v1.17.1 — 판 안에서 커서가 움직였다면 '들어왔다'(이제 나가면 접힘).
+notchEl.addEventListener('pointermove', () => { if (expanded) enteredSinceOpen = true; }, { passive: true });
 panelEl.addEventListener('mouseenter', cancelCollapse);
+// v1.17.1 — 글자를 칠 때마다 '입력 중' 시계를 다시 건다(찾기 칸·메모·타이머 분·초 모두).
+notchEl.addEventListener('input', noteTyping, true);
 
 // 패널 안의 위젯 버튼 — 위임 처리
 panelEl.addEventListener('click', (event) => {
@@ -2662,7 +2758,8 @@ panelEl.addEventListener('click', (event) => {
 
   if (event.target.closest('#shelf-drop') || event.target.closest('[data-shelf-add]')) {
     const picker = panelEl.querySelector('#shelf-file');
-    if (picker) picker.click();
+    // v1.17.1 — 파일 고르기 창은 다른 창이라 커서가 판을 벗어난다. 고르는 동안은 접지 않는다.
+    if (picker) { openHeld(8000); picker.click(); }
     return;
   }
 
@@ -2798,11 +2895,24 @@ window.addEventListener('keydown', (event) => {
 
 /* v1.17.0 — 클릭·메뉴 막대로 열어 키 창이 된 노치는, 다른 곳을 눌러 키 창을 잃으면 접는다.
    (예전 반원 퀵바 창이 바깥을 누르면 닫히던 것과 같다. 마우스로만 연 노치는 키 창이 아니라 오지 않는다.)
-   키 창으로 바뀌는 짧은 순간의 blur 는 한 박자 뒤에 다시 보고 넘긴다. */
+   키 창으로 바뀌는 짧은 순간의 blur 는 한 박자 뒤에 다시 보고 넘긴다.
+   v1.17.1 — 커서가 아직 창 안이면 접지 않는다(달력의 <select>·날짜 고르기 창처럼 키만 잠깐 옴기는 경우). */
 window.addEventListener('blur', () => {
-  if (!expanded || !openedWithKeys) return;
+  // 키 상태를 잃으면 안쪽 초점을 놓아 '입력 중' 표시가 남지 않게 한다(v1.17.1).
   setTimeout(() => {
+    if (document.hasFocus()) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && notchEl.contains(active) && typeof active.blur === 'function') {
+      active.blur();
+    }
+    heldOpen = false;
+    syncHold();
+  }, 0);
+  if (!expanded || !openedWithKeys) return;
+  setTimeout(async () => {
     if (!expanded || document.hasFocus() || notchHeld() || dragHeld) return;
+    if (!(await cursorOutside())) return;
+    if (!expanded) return;
     setExpanded(false);
   }, 220);
 });
@@ -2814,9 +2924,12 @@ function syncLayout() {
   const wide = window.innerHeight >= 200;
   if (wide && !expanded) {
     expanded = true;
+    // Rust 가 먼저 펼친 경우(마우스 올리기) — 시작 화면으로 맞춘다. 포커스는 가져가지 않는다.
+    openedVia = 'hover';
+    openedAt = Date.now();
+    enteredSinceOpen = false;
     notchEl.classList.remove('is-collapsed');
     notchEl.classList.add('is-expanded');
-    // Rust 가 먼저 펼친 경우(마우스 올리기) — 시작 화면으로 맞춘다. 포커스는 가져가지 않는다.
     view = getNotchSettings().startView;
     applyView();
     startWidgets();
@@ -2829,6 +2942,8 @@ function syncLayout() {
 }
 window.addEventListener('resize', () => {
   syncLayout();
+  // v1.17.1 — 창이 펼쳐진 뒤 모듈 칸을 다시 놓는다(알약 폭에서 그린 칸이 남지 않게).
+  if (expanded) layoutDial();
   // 디스플레이를 옮기면 노치 유무가 달라진다 — 가운데 여백을 다시 잰다.
   if (!expanded) loadNotchMetrics();
 });
@@ -2918,6 +3033,8 @@ applySheetOpacity();
 bindDial();
 renderWidgets();
 syncLayout();
+// v1.17.1 — 판 크기가 바뀜에 따라 다이얼을 다시 놓을 수 있게 지켜본다.
+watchDialSize();
 // v1.15.0 — 알약의 음악·타이머 표시와 그 배경 루프, 노치 자리(가운데 여백).
 loadNotchMetrics();
 startPillLoops();

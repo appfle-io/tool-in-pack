@@ -397,13 +397,17 @@ html, body {
   flex-direction: row;
   align-items: center;
   gap: 8px;
-  height: 44px;
+  /* v1.17.1 — 옆 카드(빠른 메모) 높이만큼 꽉 채운다. 고정 높이(44px)일 때는 행이 더 높아
+     카드 아래에 빈 여백이 남았다. */
+  flex: 1 1 auto;
+  min-height: 44px;
+  box-sizing: border-box;
   padding: 0 12px;
   border-radius: 11px;
   border: 1px dashed rgba(255, 255, 255, 0.20);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.16s ease, background 0.16s ease, height 0.16s ease;
+  transition: border-color 0.16s ease, background 0.16s ease, min-height 0.16s ease;
 }
 .shelf-drop:hover { border-color: var(--accent); background: rgba(255, 255, 255, 0.05); }
 :root[data-theme='light'] .shelf-drop { border-color: rgba(0, 0, 0, 0.16); }
@@ -412,7 +416,7 @@ html, body {
 .shelf-drop.is-over {
   flex-direction: column;
   justify-content: center;
-  height: 72px;
+  min-height: 72px;
   text-align: center;
   border-color: var(--accent);
   border-style: solid;
@@ -431,20 +435,22 @@ html, body {
 .wg-shelf.is-empty { padding: 0; gap: 0; }
 .wg-shelf.is-empty .wg-head { display: none; }
 .wg-shelf.is-empty .shelf-drop {
-  height: 48px;
+  min-height: 48px;
   border-style: solid;
   border-color: rgba(255, 255, 255, 0.10);
 }
 :root[data-theme='light'] .wg-shelf.is-empty .shelf-drop { border-color: rgba(0, 0, 0, 0.08); }
 .wg-shelf.is-empty .shelf-mini-label { display: inline; opacity: 0.55; }
 .wg-shelf.is-empty .shelf-drop-text span { display: none; }
+/* v1.17.1 — 빈 목록이 남는 높이를 가져가 놓기 상자가 짧아지지 않게 한다. */
+.wg-shelf.is-empty .shelf-list { display: none; }
 
 /* 파일이 담겨 있으면 큰 놓기 상자는 숨기고 목록만 — 자리는 '추가(+)'가 맡는다.
    파일을 끌고 오는 동안에는 다시 놓기 상자가 나타난다. */
 .wg-shelf:not(.is-empty) .shelf-drop { display: none; }
 .wg-shelf:not(.is-empty) .shelf-drop.is-over { display: flex; }
 
-.shelf-list { display: flex; flex-direction: column; gap: 5px; }
+.shelf-list { display: flex; flex-direction: column; gap: 5px; flex: 1 1 auto; }
 .shelf-item {
   display: flex;
   align-items: center;

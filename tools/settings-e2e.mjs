@@ -130,6 +130,8 @@ const MOCK = `
     notch_expand: null,
     notch_collapse: null,
     notch_focus: null,
+    // v1.17.1 — 접기 전에 묻는 커서 위치(시험에서 window.__TIP_CURSOR_INSIDE__ 로 바꾼다).
+    notch_cursor_inside: false,
     timer_alert: null,
     open_search: null,
     hide_search: null,
@@ -170,6 +172,8 @@ const MOCK = `
     core: {
       invoke(command, args) {
         calls.push({ command, args: args || {} });
+        // v1.17.1 — 접기 전에 '커서가 창 안인가'를 묻는다. 시험은 이 값을 직접 바꿔 본다.
+        if (command === 'notch_cursor_inside') return Promise.resolve(window.__TIP_CURSOR_INSIDE__ === true);
         const value = Object.prototype.hasOwnProperty.call(answers, command) ? answers[command] : null;
         return Promise.resolve(value);
       },
@@ -811,7 +815,7 @@ const compact = await emptyPage.evaluate(() => ({
 check('v1.15.2 — 음악 없으면 한 줄 접힘', compact.media && compact.mediaBodyHidden);
 check('v1.15.2 — 재생 없으면 재생 버튼 비활성', compact.mediaPlayDisabled);
 check('v1.15.2 — 남은 일정 없으면 한 줄 접힘', compact.calendar && compact.calSide.includes('남은 일정'), compact.calSide);
-check('v1.15.2 — 빈 보관함 얇은 한 줄(40~52px)', compact.shelf && compact.shelfHeight >= 40 && compact.shelfHeight <= 52, String(compact.shelfHeight));
+check('v1.17.1 — 빈 보관함도 옆 카드(빠른 메모) 높이만큼 채움', compact.shelf && compact.shelfHeight >= compact.memoHeight - 4, `${compact.shelfHeight}/${compact.memoHeight}`);
 check('v1.15.2 — 같은 줄 카드 높이 일치(미디어/일정)', compact.mediaHeight === compact.calHeight, `${compact.mediaHeight}/${compact.calHeight}`);
 check('v1.17.0 — 첫 줄 세 칸 높이 일치(미디어/일정/타이머)', compact.mediaHeight === compact.timerHeight && compact.calHeight === compact.timerHeight, `${compact.mediaHeight}/${compact.calHeight}/${compact.timerHeight}`);
 check('v1.15.2 — 빠른 메모 글자 수 표시 제거', !compact.memoHasSide);
@@ -2006,6 +2010,125 @@ check('v1.17.0 — 반원 버튼 32px 이상', dialA11y.tiny === 0, String(dialA
 check('v1.17.0 — 반원 버튼 이름 있음', dialA11y.unlabeled === 0, String(dialA11y.unlabeled));
 await v117Context.close();
 
+/* ---------- v1.17.1 노치 실기 버그 3종 + 보관함 높이 ---------- */
+{
+// 1. 메뉴 막대 아이콘으로 열기 — 창이 알약 폭일 때 그려도, 커지면 모듈 칸이 제자리에 보인다.
+const pillContext = await browser.newContext({ viewport: { width: 92, height: 28 }, locale: 'ko-KR', colorScheme: 'light' });
+await pillContext.addInitScript(MOCK);
+const pillPage = await pillContext.newPage();
+pillPage.on('pageerror', (error) => consoleErrors.push(`v1171 pageerror: ${String(error)}`));
+await pillPage.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
+await pillPage.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, startView: 'simple', widgets: { media: false, calendar: true, shelf: true, timer: true, memo: true, launcher: true } }));
+});
+await pillPage.reload({ waitUntil: 'networkidle' });
+await pillPage.waitForTimeout(700);
+// 메뉴 막대 TIP 아이콘 — Rust 가 창을 펼친다(창은 아직 알약 크기)
+await pillPage.evaluate(() => { window.__TIP_LISTENERS__['tip://notch-tray']({ payload: null }); });
+await pillPage.waitForTimeout(250);
+const beforeGrow = await pillPage.evaluate(() => ({
+  expanded: document.getElementById('notch').classList.contains('is-expanded'),
+  visible: [...document.querySelectorAll('.dial-slot')].filter((slot) => slot.style.visibility === 'visible').length,
+}));
+check('v1.17.1 — 메뉴 막대 아이콘으로 반원이 열림', beforeGrow.expanded, JSON.stringify(beforeGrow));
+check('v1.17.1 — 알약 폭에서는 모듈 칸을 그리지 않음(자리 어긋남 방지)', beforeGrow.visible === 0, String(beforeGrow.visible));
+// Rust 가 창을 640×284 로 키운다 — 휠을 굴리지 않아도 칸이 보여야 한다.
+await pillPage.setViewportSize({ width: 640, height: 284 });
+await pillPage.waitForTimeout(500);
+const afterGrow = await pillPage.evaluate(() => {
+  const sheet = document.getElementById('sheet').getBoundingClientRect();
+  const slots = [...document.querySelectorAll('.dial-slot')]
+    .filter((slot) => slot.style.visibility === 'visible')
+    .map((slot) => { const box = slot.getBoundingClientRect(); return { id: slot.dataset.moduleId, x: box.x + box.width / 2, y: box.y + box.height / 2 }; });
+  const center = document.querySelector('.dial-slot.is-center');
+  const centerBox = center ? center.getBoundingClientRect() : null;
+  return {
+    slots,
+    inside: slots.filter((slot) => slot.x > sheet.left && slot.x < sheet.right && slot.y > sheet.top && slot.y < sheet.bottom).length,
+    centerOffset: centerBox ? Math.round(centerBox.x + centerBox.width / 2 - (sheet.left + sheet.width / 2)) : 999,
+    sheetWidth: Math.round(sheet.width),
+  };
+});
+check('v1.17.1 — 창이 펼쳐지면 휠 없이 모듈 칸이 보임', afterGrow.slots.length >= 7 && afterGrow.inside === afterGrow.slots.length,
+  `${afterGrow.inside}/${afterGrow.slots.length}`);
+check('v1.17.1 — 가운데 모듈이 판 가운데에 옴', Math.abs(afterGrow.centerOffset) <= 12, `${afterGrow.centerOffset}px (판 ${afterGrow.sheetWidth})`);
+
+// 2. 접을 때 안쪽 입력칸 초점을 놓는다 — 초점이 남아 '입력 중'이 계속 켜져 있던 원인.
+const focusedBefore = await pillPage.evaluate(() => (document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : ''));
+await pillPage.keyboard.press('Escape');
+await pillPage.waitForTimeout(300);
+const afterEscape = await pillPage.evaluate(() => ({
+  expanded: document.getElementById('notch').classList.contains('is-expanded'),
+  active: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : '',
+  hold: window.__TIP_CALLS__.filter((call) => call.command === 'notch_hover_hold').pop(),
+}));
+check('v1.17.1 — Esc 로 접힘', !afterEscape.expanded, JSON.stringify(afterEscape));
+check('v1.17.1 — 접으면 안쪽 초점을 놓고 입력 중 표시를 끔', afterEscape.active !== focusedBefore && !!afterEscape.hold && afterEscape.hold.args.hold === false,
+  JSON.stringify({ before: focusedBefore, after: afterEscape.active, hold: afterEscape.hold && afterEscape.hold.args }));
+await pillContext.close();
+
+// 3. 커서가 창 안인데 온 mouseleave 로는 접지 않고, 실제로 밖으로 나가면 접는다.
+const leaveContext = await browser.newContext({ viewport: { width: 640, height: 284 }, locale: 'ko-KR', colorScheme: 'light' });
+await leaveContext.addInitScript(MOCK);
+const leavePage = await leaveContext.newPage();
+leavePage.on('pageerror', (error) => consoleErrors.push(`v1171 pageerror: ${String(error)}`));
+await leavePage.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
+await leavePage.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, startView: 'full', hoverOpen: true, widgets: { media: false, calendar: true, shelf: true, timer: true, memo: true, launcher: true } }));
+});
+await leavePage.reload({ waitUntil: 'networkidle' });
+await leavePage.waitForTimeout(700);
+const openByHover = async () => {
+  await leavePage.evaluate(() => { window.__TIP_LISTENERS__['tip://notch-hover-enter']({ payload: null }); });
+  await leavePage.waitForTimeout(350);
+};
+await openByHover();
+check('v1.17.1 — 마우스 올리기로 펼쳐짐', await leavePage.evaluate(() => document.getElementById('notch').classList.contains('is-expanded')));
+// 창 안에 커서가 있는데 mouseleave 가 왔다(창 크기가 바뀌는 순간 등) — 접지 않는다.
+await leavePage.evaluate(() => {
+  window.__TIP_CURSOR_INSIDE__ = true;
+  document.getElementById('notch').dispatchEvent(new MouseEvent('mouseleave'));
+});
+await leavePage.waitForTimeout(900);
+const stayed = await leavePage.evaluate(() => ({
+  expanded: document.getElementById('notch').classList.contains('is-expanded'),
+  asked: window.__TIP_CALLS__.some((call) => call.command === 'notch_cursor_inside'),
+}));
+check('v1.17.1 — 커서가 창 안이면 mouseleave 로 접지 않음(영역 오판)', stayed.expanded && stayed.asked, JSON.stringify(stayed));
+// 실제로 커서가 밖으로 나가면 접힌다.
+await leavePage.evaluate(() => {
+  window.__TIP_CURSOR_INSIDE__ = false;
+  document.getElementById('notch').dispatchEvent(new MouseEvent('mouseleave'));
+});
+await leavePage.waitForTimeout(900);
+check('v1.17.1 — 커서가 창 밖으로 나가면 접힘', !(await leavePage.evaluate(() => document.getElementById('notch').classList.contains('is-expanded'))));
+// Rust 커서 감시가 알리는 '밖으로 나감'도 그대로 접는다.
+await openByHover();
+await leavePage.evaluate(() => { window.__TIP_LISTENERS__['tip://notch-hover-leave']({ payload: null }); });
+await leavePage.waitForTimeout(250);
+check('v1.17.1 — Rust 감시의 나감 알림으로 접힘', !(await leavePage.evaluate(() => document.getElementById('notch').classList.contains('is-expanded'))));
+
+// 4. 전체 보기 2줄 — 임시 보관함이 옆 카드(빠른 메모) 높이를 꽉 채운다.
+await leavePage.setViewportSize({ width: 640, height: 600 });
+await leavePage.waitForTimeout(600);
+const inFull = await leavePage.evaluate(() => document.getElementById('notch').classList.contains('is-full'));
+if (!inFull) {
+  await leavePage.evaluate(() => { document.getElementById('to-full').click(); });
+  await leavePage.waitForTimeout(400);
+}
+const shelfRow = await leavePage.evaluate(() => {
+  const memo = document.querySelector('.wg-memo').getBoundingClientRect();
+  const shelf = document.querySelector('.wg-shelf').getBoundingClientRect();
+  const drop = document.getElementById('shelf-drop').getBoundingClientRect();
+  return { memo: Math.round(memo.height), shelf: Math.round(shelf.height), drop: Math.round(drop.height) };
+});
+check('v1.17.1 — 메모·보관함 카드 높이 같음', shelfRow.memo > 0 && shelfRow.memo === shelfRow.shelf, `${shelfRow.memo}/${shelfRow.shelf}`);
+check('v1.17.1 — 보관함 놓기 상자가 카드 높이를 채움', shelfRow.drop >= shelfRow.shelf - 4, `${shelfRow.drop}/${shelfRow.shelf}`);
+await leaveContext.close();
+}
+
 // 순수 규칙(js/dial.js)
 const dialRules = await page.evaluate(async () => {
   const d = await import('./js/dial.js');
@@ -2054,7 +2177,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.17.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.17.1 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

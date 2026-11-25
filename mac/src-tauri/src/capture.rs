@@ -370,7 +370,8 @@ fn ax_move(element: *mut std::ffi::c_void, x: f64, y: f64, width: f64, height: f
 }
 
 /// 지금 앞에 있는 앱의 pid — NSWorkspace 가 알려 준다.
-fn frontmost_pid() -> Option<i32> {
+/// v1.17.1 — 노치 커서 감시(lib.rs)도 쓴다.
+pub(crate) fn frontmost_pid() -> Option<i32> {
     use objc2_app_kit::NSWorkspace;
 
     let workspace = NSWorkspace::sharedWorkspace();

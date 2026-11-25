@@ -130,6 +130,17 @@ static HOVER_HOLD: AtomicBool = AtomicBool::new(false);
 static HOVER_WATCH: AtomicBool = AtomicBool::new(false);
 /// 펼친 패널 밖으로 커서가 나간 시각 — 0.7초 넘게 밖에 있으면 접는다.
 static HOVER_OUTSIDE_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+/// v1.17.1 — 판을 연 순간 앞에 있던 앱의 pid. 이 앱이 바뀌면 '다른 앱을 눌렀다'로 보고 접는다.
+/// NonactivatingPanel 은 클릭해도 앱을 활성화하지 않아 Focused(false) 가 오지 않는다.
+static NOTCH_FRONTMOST: Mutex<Option<i32>> = Mutex::new(None);
+/// v1.17.1 — 연 뒤 커서가 한 번이라도 판 안에 들어왔는지. 클릭·메뉴 막대로 열면
+/// 커서는 알약·메뉴 막대(판 바깥)에 있다 — 들어왔다 나가는 것만 '나갔다'로 본다.
+static NOTCH_ENTERED: AtomicBool = AtomicBool::new(false);
+/// v1.17.1 — 마우스를 올려서 연 판인지. 이때는 커서가 알약에 있었다는 뜻이라
+/// 조금만 벗어나도 접어야 한다.
+static NOTCH_OPEN_HOVER: AtomicBool = AtomicBool::new(false);
+/// v1.17.1 — 판을 펼친 시각 — 열자마자 커서가 밖이라고 접지 않게 잠깐 여유를 둔다.
+static NOTCH_OPENED_AT: Mutex<Option<Instant>> = Mutex::new(None);
 
 /// 지금 등록된 전역 빠른 실행 단축키.
 static SEARCH_SHORTCUT: Mutex<Option<String>> = Mutex::new(None);
@@ -339,13 +350,40 @@ fn notch_open_height() -> f64 {
 
 /// 접힘/펼침 — 창 크기를 바꾸고 다시 화면 최상단 가운데에 붙인다.
 fn set_notch_open(app: &AppHandle, open: bool) {
+    set_notch_open_by(app, open, false);
+}
+
+/// `by_hover` — 마우스를 올려서 편 것인지(커서가 이미 알약 위에 있다).
+fn set_notch_open_by(app: &AppHandle, open: bool, by_hover: bool) {
     let Some(win) = app.get_webview_window(NOTCH) else { return };
+    let was_open = *NOTCH_OPEN.lock().unwrap();
     let (width, height) = if open {
         (NOTCH_OPEN_W, notch_open_height())
     } else {
         collapsed_pill_size()
     };
     *NOTCH_OPEN.lock().unwrap() = open;
+    // v1.17.1 — 펼치는 순간 앞에 있던 앱을 기억하고, 접으면 지운다.
+    //   다른 앱으로 옮겨 가면(=앞 앱이 바뀌면) 커서가 아직 창 근처여도 접는다.
+    if open && !was_open {
+        if let Ok(mut slot) = NOTCH_FRONTMOST.lock() {
+            *slot = frontmost_pid();
+        }
+        if let Ok(mut slot) = NOTCH_OPENED_AT.lock() {
+            *slot = Some(Instant::now());
+        }
+        NOTCH_ENTERED.store(false, Ordering::Relaxed);
+        NOTCH_OPEN_HOVER.store(by_hover, Ordering::Relaxed);
+    } else if !open {
+        if let Ok(mut slot) = NOTCH_FRONTMOST.lock() {
+            *slot = None;
+        }
+        NOTCH_ENTERED.store(false, Ordering::Relaxed);
+        NOTCH_OPEN_HOVER.store(false, Ordering::Relaxed);
+    }
+    if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
+        *slot = None;
+    }
     place_notch(app, &win, width, height, open);
 }
 
@@ -484,43 +522,80 @@ fn set_notch_hover(app: AppHandle, enabled: bool) {
     }
 }
 
-/// 프런트가 알리는 '지금은 접지 마라' — 빠른 메모 입력 중·파일 드래그 중.
+/// 프런트가 알리는 '지금은 접지 마라' — 빠른 메모 입력 중·파일 드래그 중·select/날짜 고르기 창.
 #[tauri::command]
 fn notch_hover_hold(hold: bool) {
     HOVER_HOLD.store(hold, Ordering::Relaxed);
 }
 
+/// 커서가 지금 노치 창(알약·펼친 판) 안에 있는지 — 화면(notch.js)이 접기 전에 물어본다(v1.17.1).
+/// DOM mouseleave 는 창 크기가 바뀌는 순간이나 투명 여백에서 이벤트 없이 올 수 있어,
+/// 접을지 말지는 실제 창 사각형과 커서 위치로 정한다.
+#[tauri::command]
+fn notch_cursor_inside(app: AppHandle) -> bool {
+    let Some(win) = app.get_webview_window(NOTCH) else {
+        return false;
+    };
+    notch::cursor_inside(&win, 8.0).unwrap_or(false)
+}
+
+/// 지금 앞에 있는 앱의 pid — NSWorkspace 가 알려 준다(capture::frontmost_pid).
+fn frontmost_pid() -> Option<i32> {
+    capture::frontmost_pid()
+}
+
+/// 펼친 판을 열 때 앞에 있던 앱에서 다른 앱으로 옮겨 갔는지(v1.17.1).
+/// 우리 앱이 앞으로 나온 것은 '다른 앱을 눌렀다'가 아니므로 넘긴다 — 메뉴 막대 아이콘·
+/// 파일 고르기 창처럼 TIP 쪽 창이 앞으로 오는 경우가 있다.
+fn frontmost_moved() -> bool {
+    let before = match NOTCH_FRONTMOST.lock() {
+        Ok(slot) => *slot,
+        Err(_) => None,
+    };
+    let Some(before) = before else { return false };
+    let Some(now) = frontmost_pid() else { return false };
+    if now == before || now == std::process::id() as i32 {
+        return false;
+    }
+    true
+}
+
+/// 커서가 밖에 있거나 다른 앱으로 옮겨 가 펼친 판을 접는다 — 화면에도 알린다.
+fn collapse_from_watch(app: &AppHandle) {
+    set_notch_open(app, false);
+    if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
+        *slot = None;
+    }
+    let _ = app.emit("tip://notch-hover-leave", ());
+}
+
 /// 130ms 마다 커서 위치를 본다 — WKWebView 는 앱이 백그라운드일 때 DOM mouseenter 를 보내지 않아
 /// 다른 앱(사파리·피클)을 쓰는 중에는 마우스를 올려도 반응이 없었다. NSEvent::mouseLocation() 은
 /// 손쉬운 사용 권한 없이 쓸 수 있는 AppKit 의 커서 좌표다(창 프레임과 같은 좌표계).
+/// v1.17.1 — '마우스를 올려서 열기'를 꺼 둔 사람도 펼친 판은 커서가 나가면 접혀야 해서
+/// 감시는 앱이 켜질 때부터 늘 돈다(130ms 자고 한 번 보는 것이라 부담이 없다).
 fn start_hover_watch(app: AppHandle) {
     if HOVER_WATCH.swap(true, Ordering::SeqCst) {
         return;
     }
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_millis(130));
-        if !HOVER_OPEN.load(Ordering::Relaxed) {
-            if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
-                *slot = None;
-            }
-            continue;
-        }
         // AppKit 을 만지는 부분은 메인 스레드로 보낸는다(웹뷰·창은 메인 스레드 소유).
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || hover_tick(&handle));
     });
 }
 
-/// 한 번의 커서 확인 — 접혀 있으면 알약 위로 들어올 때 펼치고,
-/// 펼쳐져 있으면 패널 밖으로 0.7초 넘게 나가 있으면 접는다.
+/// 한 번의 커서 확인 — 접혀 있으면 (설정을 켠 사람만) 알약 위로 들어올 때 펼치고,
+/// 펼쳐져 있으면 패널 밖으로 0.7초 넘게 나가 있거나 다른 앱으로 옮겨 가면 접는다.
 fn hover_tick(app: &AppHandle) {
     let Some(win) = app.get_webview_window(NOTCH) else { return };
     if !win.is_visible().unwrap_or(false) {
         return;
     }
     let open = *NOTCH_OPEN.lock().unwrap();
-    // 여유를 조금 둔다 — 알약 가장자리에서 깜박이지 않게.
-    let Some(inside) = notch::cursor_inside(&win, if open { 6.0 } else { 4.0 }) else {
+    // 여유를 조금 둔다 — 알약·판 가장자리에서 깜박이지 않게(v1.17.1 — 펼친 판은 8pt).
+    let Some(inside) = notch::cursor_inside(&win, if open { 8.0 } else { 4.0 }) else {
         return;
     };
 
@@ -528,14 +603,52 @@ fn hover_tick(app: &AppHandle) {
         if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
             *slot = None;
         }
-        if !open {
-            set_notch_open(app, true);
+        if open {
+            NOTCH_ENTERED.store(true, Ordering::Relaxed);
+        }
+        if !open && HOVER_OPEN.load(Ordering::Relaxed) {
+            set_notch_open_by(app, true, true);
             let _ = app.emit("tip://notch-hover-enter", ());
         }
         return;
     }
 
-    if !open || HOVER_HOLD.load(Ordering::Relaxed) {
+    if !open {
+        if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
+            *slot = None;
+        }
+        return;
+    }
+
+    // 입력 중·드래그 중·파일 고르기/날짜 고르기 창이 떠 있는 동안에는 접지 않는다.
+    if HOVER_HOLD.load(Ordering::Relaxed) {
+        if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
+            *slot = None;
+        }
+        return;
+    }
+
+    // 커서가 아직 창 근처여도, 다른 앱으로 옮겨 갔으면 접는다(v1.17.1).
+    if frontmost_moved() {
+        collapse_from_watch(app);
+        return;
+    }
+
+    // v1.17.1 — '나갔다'로 볼 수 있는 때인가.
+    //   · 마우스 올리기로 연 판: 커서가 알약에 있었다 — 조금만 벗어나도 접는다(0.25초 여유).
+    //   · 클릭·메뉴 막대로 연 판: 커서가 알약·메뉴 막대(판 바깥)에 있다 — 판 안에 한 번
+    //     들어왔다 나갈 때부터 접는다. 열자마자 0.7초 뒤 접혀 버리지 않게.
+    let ready = if NOTCH_OPEN_HOVER.load(Ordering::Relaxed) {
+        NOTCH_OPENED_AT
+            .lock()
+            .ok()
+            .and_then(|slot| *slot)
+            .map(|at| at.elapsed() >= Duration::from_millis(250))
+            .unwrap_or(true)
+    } else {
+        NOTCH_ENTERED.load(Ordering::Relaxed)
+    };
+    if !ready {
         if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
             *slot = None;
         }
@@ -557,11 +670,7 @@ fn hover_tick(app: &AppHandle) {
         }
     };
     if elapsed >= Duration::from_millis(700) {
-        set_notch_open(app, false);
-        if let Ok(mut slot) = HOVER_OUTSIDE_SINCE.lock() {
-            *slot = None;
-        }
-        let _ = app.emit("tip://notch-hover-leave", ());
+        collapse_from_watch(app);
     }
 }
 
@@ -1748,6 +1857,7 @@ pub fn run() {
             notch_focus,
             set_notch_hover,
             notch_hover_hold,
+            notch_cursor_inside,
             open_privacy_settings,
             read_shelf_file,
             set_notch_enabled,
@@ -1791,6 +1901,9 @@ pub fn run() {
 
             // v1.12.0 — 클립보드 히스토리 감시(기기 안에서만)와 기본 전역 단축키.
             clip::start(handle.clone());
+            // v1.17.1 — 노치 커서 감시는 늘 돈다. '마우스를 올려서 열기'를 꺼 둔 사람도
+            // 펼친 판 밖으로 커서가 나가거나 다른 앱으로 옮겨 가면 접혀야 한다.
+            start_hover_watch(handle.clone());
             // v1.14.0 — 검색 단축키는 표의 기본값으로 두고, 기능 단축키는 화면이 켜지면서 밀어 준다.
             set_search_binding(DEFAULT_SEARCH_SHORTCUT);
             let _ = sync_shortcuts(&handle);

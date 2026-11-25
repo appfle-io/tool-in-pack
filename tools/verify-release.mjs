@@ -73,6 +73,7 @@ check('Cargo.toml 버전', new RegExp(`^version = "${VERSION}"`, 'm').test(read(
 check('mac/package.json 버전', JSON.parse(read('mac/package.json')).version === VERSION);
 check('sw.js 캐시 버전', read('sw.js').includes(`tip-v${VERSION}`));
 check('js/app.js APP_VERSION', read('js/app.js').includes(`APP_VERSION = '${VERSION}'`));
+check('manifest.json 버전', JSON.parse(read('manifest.json')).version === VERSION, JSON.parse(read('manifest.json')).version);
 check('버전이 1.15.4 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 15 || (minor === 15 && patch >= 4))))(VERSION.split('.').map(Number)), String(VERSION));
 
 /* ------------------------------ 2. 노치 밀착 ------------------------------ */
@@ -1192,6 +1193,35 @@ check('설정 노치 탭 묶음', /function notchStartViewSection\(/.test(appJs)
   && /function notchPillSection\(/.test(appJs) && /function notchWidgetSection\(/.test(appJs));
 check('README v1.17.0', read('README.md').includes('| v1.17.0 |'));
 check('settings-e2e 가 v1.17.0 노치를 본다', /v1\.17\.0 — 시작 화면대로 반원/.test(read('tools/settings-e2e.mjs')));
+
+/* ================================================================
+   19. v1.17.1 — 노치 반원 렌더·호버·영역 버그 3종 + 보관함 높이
+   ================================================================ */
+
+check('버전 1.17.1 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 17 || (minor === 17 && patch >= 1))))(VERSION.split('.').map(Number)), VERSION);
+// ① 알약 폭에서 그린 다이얼 — 최소 폭을 지키고, 판 크기가 바뀌면 다시 그린다.
+check('반원: 좁은 판에서는 칸을 그리지 않는다', /const DIAL_MIN_W = 200;/.test(notch17) && /if \(width < DIAL_MIN_W\)/.test(notch17));
+check('반원: 판 크기가 바뀌면 다시 그린다', /new ResizeObserver\(\(\) => \{/.test(notch17) && /observer\.observe\(dialEl\)/.test(notch17)
+  && /watchDialSize\(\);/.test(notch17) && /if \(expanded\) layoutDial\(\);/.test(notch17));
+// ② 접힘 — 실제 창 사각형으로 판정하고, 접으면 초점을 놓는다.
+check('접기 전에 커서 위치를 Rust 에 묻는다', /invoke\('notch_cursor_inside'\)/.test(notch17) && /fn notch_cursor_inside\(/.test(lib)
+  && lib.includes('notch_cursor_inside,') && read('mac/src-tauri/build.rs').includes('"notch_cursor_inside"')
+  && read('mac/src-tauri/capabilities/default.json').includes('allow-notch-cursor-inside'));
+check('접으면 안쪽 초점을 놓는다', /const active = document\.activeElement;\s*\n\s*if \(active && active !== document\.body && notchEl\.contains\(active\)/.test(notch17));
+check('입력 중 표시는 실제로 칠 때만(3초)', /const TYPING_KEEP_MS = 3000;/.test(notch17) && /function typingNow\(\)/.test(notch17)
+  && /if \(Date\.now\(\) - typedAt < TYPING_KEEP_MS\) return true;/.test(notch17));
+check('마우스 올리기·다른 앱 클릭으로 접힘', /NOTCH_OPEN_HOVER/.test(lib) && /fn frontmost_moved\(\)/.test(lib)
+  && /if frontmost_moved\(\) \{/.test(lib) && /NOTCH_ENTERED/.test(lib));
+check('커서 감시는 앱이 켜질 때부터', /start_hover_watch\(handle\.clone\(\)\);/.test(lib));
+check('커서가 판 안이면 mouseleave 로 접지 않는다', /if \(!\(await cursorOutside\(\)\)\) return;/.test(notch17));
+// ③ 보관함이 옆 카드 높이를 채운다.
+check('보관함 놓기 상자가 카드 높이를 채움', /\.shelf-drop \{[\s\S]{0,400}flex: 1 1 auto;/.test(notchCss17)
+  && !/\.shelf-drop \{[\s\S]{0,300}\n  height: 44px;/.test(notchCss17));
+check('빈 보관함은 목록을 숨겨 놓기 상자가 자리를 갖는다', /\.wg-shelf\.is-empty \.shelf-list \{ display: none; \}/.test(notchCss17));
+check('README v1.17.1', read('README.md').includes('| v1.17.1 |'));
+check('settings-e2e 가 v1.17.1 세 버그를 본다', /v1\.17\.1 — 창이 펼쳐지면 휠 없이 모듈 칸이 보임/.test(read('tools/settings-e2e.mjs'))
+  && /v1\.17\.1 — 커서가 창 안이면 mouseleave 로 접지 않음/.test(read('tools/settings-e2e.mjs'))
+  && /v1\.17\.1 — 보관함 놓기 상자가 카드 높이를 채움/.test(read('tools/settings-e2e.mjs')));
 
 /* ------------------------------ 결과 ------------------------------ */
 

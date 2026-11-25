@@ -5,6 +5,7 @@
   "lang": "ko",
   "dir": "ltr",
   "id": "/tool-in-pack/",
+  "version": "1.17.1",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

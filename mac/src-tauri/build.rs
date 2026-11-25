@@ -52,6 +52,7 @@ const APP_COMMANDS: &[&str] = &[
     "notch_focus",
     "set_notch_hover",
     "notch_hover_hold",
+    "notch_cursor_inside",
     "open_privacy_settings",
     "read_shelf_file",
     "set_notch_enabled",

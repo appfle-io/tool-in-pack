@@ -45,6 +45,7 @@
     "allow-notch-focus",
     "allow-set-notch-hover",
     "allow-notch-hover-hold",
+    "allow-notch-cursor-inside",
     "allow-open-privacy-settings",
     "allow-read-shelf-file",
     "allow-set-notch-enabled",
