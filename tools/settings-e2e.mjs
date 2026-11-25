@@ -175,7 +175,12 @@ const MOCK = `
       },
     },
     event: {
-      listen: () => Promise.resolve(() => {}),
+      // v1.17.0 — 들은 이벤트를 남겨 두어 시험에서 직접 보낼 수 있게 한다(tip://notch-tray 등).
+      listen: (name, handler) => {
+        window.__TIP_LISTENERS__ = window.__TIP_LISTENERS__ || {};
+        window.__TIP_LISTENERS__[name] = handler;
+        return Promise.resolve(() => {});
+      },
       emit: () => Promise.resolve(),
       emitTo: () => Promise.resolve(),
     },
@@ -295,7 +300,11 @@ check('일반 — 업데이트 토스트', (await toastText()).includes('최신 
 
 await openSettings('notch');
 check('노치 — 탭 설명', (await page.locator('.sheet-tab-note').first().textContent()).includes('노치'));
-check('노치 — 메뉴 막대·퀵바 한 묶음(v1.15.1)', (await page.locator('.sheet-section h3', { hasText: '메뉴 막대와 퀵바' }).count()) === 1);
+check('v1.17.0 — 노치 탭 묶음 순서', (await page.locator('.sheet-body .sheet-section h3').allTextContents()).join(',').startsWith('노치 아일랜드,시작 화면,모듈 회전 방식,닫힌 노치 표시,위젯'),
+  (await page.locator('.sheet-body .sheet-section h3').allTextContents()).join(','));
+check('v1.17.0 — 메뉴 막대 묶음(퀵바 이름 없음)', (await page.locator('.sheet-section h3', { hasText: '메뉴 막대' }).count()) === 1
+  && (await page.locator('.sheet-section h3', { hasText: '퀵바' }).count()) === 0);
+check('v1.17.0 — 노치 탭에 퀵바라는 말 없음', !(await page.locator('.sheet-body').textContent()).includes('퀵바'));
 const notchMaster = page.locator('.notch-section .switch').first();
 await notchMaster.click();
 await page.waitForTimeout(120);
@@ -313,10 +322,42 @@ await page.waitForTimeout(120);
 check('노치 — 마우스 오버 설정', (await stored('tip.notch.v1')).hoverOpen === true);
 check('노치 — 커서 감시 호출', (await lastCall('set_notch_hover'))?.args.enabled === true);
 
-// 위젯 7종
-const widgetRows = page.locator('.notch-section .notch-row');
+// 위젯 8종(v1.17.0 — 최근 사용 추가, 모듈 실행 → 켜 둔 모듈)
+const widgetRows = page.locator('.notch-widget-section .notch-row');
 const widgetCount = await widgetRows.count();
-check('노치 — 위젯 7종', widgetCount === 8, String(widgetCount)); // 마우스 오버 1 + 위젯 7
+check('노치 — 위젯 8종', widgetCount === 8, String(widgetCount));
+const widgetHints = await page.locator('.notch-widget-section .notch-hint').allTextContents();
+check('v1.17.0 — 위젯 줄에 어디 나오는지 적힘', widgetHints[0].includes('반원') && widgetHints[0].includes('전체 보기'), widgetHints[0]);
+check('v1.17.0 — 켜 둔 모듈 이름', (await page.locator('.notch-widget-section .notch-row b').allTextContents()).includes('켜 둔 모듈'));
+// 노치 아일랜드를 꺼도 위젯은 바꿀 수 있다(메뉴 막대로 여는 노치에 적용).
+await notchMaster.click();
+await page.waitForTimeout(150);
+check('v1.17.0 — 노치를 꺼도 위젯 스위치 켜짐', await page.evaluate(() => [...document.querySelectorAll('.notch-widget-section .switch')].every((node) => !node.disabled)));
+await notchMaster.click();
+await page.waitForTimeout(150);
+
+// v1.17.0 — 시작 화면 · 회전 방식 · 닫힌 노치 표시
+check('v1.17.0 — 시작 화면 기본 간단히 보기', await page.evaluate(() => document.querySelector('.notch-start-section [data-choice="simple"]').getAttribute('aria-checked') === 'true'));
+await page.click('.notch-start-section [data-choice="full"]');
+await page.waitForTimeout(150);
+check('v1.17.0 — 시작 화면 저장', (await stored('tip.notch.v1')).startView === 'full');
+check('v1.17.0 — 시작 화면 선택 표시', await page.evaluate(() => document.querySelector('.notch-start-section [data-choice="full"]').getAttribute('aria-checked') === 'true'));
+await page.click('.notch-start-section [data-choice="simple"]');
+await page.waitForTimeout(150);
+check('v1.17.0 — 회전 방식 기본 계속 회전', (await stored('tip.notch.v1')).rotation === 'loop');
+await page.click('.notch-rotation-section [data-choice="bounded"]');
+await page.waitForTimeout(150);
+check('v1.17.0 — 회전 방식 저장', (await stored('tip.notch.v1')).rotation === 'bounded');
+await page.click('.notch-rotation-section [data-choice="loop"]');
+await page.waitForTimeout(150);
+const pillSwitch = page.locator('.notch-pill-section .switch');
+check('v1.17.0 — 노래와 타이머 표시 기본 켬', (await pillSwitch.getAttribute('aria-pressed')) === 'true');
+await pillSwitch.click();
+await page.waitForTimeout(100);
+check('v1.17.0 — 노래와 타이머 표시 끄기 저장', (await stored('tip.notch.v1')).pillActivity === false);
+await pillSwitch.click();
+await page.waitForTimeout(100);
+check('v1.17.0 — 노래와 타이머 표시 켜기 저장', (await stored('tip.notch.v1')).pillActivity === true);
 const mediaRow = page.locator('.notch-row', { hasText: '미디어' }).first();
 await mediaRow.locator('.switch').click();
 await page.waitForTimeout(80);
@@ -357,22 +398,30 @@ await page.waitForTimeout(120);
 const trayCall = await lastCall('set_tray_visible');
 check('노치 — 메뉴 막대 표시 토글', !!trayCall && trayCall.args.visible === (menuBefore !== 'true'), JSON.stringify(trayCall && trayCall.args));
 const range = page.locator('.op-range');
-await range.evaluate((node) => { node.value = '64'; node.dispatchEvent(new Event('input', { bubbles: true })); });
-check('노치 — 퀵바 투명도 슬라이더', (await page.evaluate(() => Number(localStorage.getItem('tip.quickbarOpacity.v1')))) === 64, await page.evaluate(() => localStorage.getItem('tip.quickbarOpacity.v1')));
-check('노치 — 투명도 숫자 표시', (await page.locator('.op-value').textContent()) === '64%');
+check('v1.17.0 — 불투명도 최솟값 70', (await range.getAttribute('min')) === '70');
+await range.evaluate((node) => { node.value = '84'; node.dispatchEvent(new Event('input', { bubbles: true })); });
+check('노치 — 반원 배경 불투명도 슬라이더', (await page.evaluate(() => Number(localStorage.getItem('tip.quickbarOpacity.v1')))) === 84, await page.evaluate(() => localStorage.getItem('tip.quickbarOpacity.v1')));
+check('노치 — 불투명도 숫자 표시', (await page.locator('.op-value').textContent()) === '84%');
+const oldOpacity = await page.evaluate(async () => {
+  localStorage.setItem('tip.quickbarOpacity.v1', '35');
+  const store = await import('./js/store.js');
+  return store.getQuickbarOpacity();
+});
+check('v1.17.0 — 예전 35% 저장값은 70 으로', oldOpacity === 70, String(oldOpacity));
+await page.evaluate(() => localStorage.setItem('tip.quickbarOpacity.v1', '84'));
 
-// 반원 퀵바 순서 하위 화면
-await page.click('.sheet-menu:has-text("반원 퀵바 순서")');
+// 모듈 순서 하위 화면(예전 '반원 퀵바 순서')
+await page.click('.sheet-menu:has-text("모듈 순서")');
 await page.waitForTimeout(120);
-check('노치 — 퀵바 순서 화면', (await page.locator('.sheet-head h2').textContent()) === '반원 퀵바 순서');
+check('노치 — 모듈 순서 화면', (await page.locator('.sheet-head h2').textContent()) === '모듈 순서');
 const modeRows = await page.locator('.mode-row').count();
-check('노치 — 퀵바 순서 방식 3종', modeRows === 3, String(modeRows));
+check('노치 — 모듈 순서 방식 3종', modeRows === 3, String(modeRows));
 await page.click('.mode-row[data-mode="asc"]');
 await page.waitForTimeout(120);
 check('노치 — 오름차순 저장', (await page.evaluate(() => localStorage.getItem('tip.radialOrderMode.v1'))) === 'asc');
 await page.click('.sheet-head .sheet-back');
 await page.waitForTimeout(120);
-check('노치 — 퀵바 화면에서 돌아오기', await page.locator('.sheet-tab[data-tab="notch"]').count() === 1);
+check('노치 — 모듈 순서 화면에서 돌아오기', await page.locator('.sheet-tab[data-tab="notch"]').count() === 1);
 
 /* ------------------------------ 검색 탭 ------------------------------ */
 
@@ -648,7 +697,8 @@ notch.on('pageerror', (error) => consoleErrors.push(`notch pageerror: ${String(e
 await notch.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
 await notch.evaluate(() => {
   localStorage.clear();
-  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, widgets: { media: true, timer: true, calendar: true, shelf: true, memo: true, launcher: true } }));
+  // v1.17.0 — 일정 추가 폼은 전체 보기의 카드에 있으므로 시작 화면을 전체 보기로 둔다.
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, startView: 'full', widgets: { media: true, timer: true, calendar: true, shelf: true, memo: true, launcher: true } }));
 });
 await notch.reload({ waitUntil: 'networkidle' });
 await notch.waitForTimeout(1200);
@@ -657,12 +707,12 @@ check('알약 — 노치 여백(--notch-gap) 적용', (await notch.evaluate(() =
 check('알약 — 노치 없음 클래스 아님', !(await notch.evaluate(() => document.getElementById('pill').classList.contains('no-notch'))));
 
 // 음악 — 첫 조회(4.5초 주기)를 기다린다
-await notch.waitForFunction(() => !document.getElementById('pill-track').hidden, { timeout: 8000 }).catch(() => {});
+await notch.waitForFunction(() => !document.getElementById('pill-eq').hidden, { timeout: 8000 }).catch(() => {});
 check('알약 — 음악 재생 중 확장', await notch.evaluate(() => document.getElementById('pill').classList.contains('has-media')));
-check('알약 — 곡 제목 표시', (await notch.locator('#pill-title').textContent()) === '테스트 곡 제목', await notch.locator('#pill-title').textContent());
 check('알약 — 이퀄라이저 표시', await notch.evaluate(() => !document.getElementById('pill-eq').hidden));
-const width = await notch.evaluate(() => Number(document.getElementById('pill-progress').style.width.replace('%', '')));
-check('알약 — 진행률 32% 근처', width >= 30 && width <= 37, String(width));
+check('v1.17.0 — 알약에 곡 제목·진행률 없음', await notch.evaluate(() => !document.getElementById('pill-title') && !document.getElementById('pill-progress')));
+check('v1.17.0 — 음악이 있으면 TIP 로고 숨김', await notch.evaluate(() => getComputedStyle(document.getElementById('pill-logo')).display === 'none'));
+check('v1.17.0 — 알약 이름에 노래 상태', (await notch.locator('#pill').getAttribute('aria-label')).includes('노래 재생 중'));
 const pillCall = await notch.evaluate(() => window.__TIP_CALLS__.filter((call) => call.command === 'set_notch_pill').pop());
 check('알약 — Rust 에 확장 알림', !!pillCall && pillCall.args.media === true, JSON.stringify(pillCall && pillCall.args));
 
@@ -712,7 +762,7 @@ check('알약 — 타이머 종료 알림 호출', !!alertCall, JSON.stringify(a
 /* -------------------- v1.15.2 노치 펼친 패널 UI/UX -------------------- */
 
 // 1. 빈 상태 — 접힌 한 줄, 높이·정렬, 패널 높이
-const emptyContext = await browser.newContext({ viewport: { width: 452, height: 560 }, locale: 'ko-KR', colorScheme: 'light' });
+const emptyContext = await browser.newContext({ viewport: { width: 640, height: 600 }, locale: 'ko-KR', colorScheme: 'light' });
 await emptyContext.addInitScript(MOCK);
 const emptyPage = await emptyContext.newPage();
 emptyPage.on('pageerror', (error) => consoleErrors.push(`notch pageerror: ${String(error)}`));
@@ -720,7 +770,8 @@ await emptyPage.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
 await emptyPage.evaluate(() => {
   localStorage.clear();
   localStorage.setItem('tip.theme', 'light');
-  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, widgets: { media: true, calendar: true, shelf: true, timer: true, memo: true, launcher: true } }));
+  // v1.17.0 — 이 묶음은 전체 보기(패널) 검사라 시작 화면을 전체 보기로 둔다.
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, startView: 'full', widgets: { media: true, calendar: true, shelf: true, timer: true, memo: true, launcher: true } }));
 });
 await emptyPage.reload({ waitUntil: 'networkidle' });
 await emptyPage.waitForTimeout(1200);
@@ -729,13 +780,14 @@ check('v1.15.2 — 회색 막대(.panel-handle) 제거', await emptyPage.evaluat
 const panelHeight = await emptyPage.evaluate(() => Math.round(document.getElementById('panel').getBoundingClientRect().height));
 check('v1.15.2 — 펼친 패널 600px 이하', panelHeight > 0 && panelHeight <= 600, String(panelHeight));
 const alpha = await emptyPage.evaluate(() => {
-  const bg = getComputedStyle(document.getElementById('panel')).backgroundColor;
+  // v1.17.0 — 배경은 판(.sheet)이 맡는다. 기본 불투명도 92%.
+  const bg = getComputedStyle(document.getElementById('sheet')).backgroundColor;
   const match = bg.match(/rgba?\(([^)]+)\)/);
   if (!match) return 1;
   const parts = match[1].split(',').map((value) => Number(value.trim()));
   return parts.length === 4 ? parts[3] : 1;
 });
-check('v1.15.2 — 패널 배경 불투명도 0.96 이상', alpha >= 0.96, String(alpha));
+check('v1.17.0 — 판 배경 불투명도 = 설정값(기본 92%)', Math.abs(alpha - 0.92) < 0.01, String(alpha));
 
 const compact = await emptyPage.evaluate(() => ({
   media: document.querySelector('.wg-media').classList.contains('is-compact'),
@@ -761,7 +813,7 @@ check('v1.15.2 — 재생 없으면 재생 버튼 비활성', compact.mediaPlayD
 check('v1.15.2 — 남은 일정 없으면 한 줄 접힘', compact.calendar && compact.calSide.includes('남은 일정'), compact.calSide);
 check('v1.15.2 — 빈 보관함 얇은 한 줄(40~52px)', compact.shelf && compact.shelfHeight >= 40 && compact.shelfHeight <= 52, String(compact.shelfHeight));
 check('v1.15.2 — 같은 줄 카드 높이 일치(미디어/일정)', compact.mediaHeight === compact.calHeight, `${compact.mediaHeight}/${compact.calHeight}`);
-check('v1.15.2 — 같은 줄 카드 높이 일치(타이머/메모)', compact.timerHeight === compact.memoHeight, `${compact.timerHeight}/${compact.memoHeight}`);
+check('v1.17.0 — 첫 줄 세 칸 높이 일치(미디어/일정/타이머)', compact.mediaHeight === compact.timerHeight && compact.calHeight === compact.timerHeight, `${compact.mediaHeight}/${compact.calHeight}/${compact.timerHeight}`);
 check('v1.15.2 — 빠른 메모 글자 수 표시 제거', !compact.memoHasSide);
 check('v1.15.2 — 직접 입력은 접혀 있음', compact.customHidden);
 check('v1.15.2 — 기본 표시는 고른 시간(05:00)', compact.display === '05:00', compact.display);
@@ -788,21 +840,36 @@ await emptyPage.evaluate(() => { document.getElementById('timer-reset').click();
 await emptyPage.waitForTimeout(200);
 check('v1.15.2 — 초기화 뒤에도 고른 시간 표시', (await emptyPage.locator('#timer-display').textContent()) === '02:30');
 
-// 모듈 실행 화살표
-const navState = await emptyPage.evaluate(() => {
-  const row = document.getElementById('launcher-row');
-  const next = document.querySelector('[data-launcher="next"]');
-  const before = row.scrollLeft;
-  if (next && !next.hidden) next.click();
-  return { before, overflow: row.scrollWidth > row.clientWidth + 4, nextHidden: next ? next.hidden : true };
-});
-await emptyPage.waitForTimeout(600);
-const navAfter = await emptyPage.evaluate(() => {
-  const row = document.getElementById('launcher-row');
-  return { left: row.scrollLeft, fadeStart: row.classList.contains('is-fade-start'), prevShown: !document.querySelector('[data-launcher="prev"]').hidden };
-});
-check('v1.15.2 — 모듈 줄 다음 화살표', navState.overflow && !navState.nextHidden, JSON.stringify(navState));
-check('v1.15.2 — 화살표로 스크롤·양끝 페이드', navAfter.left > navState.before && navAfter.fadeStart && navAfter.prevShown, JSON.stringify(navAfter));
+// v1.17.0 — 켜 둔 모듈 한 줄(7칸)·위치 표시·화살표
+{
+const rowState = await emptyPage.evaluate(() => ({
+  tiles: document.querySelectorAll('#launcher-row .launcher-tile').length,
+  pos: document.getElementById('launcher-pos').textContent,
+  prevHidden: document.querySelector('[data-launcher="prev"]').hidden,
+}));
+check('v1.17.0 — 켜 둔 모듈 한 줄 7칸', rowState.tiles === 7, String(rowState.tiles));
+check('v1.17.0 — 위치 표시 1–7 / n', /^1–7 \/ \d+$/.test(rowState.pos), rowState.pos);
+check('v1.17.0 — 화살표 보임(7개 넘음)', !rowState.prevHidden);
+const total = Number(rowState.pos.split('/ ')[1]);
+await emptyPage.evaluate(() => { document.querySelector('[data-launcher="prev"]').click(); });
+await emptyPage.waitForTimeout(80);
+const loopPos = await emptyPage.locator('#launcher-pos').textContent();
+check('v1.17.0 — 계속 회전: 처음에서 왼쪽이면 끝으로', loopPos === `${total}–${total}, 1–6 / ${total}`, loopPos);
+await emptyPage.fill('#launcher-find', '타이머');
+await emptyPage.waitForTimeout(80);
+const found = await emptyPage.evaluate(() => ({
+  tiles: [...document.querySelectorAll('#launcher-row .launcher-tile')].map((tile) => tile.textContent),
+  pos: document.getElementById('launcher-pos').textContent,
+  navHidden: document.querySelector('[data-launcher="next"]').hidden,
+}));
+check('v1.17.0 — 찾기로 거르기', found.tiles.length >= 1 && found.tiles.every((text) => text.includes('타이머')), JSON.stringify(found.tiles));
+check('v1.17.0 — 7개 이하면 개수·화살표 숨김', /^\d+개$/.test(found.pos) && found.navHidden, JSON.stringify(found));
+await emptyPage.fill('#launcher-find', '없는모듈이름');
+await emptyPage.waitForTimeout(80);
+check('v1.17.0 — 찾는 모듈 없음 안내', (await emptyPage.locator('#launcher-row').textContent()).includes('찾는 모듈이 없어요'));
+await emptyPage.fill('#launcher-find', '');
+await emptyPage.waitForTimeout(80);
+}
 const newStickerBefore = await emptyPage.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'sticky_create'));
 await emptyPage.locator('#launcher-new').click();
 await emptyPage.waitForTimeout(250);
@@ -1485,6 +1552,485 @@ const shotTools = await tauriPage.evaluate(() => [...document.querySelectorAll('
 check('v1.16.0 — 스크린샷 도구 4종', shotTools.join(',') === '화살표,사각형,글자,모자이크', shotTools.join(','));
 check('v1.16.0 — 스크린샷 영역 캡처 버튼', await tauriPage.locator('#sa-capture').count() === 1);
 
+/* -------------------- v1.17.0 노치 개편 — 반원 다이얼 · 전체 보기 · 달력 · 보관함 -------------------- */
+{ // 이름이 앞 묶음과 겹치지 않게 블록으로 감싼다.
+
+const v117Context = await browser.newContext({ viewport: { width: 640, height: 600 }, locale: 'ko-KR', colorScheme: 'dark' });
+await v117Context.addInitScript(MOCK);
+const dial = await v117Context.newPage();
+dial.on('pageerror', (error) => consoleErrors.push(`v117 pageerror: ${String(error)}`));
+await dial.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
+// 옛 저장값(v1.16.0) — startView·rotation·pillActivity·recent 가 없다.
+await dial.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, hoverOpen: false, widgets: { media: false, calendar: true, shelf: true, timer: true, memo: true, mirror: false, launcher: true } }));
+});
+await dial.reload({ waitUntil: 'networkidle' });
+await dial.waitForTimeout(900);
+
+const migrated = await dial.evaluate(async () => {
+  const store = await import('./js/store.js');
+  store.syncStore();
+  return store.getNotchSettings();
+});
+check('v1.17.0 — 옛 값: 시작 화면 간단히 보기', migrated.startView === 'simple', migrated.startView);
+check('v1.17.0 — 옛 값: 계속 회전', migrated.rotation === 'loop', migrated.rotation);
+check('v1.17.0 — 옛 값: 노래와 타이머 표시 켬', migrated.pillActivity === true);
+check('v1.17.0 — 옛 값: 최근 사용 위젯 켬', migrated.widgets.recent === true);
+const weird = await dial.evaluate(async () => {
+  const before = localStorage.getItem('tip.notch.v1');
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, startView: 'abc', rotation: 3, pillActivity: 'x', widgets: {} }));
+  const store = await import('./js/store.js');
+  store.syncStore();
+  const value = store.getNotchSettings();
+  localStorage.setItem('tip.notch.v1', before);
+  store.syncStore();
+  return value;
+});
+check('v1.17.0 — 이상한 값은 기본값으로', weird.startView === 'simple' && weird.rotation === 'loop' && weird.pillActivity === true, JSON.stringify(weird));
+
+// 간단히 보기(반원)로 열려 있다.
+const simple = await dial.evaluate(() => ({
+  isSimple: document.getElementById('notch').classList.contains('is-simple'),
+  panelHidden: getComputedStyle(document.getElementById('panel')).visibility === 'hidden',
+  panelInert: document.getElementById('panel').inert,
+  radius: getComputedStyle(document.getElementById('sheet')).borderBottomLeftRadius,
+  height: Math.round(document.getElementById('sheet').getBoundingClientRect().height),
+  slots: document.querySelectorAll('.dial-slot').length,
+  visibleSlots: [...document.querySelectorAll('.dial-slot')].filter((slot) => slot.style.visibility === 'visible').length,
+  name: document.getElementById('dial-name').textContent,
+  center: document.querySelector('.dial-slot.is-center')?.dataset.moduleId,
+  dots: document.querySelectorAll('.dial-dot, .rw-dot').length,
+  toFull: document.getElementById('to-full').textContent.trim(),
+}));
+check('v1.17.0 — 시작 화면대로 반원', simple.isSimple && simple.panelHidden && simple.panelInert, JSON.stringify(simple));
+check('v1.17.0 — 반원 모양(아래 모서리 반타원)', simple.radius.includes('%') || parseFloat(simple.radius) > 100, simple.radius);
+check('v1.17.0 — 반원 높이 252 + 노치 32', simple.height === 284, String(simple.height));
+check('v1.17.0 — 다이얼 7칸 + 걸침', simple.visibleSlots >= 7 && simple.visibleSlots <= 9 && simple.slots > 7, JSON.stringify(simple));
+check('v1.17.0 — 가운데 모듈 이름', simple.name.length > 0 && !!simple.center, simple.name);
+check('v1.17.0 — 페이지 점 없음', simple.dots === 0);
+check('v1.17.0 — 아래 버튼 전체 보기', simple.toFull === '전체 보기', simple.toFull);
+check('v1.17.0 — 노치 높이만큼 내림(--dial-offset)', (await dial.evaluate(() => document.getElementById('notch').style.getPropertyValue('--dial-offset'))) === '32px');
+
+// 양옆 상태 칸 — 미디어 위젯 꺼짐, 타이머 없음, 보관함 0개
+const sides = await dial.evaluate(() => ({
+  cal: !document.getElementById('dial-cal').hidden,
+  media: !document.getElementById('dial-media').hidden,
+  timer: !document.getElementById('dial-timer').hidden,
+  shelf: !document.getElementById('dial-shelf').hidden,
+  badge: !document.getElementById('dial-shelf-count').hidden,
+  shelfLabel: document.getElementById('dial-shelf').getAttribute('aria-label'),
+}));
+check('v1.17.0 — 달력 아이콘(캘린더 위젯 켬)', sides.cal);
+check('v1.17.0 — 미디어 위젯 꺼짐이면 빈 자리', !sides.media);
+check('v1.17.0 — 타이머 없으면 빈 자리', !sides.timer);
+check('v1.17.0 — 보관함 아이콘, 0개면 배지 없음', sides.shelf && !sides.badge && sides.shelfLabel.includes('0개'), JSON.stringify(sides));
+
+// 회전 — 계속 회전: 처음에서 왼쪽 → 마지막 모듈
+const order = await dial.evaluate(() => [...document.querySelectorAll('.dial-slot')].map((slot) => slot.dataset.moduleId));
+await dial.click('#dial-prev');
+await dial.waitForTimeout(500);
+check('v1.17.0 — 계속 회전: 첫 모듈에서 ‹ 이면 마지막', (await dial.evaluate(() => document.querySelector('.dial-slot.is-center')?.dataset.moduleId)) === order[order.length - 1]);
+check('v1.17.0 — 계속 회전: 화살표가 끝 표시 아님', await dial.evaluate(() => document.getElementById('dial-prev').getAttribute('aria-disabled') === 'false'));
+
+// 찾기 — 이름으로 가운데 이동, Enter 로 열기
+await dial.fill('#dial-find', '타이머');
+await dial.waitForTimeout(500);
+check('v1.17.0 — 찾기 칸으로 가운데 이동', (await dial.locator('#dial-name').textContent()) === '타이머', await dial.locator('#dial-name').textContent());
+await dial.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+await dial.press('#dial-find', 'Enter');
+await dial.waitForTimeout(250);
+const openCall = await dial.evaluate(() => window.__TIP_CALLS__.find((call) => call.command === 'open_tool'));
+check('v1.17.0 — Enter 로 가운데 모듈 열기', !!openCall && openCall.args.id === 'timer', JSON.stringify(openCall && openCall.args));
+check('v1.17.0 — 모듈을 열면 노치 접힘', await dial.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'notch_collapse')));
+
+// 다시 연다(브라우저는 창 크기가 그대로라 직접 펼친다).
+const reopen = async (page) => {
+  await page.evaluate(() => { document.getElementById('pill').click(); });
+  await page.waitForTimeout(350);
+};
+await reopen(dial);
+check('v1.17.0 — 다시 열면 찾기 칸 비어 있음', (await dial.locator('#dial-find').inputValue()) === '');
+check('v1.17.0 — 클릭으로 열면 찾기 칸 포커스', (await dial.evaluate(() => document.activeElement?.id)) === 'dial-find', await dial.evaluate(() => document.activeElement?.id));
+
+// 처음과 끝에서 멈춤
+await dial.evaluate(async () => {
+  const store = await import('./js/store.js');
+  store.setNotchRotation('bounded');
+});
+await dial.evaluate(() => { window.dispatchEvent(new StorageEvent('storage')); });
+await dial.waitForTimeout(300);
+await dial.fill('#dial-find', '');
+for (let i = 0; i < 40; i += 1) await dial.evaluate(() => document.getElementById('dial-prev').click());
+await dial.waitForTimeout(600);
+const bounded = await dial.evaluate(() => ({
+  center: document.querySelector('.dial-slot.is-center')?.dataset.moduleId,
+  first: document.querySelector('.dial-slot')?.dataset.moduleId,
+  prevEnd: document.getElementById('dial-prev').getAttribute('aria-disabled'),
+  prevClass: document.getElementById('dial-prev').classList.contains('is-end'),
+}));
+check('v1.17.0 — 멈춤: 첫 모듈에서 멈춤', bounded.center === bounded.first, JSON.stringify(bounded));
+check('v1.17.0 — 멈춤: 끝 화살표 aria-disabled', bounded.prevEnd === 'true' && bounded.prevClass, JSON.stringify(bounded));
+for (let i = 0; i < 60; i += 1) await dial.evaluate(() => document.getElementById('dial-next').click());
+await dial.waitForTimeout(700);
+const boundedEnd = await dial.evaluate(() => ({
+  center: document.querySelector('.dial-slot.is-center')?.dataset.moduleId,
+  last: [...document.querySelectorAll('.dial-slot')].pop()?.dataset.moduleId,
+  nextEnd: document.getElementById('dial-next').getAttribute('aria-disabled'),
+}));
+check('v1.17.0 — 멈춤: 마지막 모듈에서 멈춤', boundedEnd.center === boundedEnd.last && boundedEnd.nextEnd === 'true', JSON.stringify(boundedEnd));
+// 같은 설정이 켜 둔 모듈 한 줄에도
+await dial.click('#to-full');
+await dial.waitForTimeout(400);
+const rowBounded = await dial.evaluate(() => {
+  document.querySelector('[data-launcher="prev"]').click();
+  return {
+    pos: document.getElementById('launcher-pos').textContent,
+    prevEnd: document.querySelector('[data-launcher="prev"]').getAttribute('aria-disabled'),
+  };
+});
+check('v1.17.0 — 멈춤: 한 줄도 처음에서 멈춤', rowBounded.pos.startsWith('1–7 /') && rowBounded.prevEnd === 'true', JSON.stringify(rowBounded));
+await dial.evaluate(async () => {
+  const store = await import('./js/store.js');
+  store.setNotchRotation('loop');
+});
+
+// 전체 보기
+const full = await dial.evaluate(() => ({
+  isFull: document.getElementById('notch').classList.contains('is-full'),
+  dialInert: document.getElementById('dial').inert,
+  radius: getComputedStyle(document.getElementById('sheet')).borderBottomLeftRadius,
+  rows: [...document.querySelectorAll('#widgets > .wg-row')].map((row) => [...row.children].map((card) => card.dataset.widget).join('+')),
+  toSimple: document.getElementById('to-simple').textContent.trim(),
+  focus: document.activeElement?.id,
+}));
+check('v1.17.0 — 전체 보기로 바뀜', full.isFull && full.dialInert, JSON.stringify(full));
+check('v1.17.0 — 전체 보기 모서리 20px', full.radius === '20px', full.radius);
+check('v1.17.0 — 전체 보기 배치', full.rows.join(' / ') === 'calendar+timer / memo+shelf / recent / launcher', full.rows.join(' / '));
+check('v1.17.0 — 아래 버튼 간단히 보기', full.toSimple === '간단히 보기', full.toSimple);
+check('v1.17.0 — 버튼으로 바꾸면 메모에 포커스', full.focus === 'memo-input', full.focus);
+await dial.click('#to-simple');
+await dial.waitForTimeout(400);
+check('v1.17.0 — 간단히 보기로 되돌아감', await dial.evaluate(() => document.getElementById('notch').classList.contains('is-simple')));
+
+// 달력 — 반원에서 열고 닫으면 반원
+await dial.click('#dial-cal');
+await dial.waitForTimeout(400);
+const calOpen = await dial.evaluate(() => ({
+  view: !document.getElementById('cal-view').hidden,
+  full: document.getElementById('notch').classList.contains('is-full'),
+  toSimpleHidden: document.getElementById('to-simple').hidden,
+}));
+check('v1.17.0 — 반원 달력 아이콘으로 달력', calOpen.view && calOpen.full, JSON.stringify(calOpen));
+check('v1.17.0 — 달력에서는 닫기 하나만(간단히 보기 버튼 숨김)', calOpen.toSimpleHidden);
+await dial.click('#cal-view-close');
+await dial.waitForTimeout(400);
+check('v1.17.0 — 반원에서 연 달력 닫으면 반원', await dial.evaluate(() => document.getElementById('notch').classList.contains('is-simple') && document.getElementById('cal-view').hidden));
+await dial.click('#dial-cal');
+await dial.waitForTimeout(400);
+await dial.click('[data-cal-mode="week"]');
+await dial.waitForTimeout(200);
+await dial.keyboard.press('Escape');
+await dial.waitForTimeout(400);
+check('v1.17.0 — 달력 Esc 도 반원으로(노치 닫지 않음)', await dial.evaluate(() => document.getElementById('notch').classList.contains('is-simple')
+  && document.getElementById('notch').classList.contains('is-expanded')));
+// 전체 보기에서 열고 닫으면 전체 보기
+await dial.click('#to-full');
+await dial.waitForTimeout(400);
+await dial.click('#cal-open');
+await dial.waitForTimeout(400);
+await dial.click('#cal-view-close');
+await dial.waitForTimeout(400);
+check('v1.17.0 — 전체 보기에서 연 달력 닫으면 전체 보기', await dial.evaluate(() => document.getElementById('notch').classList.contains('is-full') && document.getElementById('cal-view').hidden));
+// 일정 폼 Esc 는 폼만
+await dial.click('#cal-open');
+await dial.waitForTimeout(300);
+await dial.click('#cal-add-btn');
+await dial.waitForTimeout(300);
+await dial.keyboard.press('Escape');
+await dial.waitForTimeout(200);
+check('v1.17.0 — 일정 폼 Esc 는 폼만 닫음', await dial.evaluate(() => document.getElementById('cal-form').hidden && !document.getElementById('cal-view').hidden));
+await dial.keyboard.press('Escape');
+await dial.waitForTimeout(300);
+// 다시 열면 달력이 아니라 시작 화면
+await dial.click('#cal-open');
+await dial.waitForTimeout(300);
+await dial.evaluate(() => { document.getElementById('collapse').click(); });
+await dial.waitForTimeout(300);
+await reopen(dial);
+check('v1.17.0 — 접었다 열면 시작 화면(달력 아님)', await dial.evaluate(() => document.getElementById('notch').classList.contains('is-simple') && document.getElementById('cal-view').hidden));
+
+// 보관함 — 반원 아이콘 누르면 전체 보기로 가서 강조
+await dial.click('#dial-shelf');
+await dial.waitForTimeout(450);
+check('v1.17.0 — 보관함 아이콘 → 전체 보기 카드 강조', await dial.evaluate(() => document.getElementById('notch').classList.contains('is-full')
+  && document.querySelector('.wg-shelf').classList.contains('is-flash')));
+await dial.click('#to-simple');
+await dial.waitForTimeout(300);
+
+// 파일을 반원에 끌어 놓기 → 펼침 상태 그대로, 개수 배지
+await dial.evaluate(() => {
+  const data = new DataTransfer();
+  data.items.add(new File(['a'], '견적서.pdf', { type: 'application/pdf' }));
+  data.items.add(new File(['bb'], '사진.png', { type: 'image/png' }));
+  window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: data, bubbles: true }));
+});
+await dial.waitForTimeout(150);
+check('v1.17.0 — 반원 위로 끌면 놓기 안내', await dial.evaluate(() => !document.getElementById('dial-drop').hidden));
+await dial.evaluate(() => {
+  const data = new DataTransfer();
+  data.items.add(new File(['a'], '견적서.pdf', { type: 'application/pdf' }));
+  data.items.add(new File(['bb'], '사진.png', { type: 'image/png' }));
+  window.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+});
+await dial.waitForTimeout(250);
+const afterDrop = await dial.evaluate(() => ({
+  simple: document.getElementById('notch').classList.contains('is-simple'),
+  badge: document.getElementById('dial-shelf-count').textContent,
+  badgeShown: !document.getElementById('dial-shelf-count').hidden,
+  hint: document.getElementById('dial-drop').hidden,
+  toast: document.getElementById('notch-toast').textContent,
+}));
+check('v1.17.0 — 반원에 놓으면 반원 그대로 개수 2', afterDrop.simple && afterDrop.badgeShown && afterDrop.badge === '2' && afterDrop.hint, JSON.stringify(afterDrop));
+check('v1.17.0 — 담은 개수 알림(aria-live)', afterDrop.toast.includes('파일 2개'), afterDrop.toast);
+check('v1.17.0 — 반원에는 파일 목록 없음', await dial.evaluate(() => !document.getElementById('dial').querySelector('.shelf-item')));
+const badge99 = await dial.evaluate(() => {
+  // 표시 규칙만 확인한다 — 100 이상은 99+.
+  const count = 120;
+  return count > 99 ? '99+' : String(count);
+});
+check('v1.17.0 — 100개 이상 배지 규칙', badge99 === '99+');
+
+// 접힌 상태에서 놓으면 펼치지 않고 알약에 '보관함 +1'
+await dial.evaluate(() => { document.getElementById('collapse').click(); });
+await dial.waitForTimeout(300);
+await dial.evaluate(() => {
+  const data = new DataTransfer();
+  data.items.add(new File(['c'], '메모.txt', { type: 'text/plain' }));
+  window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: data, bubbles: true }));
+});
+await dial.waitForTimeout(120);
+const dragPill = await dial.evaluate(() => ({
+  note: document.getElementById('pill-note').textContent,
+  expanded: document.getElementById('notch').classList.contains('is-expanded'),
+}));
+check('v1.17.0 — 접힌 알약에 여기에 놓기', dragPill.note === '여기에 놓기' && !dragPill.expanded, JSON.stringify(dragPill));
+await dial.evaluate(() => {
+  const data = new DataTransfer();
+  data.items.add(new File(['c'], '메모.txt', { type: 'text/plain' }));
+  window.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+});
+await dial.waitForTimeout(200);
+const dropPill = await dial.evaluate(() => ({
+  note: document.getElementById('pill-note').textContent,
+  expanded: document.getElementById('notch').classList.contains('is-expanded'),
+  pillCall: window.__TIP_CALLS__.filter((call) => call.command === 'set_notch_pill').pop(),
+}));
+check('v1.17.0 — 접힌 채로 담고 보관함 +1', dropPill.note === '보관함 +1' && !dropPill.expanded, JSON.stringify(dropPill));
+check('v1.17.0 — 안내 동안 알약 양쪽 넓힘', !!dropPill.pillCall && dropPill.pillCall.args.media && dropPill.pillCall.args.timer, JSON.stringify(dropPill.pillCall));
+await dial.waitForTimeout(2200);
+check('v1.17.0 — 2초 뒤 안내 사라짐', await dial.evaluate(() => document.getElementById('pill-note').hidden));
+
+// 보관함 위젯이 꺼져 있으면 담지 않는다
+await dial.evaluate(async () => {
+  const store = await import('./js/store.js');
+  store.setNotchWidget('shelf', false);
+  window.dispatchEvent(new StorageEvent('storage'));
+});
+await dial.waitForTimeout(250);
+await dial.evaluate(() => {
+  const data = new DataTransfer();
+  data.items.add(new File(['d'], '또.txt', { type: 'text/plain' }));
+  window.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+});
+await dial.waitForTimeout(200);
+check('v1.17.0 — 보관함 꺼짐이면 담지 않고 안내', (await dial.locator('#notch-toast').textContent()).includes('임시 보관함을 켜 주세요'));
+await dial.evaluate(async () => {
+  const store = await import('./js/store.js');
+  store.setNotchWidget('shelf', true);
+  window.dispatchEvent(new StorageEvent('storage'));
+});
+
+// 타이머 — 반원 오른쪽 칸, 끝나면 5초 완료
+await dial.evaluate(async () => {
+  const store = await import('./js/timer-store.js');
+  store.startTimer(125);
+});
+await reopen(dial);
+await dial.waitForTimeout(700);
+const timerSide = await dial.evaluate(() => ({
+  shown: !document.getElementById('dial-timer').hidden,
+  clock: document.getElementById('dial-timer-clock').textContent,
+  label: document.getElementById('dial-timer').getAttribute('aria-label'),
+}));
+check('v1.17.0 — 반원 타이머 칸 남은 시간', timerSide.shown && /^0[12]:\d\d$/.test(timerSide.clock), JSON.stringify(timerSide));
+check('v1.17.0 — 타이머 칸 스크린 리더 이름', timerSide.label.includes('남음'), timerSide.label);
+await dial.click('#dial-timer');
+await dial.waitForTimeout(450);
+check('v1.17.0 — 타이머 칸 → 전체 보기 타이머 카드(멈추지 않음)', await dial.evaluate(() => document.querySelector('.wg-timer').classList.contains('is-flash')
+  && JSON.parse(localStorage.getItem('tip.timer.v1')).status === 'running'));
+await dial.evaluate(() => { document.getElementById('collapse').click(); });
+await dial.evaluate(async () => {
+  const store = await import('./js/timer-store.js');
+  store.startTimer(1);
+});
+await dial.waitForTimeout(2300);
+const doneState = await dial.evaluate(() => ({ clock: document.getElementById('pill-clock').textContent, shown: !document.getElementById('pill-timer').hidden }));
+check('v1.17.0 — 타이머 끝나면 알약에 완료', doneState.shown && doneState.clock === '완료', JSON.stringify(doneState));
+await dial.waitForTimeout(5400);
+check('v1.17.0 — 5초 뒤 완료 숨김', await dial.evaluate(() => document.getElementById('pill-timer').hidden));
+
+// 닫힌 노치 표시 끄기 — 늘 TIP 로고만
+await dial.evaluate(async () => {
+  const timer = await import('./js/timer-store.js');
+  timer.startTimer(300);
+  const store = await import('./js/store.js');
+  store.setNotchPillActivity(false);
+  window.dispatchEvent(new StorageEvent('storage'));
+});
+await dial.waitForTimeout(700);
+check('v1.17.0 — 표시 끄면 알약에 타이머 없음', await dial.evaluate(() => document.getElementById('pill-timer').hidden
+  && getComputedStyle(document.getElementById('pill-logo')).display !== 'none'));
+await dial.evaluate(async () => {
+  const store = await import('./js/store.js');
+  store.setNotchPillActivity(true);
+  const timer = await import('./js/timer-store.js');
+  timer.resetTimer();
+});
+
+// 시작 화면 = 전체 보기 → 클릭으로 열면 빠른 메모 포커스
+await dial.evaluate(async () => {
+  const store = await import('./js/store.js');
+  store.setNotchStartView('full');
+  window.dispatchEvent(new StorageEvent('storage'));
+});
+await dial.waitForTimeout(200);
+await reopen(dial);
+check('v1.17.0 — 시작 화면 전체 보기로 열림', await dial.evaluate(() => document.getElementById('notch').classList.contains('is-full')));
+check('v1.17.0 — 클릭으로 열면 빠른 메모 포커스', (await dial.evaluate(() => document.activeElement?.id)) === 'memo-input');
+// 마우스로 열면 포커스를 가져가지 않는다
+await dial.evaluate(() => { document.getElementById('collapse').click(); document.activeElement?.blur(); });
+await dial.waitForTimeout(250);
+await dial.evaluate(async () => {
+  const store = await import('./js/store.js');
+  store.setNotchHoverOpen(true);
+  window.dispatchEvent(new StorageEvent('storage'));
+});
+await dial.waitForTimeout(150);
+await dial.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+await dial.evaluate(() => document.getElementById('pill').dispatchEvent(new MouseEvent('mouseenter')));
+await dial.waitForTimeout(350);
+const hoverOpen = await dial.evaluate(() => ({
+  expanded: document.getElementById('notch').classList.contains('is-expanded'),
+  active: document.activeElement?.id || document.activeElement?.tagName,
+  focusCalls: window.__TIP_CALLS__.filter((call) => call.command === 'notch_focus').length,
+}));
+check('v1.17.0 — 마우스로 열면 포커스 안 가져감', hoverOpen.expanded && hoverOpen.active !== 'memo-input' && hoverOpen.focusCalls === 0, JSON.stringify(hoverOpen));
+
+// 메뉴 막대 아이콘 이벤트(tip://notch-tray) — 열려 있으면 닫는다
+const trayToggle = await dial.evaluate(async () => {
+  const fire = window.__TIP_LISTENERS__ && window.__TIP_LISTENERS__['tip://notch-tray'];
+  if (!fire) return 'no-listener';
+  fire({ payload: null });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const closed = !document.getElementById('notch').classList.contains('is-expanded');
+  fire({ payload: null });
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  return { closed, reopened: document.getElementById('notch').classList.contains('is-expanded'), active: document.activeElement?.id };
+});
+check('v1.17.0 — 메뉴 막대 아이콘으로 닫고 열기', trayToggle.closed && trayToggle.reopened && trayToggle.active === 'memo-input', JSON.stringify(trayToggle));
+
+// 최근 사용 카드
+await dial.evaluate(() => {
+  localStorage.setItem('tip.recent.v1', JSON.stringify(['timer', 'qr-gen', 'dev-tools']));
+  window.dispatchEvent(new StorageEvent('storage'));
+});
+await dial.waitForTimeout(250);
+await dial.evaluate(() => { document.getElementById('collapse').click(); });
+await reopen(dial);
+const recent = await dial.evaluate(() => [...document.querySelectorAll('.recent-chip')].map((chip) => chip.getAttribute('aria-label')));
+check('v1.17.0 — 최근 사용 칩', recent.length === 3 && recent[0].includes('타이머'), JSON.stringify(recent));
+await dial.evaluate(() => {
+  localStorage.setItem('tip.recent.enabled.v1', '0');
+  window.dispatchEvent(new StorageEvent('storage'));
+});
+await dial.waitForTimeout(250);
+check('v1.17.0 — 메인에서 최근 사용 끄면 카드 숨김', await dial.evaluate(() => !document.querySelector('.wg-recent')));
+
+// 불투명도 — 판 배경 알파
+await dial.evaluate(() => {
+  localStorage.setItem('tip.quickbarOpacity.v1', '75');
+  window.dispatchEvent(new StorageEvent('storage'));
+});
+await dial.waitForTimeout(200);
+check('v1.17.0 — 판 배경에 불투명도 적용', (await dial.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--sheet-alpha').trim())) === '0.75');
+
+// 반원 글자 12px 이상·버튼 36px 이상(데스크톱)
+await dial.evaluate(async () => {
+  const store = await import('./js/store.js');
+  store.setNotchStartView('simple');
+  window.dispatchEvent(new StorageEvent('storage'));
+  document.getElementById('collapse').click();
+});
+await reopen(dial);
+const dialA11y = await dial.evaluate(() => {
+  const root = document.getElementById('dial');
+  const small = [...root.querySelectorAll('b, span, p, input, button')]
+    .filter((node) => node.offsetParent && node.textContent.trim() && !node.children.length)
+    .filter((node) => parseFloat(getComputedStyle(node).fontSize) < 12)
+    .map((node) => node.textContent.trim().slice(0, 12));
+  const tiny = [...root.querySelectorAll('.dial-arrow, .dial-icon, .sheet-toggle, .dial-side')]
+    .filter((node) => !node.hidden && node.offsetParent)
+    .map((node) => node.getBoundingClientRect())
+    .filter((rect) => rect.width < 32 || rect.height < 32).length;
+  const unlabeled = [...root.querySelectorAll('button')]
+    .filter((node) => !node.hidden && !(node.getAttribute('aria-label') || node.textContent.trim())).length;
+  return { small, tiny, unlabeled };
+});
+check('v1.17.0 — 반원 글자 12px 이상', dialA11y.small.length === 0, dialA11y.small.join(','));
+check('v1.17.0 — 반원 버튼 32px 이상', dialA11y.tiny === 0, String(dialA11y.tiny));
+check('v1.17.0 — 반원 버튼 이름 있음', dialA11y.unlabeled === 0, String(dialA11y.unlabeled));
+await v117Context.close();
+
+// 순수 규칙(js/dial.js)
+const dialRules = await page.evaluate(async () => {
+  const d = await import('./js/dial.js');
+  const ids = Array.from({ length: 18 }, (_, index) => `m${index}`);
+  return {
+    label1: d.rowPositionLabel(0, 18, 7, true),
+    label2: d.rowPositionLabel(15, 18, 7, true),
+    label3: d.rowPositionLabel(-1, 18, 7, false),
+    few: d.rowPositionLabel(0, 3, 7, true),
+    win: d.rowWindow(ids, 15, 7, true).join(','),
+    ends: d.rowAtEnds(11, 18, 7, false),
+    center: d.centerIndex(-1, 18, true),
+    clamp: d.clampPos(25, 18, false),
+    target: d.targetFor(17, 0, 18, true),
+    find: d.findIndex(['a', 'b'], 'B', (id) => [id.toUpperCase()]),
+  };
+});
+check('v1.17.0 — 규칙: 위치 표시', dialRules.label1 === '1–7 / 18' && dialRules.label2 === '16–18, 1–4 / 18' && dialRules.label3 === '1–7 / 18' && dialRules.few === '3개',
+  JSON.stringify(dialRules));
+check('v1.17.0 — 규칙: 끝에서 이어 붙이기', dialRules.win === 'm15,m16,m17,m0,m1,m2,m3', dialRules.win);
+check('v1.17.0 — 규칙: 멈춤 끝', dialRules.ends[0] === false && dialRules.ends[1] === true, JSON.stringify(dialRules.ends));
+check('v1.17.0 — 규칙: 계속 회전 가운데·가까운 쪽', dialRules.center === 17 && dialRules.target === -1, JSON.stringify(dialRules));
+check('v1.17.0 — 규칙: 멈춤 자르기·찾기', dialRules.clamp === 17 && dialRules.find === 1, JSON.stringify(dialRules));
+
+// 정리 — 반원 퀵바 창과 커맨드가 남아 있지 않다. 커맨드 목록 세 곳이 같다.
+const libRs = readFileSync(join(ROOT, 'mac/src-tauri/src/lib.rs'), 'utf8');
+const buildRs = readFileSync(join(ROOT, 'mac/src-tauri/build.rs'), 'utf8');
+const caps = JSON.parse(readFileSync(join(ROOT, 'mac/src-tauri/capabilities/default.json'), 'utf8'));
+check('v1.17.0 — radial 파일 없음', !existsSync(join(ROOT, 'radial.html')) && !existsSync(join(ROOT, 'js/radial.js')) && !existsSync(join(ROOT, 'css/radial.css')));
+check('v1.17.0 — 퀵바 창·hide_radial 없음', !/QUICKBAR|hide_radial|show_quickbar/.test(libRs) && !caps.windows.includes('quickbar'));
+const handlerCmds = ((libRs.match(/generate_handler!\[([\s\S]*?)\]/) || [])[1] || '').split(',').map((item) => item.trim().split('::').pop()).filter(Boolean).sort();
+const buildCmds = [...(buildRs.match(/APP_COMMANDS[^=]*=\s*&\[([\s\S]*?)\];/) || ['', ''])[1].matchAll(/"([a-z_]+)"/g)].map((match) => match[1]).sort();
+const capCmds = caps.permissions.filter((item) => typeof item === 'string' && item.startsWith('allow-')).map((item) => item.slice(6).replace(/-/g, '_')).sort();
+check('v1.17.0 — 커맨드 목록 세 곳 일치', handlerCmds.length > 60 && handlerCmds.join() === buildCmds.join() && buildCmds.join() === capCmds.join(),
+  `${handlerCmds.length}/${buildCmds.length}/${capCmds.length}`);
+const sw = readFileSync(join(ROOT, 'sw.js'), 'utf8');
+check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes('radial') && sw.includes("'./js/dial.js'"));
+}
+
 /* ------------------------------ 결과 ------------------------------ */
 
 const errors = consoleErrors.filter((line) => !/favicon|service worker|ERR_FILE/i.test(line));
@@ -1494,7 +2040,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.16.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.17.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

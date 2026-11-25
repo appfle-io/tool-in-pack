@@ -270,14 +270,16 @@ export function setMenuBarVisible(visible) {
   } catch { /* 저장하지 못하면 이번 실행에만 적용된다 */ }
 }
 
-/* 메뉴 도구(반원 퀵바) 투명도 — 판 배경의 불투명도(%), 35~100. 기본 92. (v1.11.0) */
+/* 반원 배경 불투명도 — 노치 반원·전체 보기 판 배경의 불투명도(%), 70~100. 기본 92. (v1.11.0)
+   v1.17.0 — 최솟값을 35 → 70 으로 올린다. 그보다 낮으면 바탕화면이 비쳐 글자 대비가 4.5:1 아래로
+   떨어졌다. 예전에 70 미만으로 저장한 값은 읽을 때 70 으로 올라간다(키 이름은 그대로 둔다). */
 
 const QUICKBAR_OPACITY_KEY = 'tip.quickbarOpacity.v1';
-export const QUICKBAR_OPACITY_MIN = 35;
+export const QUICKBAR_OPACITY_MIN = 70;
 export const QUICKBAR_OPACITY_MAX = 100;
 export const QUICKBAR_OPACITY_DEFAULT = 92;
 
-/** 저장된 값을 35~100 정수로 맞춰 돌려준다. 값이 없거나 이상하면 92. */
+/** 저장된 값을 70~100 정수로 맞춰 돌려준다. 값이 없거나 이상하면 92. */
 export function getQuickbarOpacity() {
   try {
     const saved = localStorage.getItem(QUICKBAR_OPACITY_KEY);
@@ -297,24 +299,37 @@ export function setQuickbarOpacity(percent) {
   try {
     localStorage.setItem(QUICKBAR_OPACITY_KEY, String(clamped));
   } catch { /* 저장하지 못하면 이번에만 적용된다 */ }
+  notifyWindows();   // v1.17.0 — 열려 있는 노치 판에도 바로 반영(예전 반원 창은 700ms 폴링)
 }
 
 /* 노치 아일랜드 — macOS 앱 전용. 노치 자체와 위젯별 표시를 따로 켜고 끈다. (v1.12.1)
-   값: { enabled: boolean, widgets: { media, calendar, shelf, timer, memo, mirror, launcher } }
+   값: { enabled, hoverOpen, startView, rotation, pillActivity,
+         widgets: { media, calendar, shelf, timer, memo, recent, mirror, launcher } }
    기본값: 노치 자체와 '미디어·캘린더·웹캠 거울' 위젯은 OFF. 미디어·캘린더는 osascript 와
    macOS 권한(TCC)을 부르고 거울은 카메라를 열기 때문에, 사용자가 환경설정에서 켰을 때만
-   동작한다. 나머지(임시 보관함·타이머·빠른 메모·모듈 실행)는 권한 없이 가볍게 돌아 기본 ON. */
+   동작한다. 나머지(임시 보관함·타이머·빠른 메모·최근 사용·켜 둔 모듈)는 권한 없이 가볍게 돌아 기본 ON.
+
+   v1.17.0 — 반원 퀵바 창을 노치 창 안의 '간단히 보기'로 옮기면서 세 값을 더한다.
+     startView    : 'simple'(반원, 기본) | 'full'(전체 보기) — 노치를 열 때 처음 보이는 화면
+     rotation     : 'loop'(계속 회전, 기본) | 'bounded'(처음과 끝에서 멈춤) — 반원과 '켜 둔 모듈' 한 줄
+     pillActivity : true(기본) — 닫힌 알약에 노래(이퀄라이저)·타이머(남은 시간)를 보인다
+   예전 값에는 이 키가 없으므로 기본값이 곧 지금까지의 동작(메뉴 막대 클릭 → 반원, 계속 회전)이다. */
 
 const NOTCH_KEY = 'tip.notch.v1';
 
+export const NOTCH_START_VIEWS = ['simple', 'full'];
+export const NOTCH_ROTATIONS = ['loop', 'bounded'];
+
+/* hint 는 환경설정에 그대로 보인다 — 반원(간단히 보기)과 전체 보기 중 어디에 나오는지. */
 export const NOTCH_WIDGETS = [
-  { id: 'media', label: '미디어', hint: '지금 재생 중인 곡과 재생, 이전, 다음' },
-  { id: 'calendar', label: '캘린더', hint: '오늘 다가오는 일정' },
-  { id: 'shelf', label: '임시 보관함', hint: '끌어다 놓은 파일 보관과 바로 변환' },
-  { id: 'timer', label: '타이머', hint: '한 번에 도는 미니 타이머' },
-  { id: 'memo', label: '빠른 메모', hint: '한 줄 메모' },
-  { id: 'mirror', label: '웹캠 거울', hint: '카메라 화면을 거울처럼' },
-  { id: 'launcher', label: '모듈 실행', hint: '켜 둔 모듈을 노치에서 바로 실행' },
+  { id: 'media', label: '미디어', hint: '반원에는 곡 제목, 전체 보기에서 재생 조절' },
+  { id: 'calendar', label: '캘린더', hint: '반원에는 달력 아이콘, 전체 보기에는 다가오는 일정' },
+  { id: 'shelf', label: '임시 보관함', hint: '반원에는 파일 개수, 전체 보기에는 파일 목록' },
+  { id: 'timer', label: '타이머', hint: '반원에는 남은 시간, 전체 보기에서 타이머 조절' },
+  { id: 'memo', label: '빠른 메모', hint: '전체 보기' },
+  { id: 'recent', label: '최근 사용', hint: '전체 보기' },
+  { id: 'mirror', label: '웹캠 거울', hint: '전체 보기' },
+  { id: 'launcher', label: '켜 둔 모듈', hint: '전체 보기 아래 한 줄(반원 다이얼은 늘 보입니다)' },
 ];
 
 let notchCache = null;
@@ -326,6 +341,7 @@ const NOTCH_WIDGET_DEFAULTS = {
   shelf: true,
   timer: true,
   memo: true,
+  recent: true,
   mirror: false,
   launcher: true,
 };
@@ -344,7 +360,15 @@ export function getNotchSettings() {
     const value = saved.widgets ? saved.widgets[id] : undefined;
     widgets[id] = typeof value === 'boolean' ? value : NOTCH_WIDGET_DEFAULTS[id] !== false;
   });
-  notchCache = { enabled: saved.enabled === true, hoverOpen: saved.hoverOpen === true, widgets };
+  notchCache = {
+    enabled: saved.enabled === true,
+    hoverOpen: saved.hoverOpen === true,
+    // v1.17.0 — 모르는 값('abc', 숫자 등)은 기본값으로 돌린다.
+    startView: NOTCH_START_VIEWS.includes(saved.startView) ? saved.startView : 'simple',
+    rotation: NOTCH_ROTATIONS.includes(saved.rotation) ? saved.rotation : 'loop',
+    pillActivity: saved.pillActivity !== false,
+    widgets,
+  };
   return notchCache;
 }
 
@@ -372,6 +396,24 @@ export function setNotchWidget(id, on) {
 export function setNotchHoverOpen(on) {
   const current = getNotchSettings();
   writeNotch({ ...current, hoverOpen: !!on });
+}
+
+/* v1.17.0 — 노치 시작 화면 · 모듈 회전 방식 · 닫힌 알약 표시 */
+export function setNotchStartView(view) {
+  if (!NOTCH_START_VIEWS.includes(view)) return;
+  const current = getNotchSettings();
+  writeNotch({ ...current, startView: view });
+}
+
+export function setNotchRotation(rotation) {
+  if (!NOTCH_ROTATIONS.includes(rotation)) return;
+  const current = getNotchSettings();
+  writeNotch({ ...current, rotation });
+}
+
+export function setNotchPillActivity(on) {
+  const current = getNotchSettings();
+  writeNotch({ ...current, pillActivity: !!on });
 }
 
 /* 전역 빠른 실행 검색 단축키 — macOS 앱이 이 값을 그대로 등록한다. (v1.12.0)

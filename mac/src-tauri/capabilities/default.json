@@ -1,9 +1,8 @@
 {
   "identifier": "default",
-  "description": "TIP 앱 창(메인·퀵바·컴팩트·노치·검색·스티커)에 필요한 기본 권한 + 앱 커맨드 허용 목록(v1.15.2). 우편번호(postcode)·배송(parcel) 창은 이 목록에 없어 앱 커맨드를 하나도 부를 수 없다.",
+  "description": "TIP 앱 창(메인·컴팩트·노치·검색·스티커)에 필요한 기본 권한 + 앱 커맨드 허용 목록(v1.15.2). 우편번호(postcode)·배송(parcel) 창은 이 목록에 없어 앱 커맨드를 하나도 부를 수 없다.",
   "windows": [
     "main",
-    "quickbar",
     "tool",
     "notch",
     "search",
@@ -12,7 +11,6 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
-    "allow-hide-radial",
     "allow-open-main",
     "allow-open-tool",
     "allow-open-parcel-webview",

@@ -1158,3 +1158,409 @@ html, body {
 :root[data-theme='light'] .cal-btn { border-color: rgba(0, 0, 0, 0.14); }
 .cal-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .cal-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* ============================== v1.17.0 — 반원 다이얼 · 전체 보기 한 판 ==============================
+ * 예전 반원 퀵바 창(css/radial.css)을 노치 창 안으로 옮겼다. 펼친 판(.notch-sheet) 하나가
+ * 간단히 보기(.dial, 반원)와 전체 보기(.panel)를 담고, 판의 높이·모서리만 바뀐다.
+ *   · 반원: border-radius 0 0 50% 50% / 0 0 100% 100% — 위는 일직선, 아래는 납작한 반타원
+ *   · 전체 보기: 아래 모서리만 둥근 사각형(20px)
+ * 판 배경 불투명도는 환경설정 '반원 배경 불투명도'(--sheet-alpha, 70~100%)를 따른다.
+ * 흐림(backdrop-filter)은 쓰지 않는다 — 투명 창 리사이즈와 겹치면 프레임이 떨어졌다(v1.12.1). */
+
+.notch.is-collapsed .notch-sheet { display: none; }
+.notch-sheet {
+  display: none;
+  position: relative;
+  flex: none;
+  width: calc(100% - 12px);
+  height: 252px;
+  max-height: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-top: 0;
+  border-radius: 0 0 20px 20px;
+  background: rgba(16, 20, 18, var(--sheet-alpha, 0.98));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.42);
+  color: #F2F2F5;
+  overflow: hidden;
+  transition: height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), border-radius 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+:root[data-theme='light'] .notch-sheet {
+  background: rgba(249, 250, 249, var(--sheet-alpha, 0.985));
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #1C1C1E;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+}
+.notch.is-expanded .notch-sheet { display: block; }
+.notch.is-simple .notch-sheet { border-radius: 0 0 50% 50% / 0 0 100% 100%; }
+.notch.is-drag .notch-sheet { box-shadow: 0 0 0 3px var(--accent), 0 18px 50px rgba(0, 0, 0, 0.42); }
+
+/* 전체 보기 — 판이 배경을 맡으므로 패널 자체는 투명하게 판 안을 채운다. */
+.notch-sheet .panel,
+:root[data-theme='light'] .notch-sheet .panel {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: opacity 0.2s ease;
+}
+.notch.is-simple .panel { opacity: 0; visibility: hidden; pointer-events: none; }
+.dial { position: absolute; inset: 0; transition: opacity 0.2s ease; }
+.notch.is-full .dial { opacity: 0; visibility: hidden; pointer-events: none; }
+
+/* 간단히 보기 ↔ 전체 보기 버튼 */
+.sheet-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+:root[data-theme='light'] .sheet-toggle { border-color: rgba(0, 0, 0, 0.14); background: #fff; }
+.sheet-toggle:hover { border-color: var(--accent); }
+.sheet-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sheet-toggle svg { width: 14px; height: 14px; }
+.sheet-toggle[hidden] { display: none; }
+.panel > .sheet-toggle { flex: none; align-self: center; }
+.dial-to-full {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+}
+
+/* 위쪽 한 줄 — [달력][미디어][‹][이름·찾기][›][타이머][보관함]. 숨긴 칸도 자리는 지킨다. */
+.dial-top {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: calc(var(--dial-offset, 0px) + 12px);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.dial-top > [hidden] { display: flex; visibility: hidden; }
+.dial-icon,
+.dial-arrow {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.dial-icon { border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.05); }
+:root[data-theme='light'] .dial-icon { border-color: rgba(0, 0, 0, 0.10); background: #fff; }
+.dial-icon svg { width: 18px; height: 18px; }
+.dial-arrow svg { width: 18px; height: 18px; }
+.dial-icon:hover, .dial-arrow:hover { background: rgba(255, 255, 255, 0.10); }
+:root[data-theme='light'] .dial-icon:hover,
+:root[data-theme='light'] .dial-arrow:hover { background: rgba(0, 0, 0, 0.06); }
+.dial-arrow.is-end { opacity: 0.35; cursor: default; }
+.dial-icon:focus-visible, .dial-arrow:focus-visible, .dial-side:focus-visible, .dial-slot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dial-badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.dial-badge[hidden] { display: none; }
+
+/* 미디어·타이머 칸 — 누르면 전체 보기의 카드로 간다(재생·멈춤은 카드에서). */
+.dial-side {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 132px;
+  height: 44px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dial-side:hover { background: rgba(255, 255, 255, 0.08); }
+:root[data-theme='light'] .dial-side:hover { background: rgba(0, 0, 0, 0.05); }
+.dial-timer { justify-content: flex-end; text-align: right; }
+.dial-side-art {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.dial-side-art svg { width: 17px; height: 17px; }
+.dial-timer-art { border-radius: 50%; background: rgba(255, 159, 10, 0.16); color: #FFB020; }
+:root[data-theme='light'] .dial-timer-art { color: #8A5300; background: rgba(255, 159, 10, 0.16); }
+.dial-side-text { min-width: 0; display: flex; flex-direction: column; }
+.dial-side-text b {
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dial-timer .dial-side-text b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.dial-side-text span { font-size: 12px; opacity: 0.72; white-space: nowrap; }
+.dial-timer.is-paused .dial-side-text b { opacity: 0.6; }
+
+/* 가운데 — 고른 모듈 이름·설명·찾기 칸 */
+.dial-hub {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  text-align: center;
+}
+.dial-name {
+  max-width: 100%;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dial-desc {
+  max-width: 100%;
+  min-height: 16px;
+  font-size: 12px;
+  opacity: 0.72;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dial-find {
+  width: 150px;
+  height: 28px;
+  margin-top: 5px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+}
+:root[data-theme='light'] .dial-find { border-color: rgba(0, 0, 0, 0.14); background: #fff; }
+.dial-find::placeholder { color: inherit; opacity: 0.6; }
+.dial-find:focus { outline: none; border-color: var(--accent); }
+
+/* 호 위의 모듈 — 위치는 notch.js(layoutDial)가 넣는다. */
+.dial-slots { position: absolute; inset: 0; pointer-events: none; }
+.dial-slot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 76px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  will-change: transform, opacity;
+}
+.dial-tile {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  opacity: var(--tile-fade, 1);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+:root[data-theme='light'] .dial-tile { border-color: rgba(0, 0, 0, 0.10); background: #fff; }
+.dial-tile svg { width: 21px; height: 21px; }
+.dial-label {
+  margin-top: 4px;
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+/* 가운데(고른) 모듈 — 색·굵기·크기로 함께 구분한다(색으로만 구분하지 않는다). */
+.dial-slot.is-center .dial-tile,
+:root[data-theme='light'] .dial-slot.is-center .dial-tile {
+  background: var(--accent);
+  border: 2px solid var(--accent);
+  color: #fff;
+  opacity: 1;
+}
+.dial-slot.is-center .dial-label { font-weight: 700; }
+.dial-slot:hover .dial-tile { border-color: var(--accent); }
+
+.dial-empty {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--dial-offset, 0px) + 118px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  font-size: 13px;
+}
+.dial-empty p { margin: 0; opacity: 0.8; }
+.dial-empty[hidden] { display: none; }
+
+/* 파일을 끄는 동안 — 반원 전체에 '놓으면 임시 보관함에 저장해요' */
+.dial-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding-bottom: 40px;
+  background: inherit;
+  background-color: rgba(16, 20, 18, 0.97);
+  color: var(--accent-ink);
+  font-size: 15px;
+}
+:root[data-theme='light'] .dial-drop { background-color: rgba(249, 250, 249, 0.97); }
+.dial-drop[hidden] { display: none; }
+.dial-drop svg { width: 24px; height: 24px; }
+
+/* 접힌 알약 — 이퀄라이저만(곡 제목·진행률은 반원·전체 보기에서), 놓기 안내·담은 개수 */
+.pill-eq.is-paused i { animation-play-state: paused; height: 3px !important; }
+.pill-drop-icon { display: grid; place-items: center; color: #7FC6AC; }
+.pill-drop-icon[hidden] { display: none; }
+.pill-drop-icon svg { width: 12px; height: 12px; }
+.pill-note { font-size: 11px; font-weight: 700; color: #EDEDEF; white-space: nowrap; }
+.pill-note[hidden] { display: none; }
+.pill.has-note .pill-logo,
+.pill.has-media .pill-logo { display: none; }
+.pill.has-note .pill-wing-right { display: inline-flex; }
+.pill.has-note .pill-wing-left { justify-content: flex-end; padding-right: 5px; }
+.pill.has-note .pill-dot { display: none; }
+.pill.no-notch.has-note .pill-wing-left { padding-right: 3px; }
+
+/* 전체 보기 배치 — 1줄 세 칸(재생·일정·타이머), 2줄 메모 + 보관함(두 칸) */
+.wg-row-status > .wg-card { flex: 1 1 0; }
+.wg-row-keep > .wg-memo { flex: 1 1 0; }
+.wg-row-keep > .wg-shelf { flex: 2 1 0; }
+.wg-card { transition: box-shadow 0.2s ease; }
+.wg-card.is-flash { box-shadow: 0 0 0 2px var(--accent); }
+.wg-label { font-size: 12px; opacity: 0.75; }
+.wg-side { font-size: 12px; opacity: 0.7; }
+
+/* 최근 사용 칩 */
+.recent-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.recent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+:root[data-theme='light'] .recent-chip { border-color: rgba(0, 0, 0, 0.10); background: #fff; }
+.recent-chip:hover { border-color: var(--accent); }
+
+/* 켜 둔 모듈 — 한 줄 7칸, 양옆 화살표, 위치 표시, 찾기 칸 */
+.launcher-pos { font-weight: 500; opacity: 0.85; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.launcher-find {
+  width: 140px;
+  height: 28px;
+  padding: 0 9px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+:root[data-theme='light'] .launcher-find { border-color: rgba(0, 0, 0, 0.14); background: #fff; }
+.launcher-find:focus { outline: none; border-color: var(--accent); }
+.wg-launcher .wg-tools { display: flex; align-items: center; gap: 4px; }
+.wg-launcher .launcher-wrap { gap: 4px; }
+.wg-launcher .launcher-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  overflow: visible;
+  padding: 0;
+  mask-image: none;
+}
+.wg-launcher .launcher-nav {
+  position: static;
+  transform: none;
+  flex: none;
+  width: 28px;
+  height: 44px;
+}
+.wg-launcher .launcher-nav.is-end { opacity: 0.35; cursor: default; }
+.wg-launcher .launcher-tile { width: auto; min-width: 0; font-size: 12px; padding: 6px 2px 5px; }
+.wg-launcher .launcher-empty { grid-column: 1 / -1; }
+.launcher-empty { font-size: 12px; opacity: 0.7; }
+.panel-hint { font-size: 12px; opacity: 0.6; }
+.panel-hint[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .notch-sheet, .dial, .notch-sheet .panel, .wg-card { transition: none; }
+}

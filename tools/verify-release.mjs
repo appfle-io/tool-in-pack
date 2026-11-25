@@ -911,7 +911,7 @@ const uiFiles = [
   ...filesUnder('js'),
   ...filesUnder('modules'),
   'index.html', 'search.html', 'notch.html', 'sticky.html', 'postcode.html', 'postcode-done.html',
-  'address-frame.html', 'radial.html',
+  'address-frame.html',
 ];
 const dashedUi = uiFiles.filter((path) => {
   const code = stripHtmlComments(stripComments(read(path)));
@@ -1016,11 +1016,12 @@ check('검색 창을 패널로', /notch::pin_search\(&win\)/.test(showSearchBloc
 check('검색 창은 앱을 활성화하지 않는다', !/win\.set_focus\(\)/.test(showSearchBlock)
   && /notch::order_front\(&win\)/.test(showSearchBlock) && /notch::make_key\(&win\)/.test(showSearchBlock));
 check('검색 창은 만들어질 때 초점을 잡지 않음', /\.visible\(false\)(\s*\n\s*\/\/[^\n]*)*\n\s*\.focused\(false\)/.test(lib));
-const showQuickBlock = (lib.match(/fn show_quickbar\(app: &AppHandle\) \{[\s\S]*?\n\}/) || [''])[0];
-check('퀵바도 같은 패널로', /notch::pin_search\(&win\)/.test(showQuickBlock));
-check('퀵바는 앱을 활성화하지 않는다', !/win\.set_focus\(\)/.test(showQuickBlock)
-  && /notch::order_front\(&win\)/.test(showQuickBlock) && /notch::make_key\(&win\)/.test(showQuickBlock));
-check('퀵바 바깥 클릭이면 닫힌다', /WindowEvent::Focused\(false\)[\s\S]{0,120}handle\.hide\(\)/.test(lib));
+// v1.17.0 — 반원 퀵바 창은 노치 안의 '간단히 보기'로 옮겼다. 메뉴 막대 아이콘은 노치를 연다.
+const trayNotchBlock = (lib.match(/fn tray_toggle_notch\(app: &AppHandle\) \{[\s\S]*?\n\}/) || [''])[0];
+check('메뉴 막대 아이콘은 노치를 연다(앱 활성화 없이)', /notch::order_front\(&win\)/.test(trayNotchBlock)
+  && /tip:\/\/notch-tray/.test(trayNotchBlock) && !/set_focus\(\)/.test(trayNotchBlock));
+check('반원 퀵바 창·hide_radial 없음', !/QUICKBAR|hide_radial|show_quickbar/.test(lib) && !exists('radial.html'));
+check('노치는 바깥 클릭(키 창 잃음)이면 접힌다', /window\.addEventListener\('blur'/.test(read('js/notch.js')));
 
 /* ---------- 17.3 백업과 복원 ---------- */
 const backupJs = read('js/backup.js');

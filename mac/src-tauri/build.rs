@@ -5,7 +5,7 @@
 //   app manifest 가 없으면 ACL 검사 대상이 아니라 **어느 창에서든** 부를 수 있었다. 그래서
 //   IPC 권한이 없는 우편번호(postcode)·배송(parcel) 창도 Rust 라우터에는 닿을 수 있었다.
 //   여기에 커맨드 이름을 모두 선언하면 tauri-build 가 커맨드마다 `allow-<command>`·`deny-<command>`
-//   권한을 만들어 주고, capabilities/default.json 이 허용한 창(main·quickbar·tool·notch·search·
+//   권한을 만들어 주고, capabilities/default.json 이 허용한 창(main·tool·notch·search·
 //   sticky-*)에서만 호출이 통과한다. postcode·parcel 창은 어떤 capability 에도 없으므로 0개다.
 //
 //   · 목록은 lib.rs 의 invoke_handler 와 **정확히 같아야** 한다(빠지면 그 커맨드는 다시 열린다).
@@ -15,7 +15,6 @@
 /// 앱이 화면에 여는 커맨드 — lib.rs `invoke_handler(tauri::generate_handler![...])` 와 같다.
 const APP_COMMANDS: &[&str] = &[
     // 창·트레이·설정
-    "hide_radial",
     "open_main",
     "open_tool",
     "open_parcel_webview",

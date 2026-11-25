@@ -30,15 +30,16 @@
 <body class="notch-body">
   <div class="notch is-collapsed" id="notch" role="dialog" aria-label="TIP 노치 아일랜드">
     <!-- 접힌 상태 — 노치 아래에 붙은 작은 필
-         v1.15.0 — 음악이 재생 중이면 왼쪽 날개에 이퀄라이저·곡 제목·진행률, 타이머가 돌면
-         오른쪽 날개에 남은 시간. 가운데(--notch-gap)는 물리 노치 자리라 아무것도 그리지 않는다. -->
-    <button class="pill" id="pill" type="button" aria-label="TIP 노치 아일랜드 펼치기">
+         v1.15.0 — 음악이 재생 중이면 왼쪽 날개, 타이머가 돌면 오른쪽 날개. 가운데(--notch-gap)는
+         물리 노치 자리라 아무것도 그리지 않는다.
+         v1.17.0 — 알약에는 이퀄라이저와 남은 시간만 둔다(곡 제목·진행률은 반원과 전체 보기에서).
+         파일을 끌고 오면 '여기에 놓기', 놓은 뒤에는 '보관함 +2' 를 잠깐 보여 준다(pill-note). -->
+    <button class="pill" id="pill" type="button" aria-label="TIP 노치 열기">
       <span class="pill-wing pill-wing-left" id="pill-left">
         <span class="pill-logo" id="pill-logo">TIP</span>
         <span class="pill-eq" id="pill-eq" aria-hidden="true" hidden><i></i><i></i><i></i><i></i></span>
-        <span class="pill-track" id="pill-track" hidden>
-          <b class="pill-title" id="pill-title"></b>
-          <span class="pill-progress" aria-hidden="true"><span class="pill-progress-fill" id="pill-progress"></span></span>
+        <span class="pill-drop-icon" id="pill-drop-icon" aria-hidden="true" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg>
         </span>
         <span class="pill-dot" id="pill-dot" aria-hidden="true"></span>
       </span>
@@ -48,10 +49,69 @@
           <svg class="pill-timer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 10v3.6l2.2 1.4"/><path d="M9.5 3h5"/></svg>
           <b id="pill-clock">00:00</b>
         </span>
+        <b class="pill-note" id="pill-note" hidden></b>
       </span>
     </button>
 
-    <!-- 펼친 상태 -->
+    <!-- v1.17.0 — 펼친 판(.notch-sheet) 하나가 두 화면을 담는다.
+         간단히 보기(.dial, 반원 다이얼)와 전체 보기(.panel). 판의 높이·모서리만 바뀌어
+         반원이 아래로 늘어나 둥근 사각형이 되는 것처럼 보인다(예전 반원 퀵바 창 radial.html 을 옮김). -->
+    <div class="notch-sheet" id="sheet">
+    <section class="dial" id="dial" aria-label="모듈 고르기">
+      <div class="dial-top">
+        <button class="dial-icon" id="dial-cal" type="button" aria-label="달력 열기" title="달력 열기" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8 3.5V6M16 3.5V6"/></svg>
+        </button>
+        <button class="dial-side dial-media" id="dial-media" type="button" hidden>
+          <span class="dial-side-art" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6.5l10-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>
+          </span>
+          <span class="dial-side-text">
+            <b id="dial-media-title"></b>
+            <span id="dial-media-state">재생 중</span>
+          </span>
+        </button>
+        <button class="dial-arrow" id="dial-prev" type="button" aria-label="왼쪽으로 돌리기" title="왼쪽으로 돌리기">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
+        </button>
+        <div class="dial-hub">
+          <b class="dial-name" id="dial-name" aria-live="polite"></b>
+          <span class="dial-desc" id="dial-desc"></span>
+          <input class="dial-find" id="dial-find" type="text" autocomplete="off" spellcheck="false" placeholder="이름으로 찾기" aria-label="모듈 이름으로 찾기">
+        </div>
+        <button class="dial-arrow" id="dial-next" type="button" aria-label="오른쪽으로 돌리기" title="오른쪽으로 돌리기">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg>
+        </button>
+        <button class="dial-side dial-timer" id="dial-timer" type="button" hidden>
+          <span class="dial-side-text">
+            <b id="dial-timer-clock">00:00</b>
+            <span id="dial-timer-state">타이머 남음</span>
+          </span>
+          <span class="dial-side-art dial-timer-art" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 10v3.6l2.2 1.4"/><path d="M9.5 3h5"/></svg>
+          </span>
+        </button>
+        <button class="dial-icon dial-shelf" id="dial-shelf" type="button" aria-label="임시 보관함 열기" title="임시 보관함" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5A2 2 0 0 1 5.5 5.5h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+          <span class="dial-badge" id="dial-shelf-count" aria-hidden="true" hidden></span>
+        </button>
+      </div>
+      <div class="dial-slots" id="dial-slots" role="group" aria-label="켜 둔 모듈"></div>
+      <div class="dial-empty" id="dial-empty" hidden>
+        <p>켜 둔 모듈이 없습니다</p>
+        <button class="sheet-toggle" type="button" data-open-settings="1">환경설정 열기</button>
+      </div>
+      <div class="dial-drop" id="dial-drop" aria-hidden="true" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg>
+        <b>놓으면 임시 보관함에 저장해요</b>
+      </div>
+      <button class="sheet-toggle dial-to-full" id="to-full" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        전체 보기
+      </button>
+    </section>
+
+    <!-- 펼친 상태 — 전체 보기 -->
     <section class="panel" id="panel" aria-label="노치 아일랜드 위젯">
       <header class="panel-head">
         <span class="panel-logo">TIP</span>
@@ -154,8 +214,13 @@
         표시할 위젯이 없습니다.<br>TIP 환경설정 → 노치 아일랜드에서 켜세요.
       </p>
 
-      <p class="panel-hint" id="panel-hint">노치에서 마우스를 내리면 접힙니다. Esc 로도 닫힙니다</p>
+      <p class="panel-hint" id="panel-hint">노치에서 마우스를 내리면 접힙니다. Esc로도 닫힙니다</p>
+      <button class="sheet-toggle" id="to-simple" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>
+        간단히 보기
+      </button>
     </section>
+    </div>
   </div>
 
   <div class="notch-toast" id="notch-toast" role="status" aria-live="polite"></div>

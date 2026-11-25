@@ -18,11 +18,26 @@
  *   · Finder 파일 드롭은 Tauri 네이티브 이벤트(tip://shelf-drop = 경로 목록)로 받는다.
  *     HTML5 dataTransfer 로는 파일이 오지 않았다. 보관함을 클릭하면 파일 선택창도 열린다.
  *   · 빠른 메모를 클릭하면 notch_focus 로 창을 key window 로 만들어 바로 타이핑된다.
+ *
+ * v1.17.0 — 반원 퀵바 창(radial.html)을 이 창 안의 '간단히 보기'로 옮겼다.
+ *   펼친 판(#sheet)은 두 화면을 갖는다: 간단히 보기(#dial, 반원 다이얼) / 전체 보기(#panel).
+ *   · 여는 길: 알약 클릭 · 메뉴 막대 TIP 아이콘(tip://notch-tray) · 마우스 올리기(설정). 처음 화면은
+ *     환경설정 '노치 시작 화면'(tip.notch.v1 startView)을 따른다.
+ *   · 클릭이나 메뉴 막대로 열었을 때만 키보드 포커스를 가져간다(찾기 칸 또는 빠른 메모).
+ *     마우스를 올려 열렸을 때는 다른 앱에서 치던 글자를 가져가지 않는다.
+ *   · 달력은 열기 직전 화면을 기억했다가 닫으면 그 화면(반원/전체 보기)으로 돌아간다.
+ *   · 파일을 노치로 끌어 놓으면 펼치지 않고 임시 보관함에 담는다. 반원에는 개수만, 목록은 전체 보기에만.
+ *   · 회전 규칙은 js/dial.js 를 반원과 '켜 둔 모듈' 한 줄이 함께 쓴다.
  */
 
 import { getModule } from '../modules/registry.js';
 import { quickOrderIds } from './quickbar.js';
-import { getNotchSettings, syncStore, applyTheme, getTheme } from './store.js';
+import { getNotchSettings, syncStore, applyTheme, getTheme, getQuickbarOpacity } from './store.js';
+import { recentIds, getRecentEnabled } from './recent.js';
+import {
+  DIAL_SLOTS, offsetOf, clampPos, centerIndex, targetFor, atEnds,
+  clampRowStart, rowWindow, rowPositionLabel, rowAtEnds, findIndex,
+} from './dial.js';
 import {
   timerState, remainingSeconds, startTimer, toggleTimer, resetTimer, extendTimer,
   formatClock, describeSeconds, TIMER_PRESETS, tickTimer, alertTimerDone,
@@ -53,10 +68,24 @@ let mediaPolledAt = 0;        // performance.now() 기준
 let pillMediaTimer = null;
 let pillTickTimer = null;
 let pillModeSent = '';        // 마지막으로 Rust 에 알린 알약 내용(media|timer)
-let notchInfo = { hasNotch: false, notchWidth: 0 };
+let notchInfo = { hasNotch: false, notchWidth: 0, notchHeight: 0 };
 let settingsRev = 0;          // 설정이 바뀔 때마다 +1 — 화면에 그린 마지막 상태와 비교한다
 let renderedSignature = '';   // 마지막으로 그린 설정(저장값) — 펼칠 때마다 달라졌는지 싼 값으로 본다
 let dragHeld = false;         // Finder 파일을 끌고 노치 위에 있는 동안에는 접지 않는다
+
+/* v1.17.0 — 펼친 판의 화면 */
+const sheetEl = document.getElementById('sheet');
+const dialEl = document.getElementById('dial');
+let view = 'simple';          // 펼쳤을 때 보이는 화면: 'simple'(반원) | 'full'(전체 보기)
+let calReturnTo = 'full';     // 달력을 닫으면 돌아갈 화면
+let openedWithKeys = false;   // 클릭·메뉴 막대로 열었는지 — 이때만 키보드 포커스를 가져간다
+let mediaPausedAt = 0;        // 음악이 멈춘 시각 — 멈춘 뒤 5분까지는 알약에 멈춘 이퀄라이저를 둔다
+let timerDoneAt = 0;          // 타이머가 끝난 시각 — 5초 동안 '완료'를 보이고 숨긴다
+let pillNoteText = '';        // 알약에 잠깐 보일 글자(놓기 안내·담은 개수)
+let pillNoteTimer = null;
+const DIAL_BASE_H = 252;      // 반원 판 높이(노치 화면에서는 노치 높이만큼 더한다)
+const MEDIA_PAUSE_KEEP_MS = 5 * 60 * 1000;
+const TIMER_DONE_KEEP_MS = 5000;
 
 /** Tauri 커맨드가 권한 거부를 알리는 표시(mac/src-tauri/src/media.rs 의 PERMISSION_TAG). */
 const PERMISSION_TAG = '[permission]';
@@ -75,6 +104,7 @@ function settingsSignature() {
       localStorage.getItem('tip.settings.v1') || '',
       localStorage.getItem('tip.radialOrder.v1') || '',
       localStorage.getItem('tip.radialOrderMode.v1') || '',
+      localStorage.getItem('tip.recent.enabled.v1') || '',
     ].join('|');
   } catch {
     return String(settingsRev);
@@ -145,20 +175,68 @@ function panelContentHeight() {
   return Math.ceil(total);
 }
 
-/** 화면이 잰 높이를 Rust 에 알려 창 높이를 내용에 맞춘다 — 조금 바뀐 것으로는 부르지 않는다. */
-function fitPanel() {
-  if (!TAURI || !expanded) return;
+/** 반원 판의 높이 — 노치 화면이면 물리 노치 높이만큼 아래로 내린다(가운데 글자가 노치에 가리지 않게). */
+function dialHeight() {
+  return DIAL_BASE_H + dialOffset();
+}
+
+function dialOffset() {
+  return notchInfo.hasNotch ? Math.round(notchInfo.notchHeight || 0) : 0;
+}
+
+/** 지금 화면이 바라는 판 높이 — 반원은 고정, 전체 보기·달력은 내용 높이. */
+function sheetTargetHeight() {
+  if (view === 'simple' && !calView.open) return dialHeight();
+  return Math.max(dialHeight(), Math.min(600, panelContentHeight() || 0));
+}
+
+let shrinkTimer = null;
+
+/** 판 높이를 맞추고 Rust 에 창 높이를 알린다(v1.15.2 → v1.17.0).
+ *  커질 때는 창을 먼저 키우고 판이 따라 늘어나게, 작아질 때는 판이 다 줄어든 뒤 창을 줄인다. */
+function fitPanel({ now = false } = {}) {
+  if (!expanded) return;
   clearTimeout(fitTimer);
-  fitTimer = setTimeout(() => {
+  const run = () => {
     if (!expanded) return;
-    const height = panelContentHeight();
-    if (!height || Math.abs(height - fitSent) < 8) return;
-    fitSent = height;
-    invoke('notch_resize', { height }).catch(() => {});
-  }, 160);
+    const height = sheetTargetHeight();
+    if (!height) return;
+    const before = parseFloat(sheetEl.style.height) || height;
+    sheetEl.style.height = `${height}px`;
+    if (!TAURI || Math.abs(height - fitSent) < 8) return;
+    clearTimeout(shrinkTimer);
+    const send = () => {
+      fitSent = height;
+      invoke('notch_resize', { height }).catch(() => {});
+    };
+    if (height < before - 1 && !reducedMotion()) shrinkTimer = setTimeout(send, 280);
+    else send();
+  };
+  if (now) run();
+  else fitTimer = setTimeout(run, 160);
+}
+
+function reducedMotion() {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
 }
 
 /* ------------------------------ 펼침/접힘 ------------------------------ */
+
+/** 노치를 연다 — 처음 화면은 '노치 시작 화면' 설정. via: 'click' | 'tray' | 'hover'. */
+function openNotch(via = 'click') {
+  view = getNotchSettings().startView;
+  openedWithKeys = via === 'click' || via === 'tray';
+  if (expanded) {
+    applyView();
+    focusForView();
+    return;
+  }
+  setExpanded(true);
+}
 
 function setExpanded(next, { animate = true } = {}) {
   if (expanded === next) return;
@@ -168,23 +246,89 @@ function setExpanded(next, { animate = true } = {}) {
   notchEl.classList.toggle('is-expanded', next);
 
   if (next) {
-    // 화면 전환(패널 그리기)을 먼저 끝내고 다음 프레임에 창 크기를 바꾼다.
+    hintCounted = false;
+    // 화면 전환(판 그리기)을 먼저 끝내고 다음 프레임에 창 크기를 바꾼다.
     // 창 리사이즈와 위젯 조회가 같은 순간에 몰려 멈추지 않도록 조회는 startWidgets 가 미룬다.
     if (renderedSignature !== settingsSignature()) renderWidgets();
     applyAppearance();
-    requestAnimationFrame(() => { invoke('notch_expand').catch(() => {}); });
+    applyView();
+    const height = sheetTargetHeight();
+    fitSent = height;
+    sheetEl.style.height = `${height}px`;
+    requestAnimationFrame(() => {
+      // 펼치기 전에 원하는 높이를 먼저 알려 둔다 — 처음부터 그 크기로 열린다.
+      invoke('notch_resize', { height }).catch(() => {}).finally(() => {
+        invoke('notch_expand').catch(() => {});
+      });
+    });
     startWidgets();
-    fitPanel();
-    // v1.13.0 — 달력 보기가 열려 있었으면 다시 펼칠 때 보이는 기간을 새로 읽는다.
-    if (calView.open) loadCalendarView();
+    focusForView();
   } else {
+    // v1.17.0 — 다시 열면 달력이 아니라 시작 화면으로 연다.
+    if (calView.open) closeCalendarView({ restore: false });
     invoke('notch_collapse').catch(() => {});
     stopWidgets();
     closeCalendarForm();
     heldOpen = false;
+    openedWithKeys = false;
+    const find = document.getElementById('dial-find');
+    if (find) find.value = '';
   }
   syncHold();
+  paintPill();
   if (!animate) requestAnimationFrame(() => notchEl.classList.remove('no-anim'));
+}
+
+/** 간단히 보기 ↔ 전체 보기 — 판은 그대로 두고 높이·모서리만 바꾼다. */
+function setView(next, { focus = true } = {}) {
+  if (!['simple', 'full'].includes(next)) return;
+  view = next;
+  applyView();
+  if (focus) focusForView({ force: true });
+}
+
+function applyView() {
+  const simple = view === 'simple' && !calView.open;
+  notchEl.classList.toggle('is-simple', simple);
+  notchEl.classList.toggle('is-full', !simple);
+  // 보이지 않는 화면은 Tab 순서와 스크린 리더에서 뺀다.
+  dialEl.inert = !simple;
+  panelEl.inert = simple;
+  dialEl.setAttribute('aria-hidden', String(!simple));
+  panelEl.setAttribute('aria-hidden', String(simple));
+  if (simple) renderDial();
+  else paintPanelHint();
+  paintDialSides();
+  fitPanel({ now: true });
+}
+
+/** 클릭·메뉴 막대로 열었을 때만 — 반원은 찾기 칸, 전체 보기는 빠른 메모. */
+function focusForView({ force = false } = {}) {
+  if (!openedWithKeys && !force) return;
+  const target = view === 'simple' && !calView.open
+    ? document.getElementById('dial-find')
+    : (panelEl.querySelector('#memo-input') || panelEl.querySelector('#to-simple'));
+  if (!target) return;
+  const focus = () => requestAnimationFrame(() => {
+    if (document.activeElement !== target) target.focus({ preventScroll: true });
+  });
+  if (TAURI) invoke('notch_focus').catch(() => {}).finally(focus);
+  else focus();
+}
+
+/** '노치에서 마우스를 내리면 접힙니다' 안내 — 전체 보기를 처음 세 번 열 때만. */
+const HINT_KEY = 'tip.notch.hintCount.v1';
+let hintCounted = false;
+function paintPanelHint() {
+  const hint = panelEl.querySelector('#panel-hint');
+  if (!hint) return;
+  let count = 0;
+  try { count = Number(localStorage.getItem(HINT_KEY)) || 0; } catch { count = 0; }
+  hint.hidden = count > 3 || calView.open;
+  if (!hintCounted && count <= 3) {
+    hintCounted = true;   // 한 번 열 때 한 번만 센다
+    try { localStorage.setItem(HINT_KEY, String(count + 1)); } catch { /* 못 세면 계속 보인다 */ }
+  }
 }
 
 /** Rust 의 커서 감시에 '지금은 접지 마라'를 알린다 — 입력 중·드래그 중·거울이 켜진 동안(v1.12.4). */
@@ -238,37 +382,42 @@ function renderWidgets() {
   const { widgets } = getNotchSettings();
   widgetsEl.innerHTML = '';
 
+  /* v1.17.0 — 전체 보기 배치(위에서 아래로, 폭 640):
+       1줄 [지금 재생 중][다가오는 일정][타이머] — 세 칸, 같은 높이
+       2줄 [빠른 메모][임시 보관함(두 칸)]
+       3줄 [최근 사용]  4줄 [켜 둔 모듈 한 줄]  5줄 [웹캠 거울]
+     꺼 둔 위젯은 빼고, 남은 카드끼리 빈칸 없이 채운다. */
   let count = 0;
-  let row = null;                       // 지금 채우고 있는 두 칸짜리 행
-  const add = (node, wide = false) => {
-    if (wide) {
-      row = null;
-      const only = widgetRow();
-      only.append(node);
-      widgetsEl.append(only);
-    } else {
-      if (!row) {
-        row = widgetRow();
-        widgetsEl.append(row);
-      }
-      row.append(node);
-      if (row.childElementCount === 2) row = null;
-    }
-    count += 1;
+  const addRow = (cards, className = '') => {
+    const list = cards.filter(Boolean);
+    if (!list.length) return;
+    const row = widgetRow();
+    if (className) row.classList.add(className);
+    row.append(...list);
+    widgetsEl.append(row);
+    count += list.length;
   };
 
-  if (widgets.media) add(mediaCard());
-  if (widgets.calendar) add(calendarCard());
-  if (widgets.shelf) add(shelfCard(), true);
-  if (widgets.timer) add(timerCard());
-  if (widgets.memo) add(memoCard());
-  if (widgets.mirror) add(mirrorCard(), true);
-  if (widgets.launcher) add(launcherCard(), true);
+  addRow([
+    widgets.media ? mediaCard() : null,
+    widgets.calendar ? calendarCard() : null,
+    widgets.timer ? timerCard() : null,
+  ], 'wg-row-status');
+  addRow([
+    widgets.memo ? memoCard() : null,
+    widgets.shelf ? shelfCard() : null,
+  ], 'wg-row-keep');
+  if (widgets.recent && getRecentEnabled()) addRow([recentCard()]);
+  if (widgets.launcher) addRow([launcherCard()]);
+  if (widgets.mirror) addRow([mirrorCard()]);
 
   emptyEl.hidden = count > 0;
   // v1.13.0 — 달력 보기가 열려 있으면 위젯 목록은 그 아래에 두고 숨긴다.
   widgetsEl.hidden = calView.open ? true : count === 0;
   renderedSignature = settingsSignature();
+  // 반원의 위젯 상태(달력·미디어·타이머·보관함 표시 여부)도 같이 맞춘다.
+  paintDialSides();
+  if (view === 'simple') renderDial();
   fitPanel();
 }
 
@@ -331,6 +480,9 @@ async function fetchMedia() {
       duration: Number(state && state.duration) || 0,
     };
     mediaPolledAt = performance.now();
+    // v1.17.0 — 멈춘 시각을 기억한다. 멈춘 뒤 5분까지는 알약·반원에 '일시정지'로 남긴다.
+    if (mediaState.playing || !mediaState.title) mediaPausedAt = 0;
+    else if (!mediaPausedAt) mediaPausedAt = Date.now();
     mediaError = null;
     paintMediaCard();
     paintPill();
@@ -1020,6 +1172,8 @@ async function saveCalendarEvent() {
 
 /* --------------------------- 캘린더 — 조작 --------------------------- */
 
+/** 달력 보기 — v1.17.0 부터 반원(간단히 보기)에서도 바로 연다.
+ *  열기 직전 화면(반원/전체 보기)을 기억했다가, 닫으면 그 화면으로 돌아간다. */
 function openCalendarView() {
   if (!TAURI) {
     toast('달력은 Mac 앱에서만 볼 수 있습니다');
@@ -1027,6 +1181,12 @@ function openCalendarView() {
   }
   const dom = calDom();
   if (!dom.view) return;
+  if (!calView.open) calReturnTo = view;
+  if (!expanded) {
+    openedWithKeys = true;
+    view = 'full';
+    setExpanded(true);
+  }
   calView.open = true;
   calView.selected = midnight(new Date());
   dom.view.hidden = false;
@@ -1034,21 +1194,31 @@ function openCalendarView() {
   const hint = panelEl.querySelector('#panel-hint');
   if (hint) hint.hidden = true;
   cancelCollapse();
+  const toSimple = panelEl.querySelector('#to-simple');
+  if (toSimple) toSimple.hidden = true;   // 달력에서는 닫기 하나만 둔다
+  applyView();
   renderCalendarView();
   loadCalendarView();
   fitPanel();
+  const close = panelEl.querySelector('#cal-view-close');
+  if (close && openedWithKeys) requestAnimationFrame(() => close.focus({ preventScroll: true }));
 }
 
-function closeCalendarView() {
+/** 달력 닫기 — restore 가 true 면 열기 전 화면으로 돌아간다(닫기 버튼·Esc). */
+function closeCalendarView({ restore = true } = {}) {
   const dom = calDom();
   calView.open = false;
   calView.req += 1;              // 진행 중인 조회 결과는 버린다
   if (dom.view) dom.view.hidden = true;
   widgetsEl.hidden = widgetsEl.childElementCount === 0;
-  const hint = panelEl.querySelector('#panel-hint');
-  if (hint) hint.hidden = false;
   if (dom.filterPanel) dom.filterPanel.hidden = true;
-  fitPanel();
+  const toSimple = panelEl.querySelector('#to-simple');
+  if (toSimple) toSimple.hidden = false;
+  if (restore && expanded) {
+    setView(calReturnTo === 'simple' ? 'simple' : 'full', { focus: openedWithKeys });
+  } else {
+    fitPanel();
+  }
 }
 
 function setCalendarMode(mode) {
@@ -1160,6 +1330,11 @@ async function refreshCalendar() {
     const card = panelEl.querySelector('.wg-calendar');
     const side = panelEl.querySelector('#cal-side');
     const permBtn = panelEl.querySelector('#cal-perm');
+    // v1.17.0 — 반원의 달력 아이콘 툴팁·스크린 리더 이름에 다음 일정을 쓴다.
+    nextEventText = rows.length
+      ? `${rows[0].title} ${rows[0].allDay ? '종일' : `${clock(rows[0].start)} · ${relativeUntil(rows[0].start)}`}`
+      : '';
+    paintDialSides();
     if (!rows.length) {
       // v1.15.2 — 남은 일정이 없으면 한 줄로 접는다.
       if (card) card.classList.add('is-compact');
@@ -1220,8 +1395,8 @@ function shelfCard() {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7.5 8.5 4.5-4.5 4.5 4.5"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
       </span>
       <span class="shelf-drop-text">
-        <b><span class="shelf-mini-label">임시 보관함</span> 파일을 끌어다 놓거나 클릭하세요</b>
-        <span>잠깐 보관했다가 바로 변환, 압축, 모자이크</span>
+        <b><span class="shelf-mini-label">임시 보관함</span> 파일을 노치로 끌어다 놓으면 여기에 잠시 보관해요</b>
+        <span>클릭해서 고를 수도 있어요. 앱을 끄면 비워집니다</span>
       </span>
     </div>
     <!-- v1.12.2 — 드래그가 막히는 환경에서도 담을 수 있게 클릭 선택을 함께 둔다. -->
@@ -1253,6 +1428,7 @@ function renderShelf() {
   const list = panelEl.querySelector('#shelf-list');
   const count = panelEl.querySelector('#shelf-count');
   const card = panelEl.querySelector('.wg-shelf');
+  paintDialSides();   // 반원의 보관함 개수도 같은 배열을 본다(v1.17.0)
   if (!list) return;
   if (count) count.textContent = `${shelf.length}개`;
   const addBtn = card ? card.querySelector('[data-shelf-add]') : null;
@@ -1303,13 +1479,30 @@ function renderShelf() {
 function addFiles(files) {
   const list = Array.from(files || []).filter((file) => file && file.name);
   if (!list.length) return;
+  if (!getNotchSettings().widgets.shelf) {
+    toast('환경설정 → 노치 → 위젯에서 임시 보관함을 켜 주세요');
+    return;
+  }
+  let added = 0;
   list.forEach((file) => {
     if (shelf.length >= 8) return;
     shelf.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, file, url: URL.createObjectURL(file) });
+    added += 1;
   });
   renderShelf();
-  toast(`${list.length}개를 임시 보관함에 담았습니다`);
-  openHeld();
+  announceShelf(added, added < list.length ? '임시 보관함은 8개까지 담을 수 있습니다' : '');
+}
+
+/** 담은 뒤 알림 — 접혀 있으면 펼치지 않고 알약에 '보관함 +2' 를 2초(v1.17.0). */
+function announceShelf(added, problem = '') {
+  if (added) {
+    toast(`파일 ${added}개를 임시 보관함에 담았습니다`);
+    if (!expanded) setPillNote(`보관함 +${added}`, 2000);
+    else openHeld();
+  } else {
+    toast(String(problem).slice(0, 90) || '파일을 담지 못했습니다');
+    if (!expanded) setPillNote('', 0);
+  }
 }
 
 /* Finder 에서 끌어다 놓은 파일 — Rust 가 보내 준 경로 목록을 읽어 File 로 만든다.
@@ -1334,9 +1527,10 @@ function mimeOf(name) {
 async function addShelfPaths(paths) {
   const list = Array.isArray(paths) ? paths.filter((path) => typeof path === 'string' && path.trim()) : [];
   if (!list.length) return;
-  if (!expanded) setExpanded(true);
-  if (!panelEl.querySelector('#shelf-list')) {
-    toast('환경설정에서 임시 보관함 위젯을 켜 주세요');
+  // v1.17.0 — 접혀 있어도 펼치지 않고 담는다. 위젯이 꺼져 있으면 담지 않는다.
+  if (!getNotchSettings().widgets.shelf) {
+    toast('환경설정 → 노치 → 위젯에서 임시 보관함을 켜 주세요');
+    setPillNote('', 0);
     return;
   }
 
@@ -1360,9 +1554,7 @@ async function addShelfPaths(paths) {
   }
 
   renderShelf();
-  if (added) toast(`${added}개를 임시 보관함에 담았습니다`);
-  else toast(String(problem).slice(0, 90) || '파일을 담지 못했습니다');
-  openHeld();
+  announceShelf(added, problem);
 }
 
 function readDataUrl(file) {
@@ -1401,13 +1593,34 @@ async function sendToModule(moduleId, item) {
 
 /* ------------------------------ 접힌 알약 (v1.15.0) ------------------------------ */
 
-/** 지금 저장된 설정·상태에서 알약에 무엇을 보일지 정한다. */
+/** 지금 저장된 설정·상태에서 알약에 무엇을 보일지 정한다.
+ *  v1.17.0 — 음악은 멈춘 뒤 5분까지 멈춘 이퀄라이저로 남기고, 타이머는 끝난 뒤 5초 동안 '완료'.
+ *  환경설정 '노래와 타이머 표시'(pillActivity)를 끄면 늘 TIP 로고만 보인다. */
 function pillContent() {
-  const widgets = getNotchSettings().widgets;
+  const settings = getNotchSettings();
+  const widgets = settings.widgets;
   const state = timerState();
-  const hasMedia = !!(widgets.media && mediaState && mediaState.playing);
-  const hasTimer = !!(widgets.timer && state.status !== 'idle');
-  return { hasMedia, hasTimer, state };
+  const now = Date.now();
+
+  if (state.status === 'done') {
+    if (!timerDoneAt) timerDoneAt = now;
+  } else {
+    timerDoneAt = 0;
+  }
+  const hasTrack = !!(mediaState && (mediaState.title || mediaState.playing));
+  const mediaShown = !!(widgets.media && hasTrack
+    && (mediaState.playing || (mediaPausedAt && now - mediaPausedAt < MEDIA_PAUSE_KEEP_MS)));
+  const timerShown = !!(widgets.timer && (state.status === 'running' || state.status === 'paused'
+    || (state.status === 'done' && now - timerDoneAt < TIMER_DONE_KEEP_MS)));
+
+  const activity = settings.pillActivity !== false;
+  return {
+    hasMedia: activity && mediaShown,
+    hasTimer: activity && timerShown,
+    mediaShown,
+    timerShown,
+    state,
+  };
 }
 
 /** 미디어 재생 위치 — 마지막 조회(4.5초 전)에서 지난 시간만큼 앞으로 당긴다. */
@@ -1419,48 +1632,62 @@ function mediaPositionNow() {
   return Math.max(0, position);
 }
 
-/** 접힌 알약을 그린다 — 음악은 왼쪽 날개(이퀄라이저·제목·진행률), 타이머는 오른쪽 날개. */
+/** 접힌 알약을 그린다 — 음악은 왼쪽 날개(이퀄라이저), 타이머는 오른쪽 날개(남은 시간).
+ *  파일을 끄는 동안·막 담은 뒤에는 그 안내(pill-note)가 먼저다. */
 function paintPill() {
   const { hasMedia, hasTimer, state } = pillContent();
-  pillEl.classList.toggle('has-media', hasMedia);
-  pillEl.classList.toggle('has-timer', hasTimer);
+  const note = pillNoteText;
+  pillEl.classList.toggle('has-media', hasMedia && !note);
+  pillEl.classList.toggle('has-timer', hasTimer && !note);
+  pillEl.classList.toggle('has-note', !!note);
   pillEl.classList.toggle('no-notch', !notchInfo.hasNotch);
 
-  const trackEl = document.getElementById('pill-track');
   const eqEl = document.getElementById('pill-eq');
-  if (hasMedia) {
-    const titleEl = document.getElementById('pill-title');
-    const progressEl = document.getElementById('pill-progress');
-    if (trackEl) trackEl.hidden = false;
-    if (eqEl) eqEl.hidden = false;
-    if (titleEl) {
-      titleEl.textContent = mediaState.title || mediaState.artist || '재생 중';
-      titleEl.title = [mediaState.artist, mediaState.title].filter(Boolean).join(' · ');
-    }
-    if (progressEl) {
-      const percent = mediaState.duration > 0
-        ? Math.max(0, Math.min(100, (mediaPositionNow() / mediaState.duration) * 100))
-        : 0;
-      progressEl.style.width = `${percent}%`;
-    }
-  } else {
-    if (trackEl) trackEl.hidden = true;
-    if (eqEl) eqEl.hidden = true;
+  if (eqEl) {
+    eqEl.hidden = !hasMedia || !!note;
+    eqEl.classList.toggle('is-paused', !!(mediaState && !mediaState.playing));
+  }
+  const dropIcon = document.getElementById('pill-drop-icon');
+  if (dropIcon) dropIcon.hidden = !note;
+  const noteEl = document.getElementById('pill-note');
+  if (noteEl) {
+    noteEl.hidden = !note;
+    noteEl.textContent = note;
   }
 
   const timerEl = document.getElementById('pill-timer');
   const clockEl = document.getElementById('pill-clock');
   if (timerEl && clockEl) {
-    timerEl.hidden = !hasTimer;
+    timerEl.hidden = !hasTimer || !!note;
     timerEl.classList.toggle('is-paused', state.status === 'paused');
     timerEl.classList.toggle('is-done', state.status === 'done');
-    clockEl.textContent = formatClock(remainingSeconds(state));
+    clockEl.textContent = state.status === 'done' ? '완료' : formatClock(remainingSeconds(state));
   }
-  pillEl.setAttribute('aria-label', hasMedia || hasTimer
-    ? `TIP 노치 아일랜드 펼치기, ${[hasMedia ? (mediaState.title || '음악 재생 중') : '', hasTimer ? `타이머 ${formatClock(remainingSeconds(state))}` : ''].filter(Boolean).join(', ')}`
-    : 'TIP 노치 아일랜드 펼치기');
 
-  updatePillMode(hasMedia, hasTimer);
+  const parts = [];
+  if (note) parts.push(note);
+  if (hasMedia && !note) parts.push(mediaState.playing ? '노래 재생 중' : '노래 일시정지');
+  if (hasTimer && !note) {
+    parts.push(state.status === 'done' ? '타이머 끝남' : `타이머 ${describeSeconds(Math.ceil(remainingSeconds(state)))} 남음`);
+  }
+  pillEl.setAttribute('aria-label', parts.length ? `TIP 노치 열기, ${parts.join(', ')}` : 'TIP 노치 열기');
+
+  // 안내 글자가 있으면 양쪽 날개 폭을 모두 빌린다.
+  updatePillMode(hasMedia || !!note, hasTimer || !!note);
+  paintDialSides();
+}
+
+/** 알약에 잠깐 보일 글자 — 끌고 있는 동안은 계속, 담은 뒤에는 2초. */
+function setPillNote(text, ms = 0) {
+  clearTimeout(pillNoteTimer);
+  pillNoteText = text || '';
+  paintPill();
+  if (pillNoteText && ms > 0) {
+    pillNoteTimer = setTimeout(() => {
+      pillNoteText = '';
+      paintPill();
+    }, ms);
+  }
 }
 
 /** 알약에 담을 내용이 바뀌면 Rust 에 알린다 — 접힌 창 폭이 그만큼 넓어진다. */
@@ -1469,17 +1696,30 @@ function updatePillMode(hasMedia, hasTimer) {
   const signature = `${hasMedia ? 1 : 0}${hasTimer ? 1 : 0}`;
   if (signature === pillModeSent) return;
   pillModeSent = signature;
-  invoke('set_notch_pill', { media: hasMedia, timer: hasTimer }).catch(() => {
+  invoke('set_notch_pill', { media: !!hasMedia, timer: !!hasTimer }).catch(() => {
     // 못 알렸으면 다음 그림에 다시 시도한다.
     pillModeSent = '';
   });
 }
 
+/** 개발용 가짜 노치 — 노치가 없는 Mac·브라우저 미리보기에서 노치 화면을 흉내 낸다(v1.17.0).
+ *  localStorage 'tip.dev.fakeNotch' = 노치 너비(pt). Mac 앱(Tauri)에서는 쓰지 않는다. */
+function fakeNotch() {
+  if (TAURI) return null;
+  try {
+    const width = Number(localStorage.getItem('tip.dev.fakeNotch'));
+    return width > 0 ? { hasNotch: true, notchWidth: width, notchHeight: 32 } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 노치 화면 정보 — 가운데 물리 노치 너비를 CSS 변수로 넣어 그 자리를 비운다. */
 async function loadNotchMetrics() {
   if (!TAURI) {
-    notchInfo = { hasNotch: false, notchWidth: 0 };
+    notchInfo = fakeNotch() || { hasNotch: false, notchWidth: 0, notchHeight: 0 };
     applyNotchGap();
+    paintPill();
     return;
   }
   try {
@@ -1487,9 +1727,10 @@ async function loadNotchMetrics() {
     notchInfo = {
       hasNotch: !!(info && info.hasNotch),
       notchWidth: Number(info && info.notchWidth) || 0,
+      notchHeight: Number(info && info.notchHeight) || 0,
     };
   } catch {
-    notchInfo = { hasNotch: false, notchWidth: 0 };
+    notchInfo = { hasNotch: false, notchWidth: 0, notchHeight: 0 };
   }
   applyNotchGap();
   paintPill();
@@ -1500,6 +1741,11 @@ function applyNotchGap() {
   const gap = notchInfo.hasNotch ? Math.max(0, notchInfo.notchWidth) : 0;
   pillEl.style.setProperty('--notch-gap', `${gap}px`);
   pillEl.classList.toggle('no-notch', !notchInfo.hasNotch);
+  // 반원도 노치 높이만큼 아래로 — 가운데 이름·찾기 칸이 노치에 가리지 않게.
+  notchEl.style.setProperty('--dial-offset', `${dialOffset()}px`);
+  // 노치 정보는 늦게 도착한다 — 이미 그린 타일도 같은 만큼 내린다.
+  if (dialItems.length) layoutDial();
+  if (expanded) fitPanel({ now: true });
 }
 
 /* ------------------------------ 타이머 (v1.15.0) ------------------------------ */
@@ -1603,7 +1849,8 @@ function startPillLoops() {
   if (!TAURI) return;
   stopPillLoops();
   pillMediaTimer = setInterval(() => {
-    if (!getNotchSettings().enabled) return;
+    // v1.17.0 — 노치 아일랜드를 꺼 두어도 메뉴 막대로 연 동안에는 읽는다.
+    if (!getNotchSettings().enabled && !expanded) return;
     fetchMedia();
   }, 4500);
   pillTickTimer = setInterval(() => {
@@ -1650,6 +1897,8 @@ function memoCard() {
     // 잡으면서 방금 들어간 커서가 한 번 깜빡이고 사라졌다. 이제 mousedown 에서 한 번만 부르고,
     // key 창이 된 다음 입력칸에 초점이 남아 있는지 한 박자 뒤에 확인한다.
     input.addEventListener('mousedown', () => {
+      // v1.17.0 — 클릭·메뉴 막대로 열 때 이미 키 창이 되었으면 다시 부르지 않는다(커서 깜빡임 방지).
+      if (document.hasFocus()) return;
       invoke('notch_focus')
         .catch(() => {})
         .finally(() => {
@@ -1717,83 +1966,480 @@ async function toggleMirror() {
   }
 }
 
-/* 모듈 실행 */
+/* 최근 사용 (v1.17.0) — 홈의 '최근 사용'과 같은 기록(tip.recent.v1)을 칩으로 보여 준다. */
+
+function recentCard() {
+  const card = widgetCard('recent', `
+    <div class="wg-head">
+      <span class="wg-label">최근 사용</span>
+    </div>
+    <div class="recent-row" id="recent-row"></div>
+  `, 'wg-wide');
+  requestAnimationFrame(() => {
+    const row = card.querySelector('#recent-row');
+    if (!row) return;
+    const ids = recentIds(6).filter((id) => !!getModule(id));
+    if (!ids.length) {
+      row.innerHTML = '<p class="launcher-empty">아직 연 모듈이 없습니다</p>';
+      return;
+    }
+    ids.forEach((id) => {
+      const mod = getModule(id);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'recent-chip';
+      btn.title = mod.name;
+      btn.setAttribute('aria-label', `${mod.name} 열기`);
+      btn.innerHTML = `<span class="launcher-icon" aria-hidden="true">${mod.icon || ''}</span><span>${escapeHtml(mod.shortName || mod.name)}</span>`;
+      btn.addEventListener('click', () => openModuleFromNotch(id));
+      row.append(btn);
+    });
+    fitPanel();
+  });
+  return card;
+}
+
+/* 켜 둔 모듈 (v1.17.0 — 예전 '모듈 실행' 가로 스크롤을 한 줄 7칸으로 바꾼다)
+   반원과 같은 순서(quickOrderIds)·같은 회전 방식(js/dial.js)을 따른다. 머리글에 위치와 찾기 칸. */
+
+let launcherStart = 0;
+let launcherQuery = '';
+let launcherWheelAt = 0;
+
+function launcherList() {
+  const ids = quickOrderIds().filter((id) => !!getModule(id));
+  if (!launcherQuery) return ids;
+  const q = launcherQuery.toLowerCase();
+  return ids.filter((id) => {
+    const mod = getModule(id);
+    return [mod.name, mod.shortName].some((name) => String(name || '').toLowerCase().includes(q));
+  });
+}
 
 function launcherCard() {
   const card = widgetCard('launcher', `
     <div class="wg-head">
-      <span class="wg-label">모듈 실행</span>
+      <span class="wg-label">켜 둔 모듈 <span class="launcher-pos" id="launcher-pos"></span></span>
       <span class="wg-tools">
+        <input class="launcher-find" id="launcher-find" type="text" autocomplete="off" spellcheck="false" placeholder="이름으로 찾기" aria-label="켜 둔 모듈 이름으로 찾기">
         <button class="wg-link wg-add" type="button" id="launcher-new" aria-label="새 스티커 메모" title="새 스티커 메모">+</button>
       </span>
     </div>
     <div class="launcher-wrap" id="launcher-wrap">
-      <button class="launcher-nav" type="button" data-launcher="prev" aria-label="이전 모듈" title="이전" hidden>
+      <button class="launcher-nav" type="button" data-launcher="prev" aria-label="켜 둔 모듈 왼쪽으로" title="왼쪽으로">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6"/></svg>
       </button>
       <div class="launcher-row" id="launcher-row"></div>
-      <button class="launcher-nav" type="button" data-launcher="next" aria-label="다음 모듈" title="다음" hidden>
+      <button class="launcher-nav" type="button" data-launcher="next" aria-label="켜 둔 모듈 오른쪽으로" title="오른쪽으로">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 6 6-6 6"/></svg>
       </button>
     </div>
   `, 'wg-wide');
   requestAnimationFrame(() => {
-    const row = card.querySelector('#launcher-row');
-    if (!row) return;
-
-    const ids = quickOrderIds();
-    if (!ids.length) {
-      row.innerHTML = '<p class="launcher-empty">켜 둔 모듈이 없습니다</p>';
-      paintLauncherNav(card);
-      return;
-    }
-    ids.forEach((id) => {
-      const mod = getModule(id);
-      if (!mod) return;
-      const btn = document.createElement('button');
-      btn.className = 'launcher-tile';
-      btn.type = 'button';
-      btn.title = mod.name;
-      // 넘치는 이름은 shortName 으로 — 타일 폭(54px)에 맞는 이름만 보인다.
-      btn.innerHTML = `<span class="launcher-icon">${mod.icon || ''}</span><span>${escapeHtml(mod.shortName || mod.name)}</span>`;
-      btn.addEventListener('click', async () => {
-        try {
-          if (TAURI) await invoke('open_tool', { id, title: mod.name });
-          else location.href = `./index.html?module=${encodeURIComponent(id)}`;
-          setExpanded(false);
-        } catch (error) {
-          console.error('[TIP notch] 모듈을 열지 못했습니다', error);
-          toast('모듈을 열지 못했습니다');
-        }
+    const find = card.querySelector('#launcher-find');
+    if (find) {
+      find.value = launcherQuery;
+      find.addEventListener('input', () => {
+        launcherQuery = find.value.trim();
+        launcherStart = 0;
+        paintLauncher();
       });
-      row.append(btn);
-    });
-    row.addEventListener('scroll', () => paintLauncherNav(card), { passive: true });
-    requestAnimationFrame(() => paintLauncherNav(card));
+      find.addEventListener('mousedown', () => { invoke('notch_focus').catch(() => {}); });
+      find.addEventListener('focus', openHeld);
+    }
+    const wrap = card.querySelector('#launcher-wrap');
+    if (wrap) {
+      wrap.addEventListener('wheel', (event) => {
+        const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+        if (!delta) return;
+        event.preventDefault();
+        const now = Date.now();
+        if (now - launcherWheelAt < 130) return;   // 한 번 굴리면 한 칸
+        launcherWheelAt = now;
+        scrollLauncher(delta > 0 ? 1 : -1);
+      }, { passive: false });
+    }
+    paintLauncher();
   });
   return card;
 }
 
-/** 가로 스크롤 양끝 화살표·페이드 — 더 볼 것이 있는 쪽만 보인다. */
-function paintLauncherNav(card) {
-  const row = card.querySelector('#launcher-row');
-  if (!row) return;
-  const max = row.scrollWidth - row.clientWidth;
-  const overflow = max > 4;
-  const prev = card.querySelector('[data-launcher="prev"]');
-  const next = card.querySelector('[data-launcher="next"]');
-  if (prev) prev.hidden = !overflow || row.scrollLeft <= 2;
-  if (next) next.hidden = !overflow || row.scrollLeft >= max - 2;
-  row.classList.toggle('is-fade-start', overflow && row.scrollLeft > 2);
-  row.classList.toggle('is-fade-end', overflow && row.scrollLeft < max - 2);
-}
-
-function scrollLauncher(direction) {
+/** 한 줄 7칸을 지금 위치로 다시 그린다 — 위치 표시와 끝 화살표도 함께. */
+function paintLauncher() {
   const row = panelEl.querySelector('#launcher-row');
   const card = panelEl.querySelector('.wg-launcher');
   if (!row || !card) return;
-  row.scrollBy({ left: direction * Math.max(60, row.clientWidth * 0.8), behavior: 'smooth' });
-  setTimeout(() => paintLauncherNav(card), 260);
+  const loop = dialLoop();
+  const all = launcherList();
+  const n = all.length;
+  launcherStart = clampRowStart(launcherStart, n, DIAL_SLOTS, loop);
+
+  const pos = card.querySelector('#launcher-pos');
+  if (pos) pos.textContent = n ? rowPositionLabel(launcherStart, n, DIAL_SLOTS, loop) : '';
+
+  row.innerHTML = '';
+  if (!n) {
+    row.innerHTML = launcherQuery
+      ? '<p class="launcher-empty">찾는 모듈이 없어요</p>'
+      : '<p class="launcher-empty">켜 둔 모듈이 없습니다</p>';
+  }
+  rowWindow(all, launcherStart, DIAL_SLOTS, loop).forEach((id) => {
+    const mod = getModule(id);
+    const btn = document.createElement('button');
+    btn.className = 'launcher-tile';
+    btn.type = 'button';
+    btn.title = mod.name;
+    btn.setAttribute('aria-label', `${mod.name} 열기`);
+    btn.innerHTML = `<span class="launcher-icon" aria-hidden="true">${mod.icon || ''}</span><span>${escapeHtml(mod.shortName || mod.name)}</span>`;
+    btn.addEventListener('click', () => openModuleFromNotch(id));
+    row.append(btn);
+  });
+
+  const few = n <= DIAL_SLOTS;
+  const [startEnd, finishEnd] = rowAtEnds(launcherStart, n, DIAL_SLOTS, loop);
+  [['prev', startEnd], ['next', finishEnd]].forEach(([dir, end]) => {
+    const btn = card.querySelector(`[data-launcher="${dir}"]`);
+    if (!btn) return;
+    btn.hidden = few;
+    btn.classList.toggle('is-end', end);
+    btn.setAttribute('aria-disabled', String(end));
+  });
+}
+
+function scrollLauncher(direction) {
+  const n = launcherList().length;
+  if (n <= DIAL_SLOTS) return;
+  launcherStart = clampRowStart(launcherStart + direction, n, DIAL_SLOTS, dialLoop());
+  paintLauncher();
+}
+
+/* ------------------------------ 간단히 보기 — 반원 다이얼 (v1.17.0) ------------------------------ */
+
+/* 예전 반원 퀵바 창(js/radial.js)의 판과 호를 이 창으로 옮겼다. 판의 반타원 모양은 CSS(.sheet 의
+ * border-radius)가 맡고, 여기서는 모듈 타일을 얕은 호 위에 놓는다. 회전 규칙은 js/dial.js.
+ * 위쪽 한 줄: [달력] [미디어] [‹] [이름·설명·찾기] [›] [타이머] [보관함]. */
+
+const DIAL_GEO = {
+  arc: 520,          // 타일 중심이 놓이는 호의 반지름 — 클수록 납작하다
+  centerY: 146,      // 가운데 타일 중심의 y(판 위쪽 일직선 기준, 노치 높이는 따로 더한다)
+  x3: 232,           // 3칸 옆(가장 바깥) 타일의 x 오프셋
+  spill: 0.55,       // 가장자리에서 살짝 걸쳐 보이는 정도(칸)
+};
+
+const dialSlotsEl = document.getElementById('dial-slots');
+let dialIds = [];          // 지금 그려진 모듈 id
+let dialItems = [];        // [{ id, el }]
+let dialPos = 0;           // 연속 회전 위치 — dialPos 번째 모듈이 가운데 칸에 온다
+let dialTarget = 0;
+let dialAnimating = false;
+let dialSnapTimer = null;
+
+function dialLoop() {
+  return getNotchSettings().rotation !== 'bounded';
+}
+
+function renderDial({ keepCenter = true } = {}) {
+  if (!dialSlotsEl) return;
+  syncStore();
+  const loop = dialLoop();
+  const centerId = dialIds.length ? dialIds[centerIndex(dialPos, dialIds.length, loop)] : null;
+  const ids = quickOrderIds().filter((id) => !!getModule(id));
+
+  dialSlotsEl.innerHTML = '';
+  dialItems = ids.map((id) => {
+    const mod = getModule(id);
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'dial-slot';
+    el.dataset.moduleId = id;
+    el.title = mod.name;
+    el.innerHTML = `<span class="dial-tile" aria-hidden="true">${mod.icon || ''}</span>`
+      + `<span class="dial-label">${escapeHtml(mod.shortName || mod.name)}</span>`;
+    el.addEventListener('click', () => onDialSlotClick(id));
+    dialSlotsEl.append(el);
+    return { id, el };
+  });
+  dialIds = ids;
+
+  const empty = document.getElementById('dial-empty');
+  if (empty) empty.hidden = ids.length > 0;
+
+  dialPos = keepCenter && centerId && ids.includes(centerId) ? ids.indexOf(centerId) : 0;
+  dialPos = clampPos(dialPos, ids.length, loop);
+  dialTarget = dialPos;
+  layoutDial();
+}
+
+function layoutDial() {
+  const n = dialItems.length;
+  paintDialHub();
+  if (!n) return;
+  const loop = dialLoop();
+  const width = dialEl.clientWidth || 628;
+  const cx = width / 2;
+  const top = dialOffset();
+  const x3 = Math.min(DIAL_GEO.x3, cx - 82);
+  const step = Math.asin(x3 / DIAL_GEO.arc) / 3;
+  const yc = top + DIAL_GEO.centerY - DIAL_GEO.arc;
+  const inner = ((DIAL_SLOTS - 1) / 2) * step;
+  const limit = inner + DIAL_GEO.spill * step;
+  const center = centerIndex(dialPos, n, loop);
+
+  dialItems.forEach((item, index) => {
+    const d = offsetOf(index, dialPos, n, loop);
+    const angle = d * step;
+    const ad = Math.abs(angle);
+    if (ad > limit + 0.001) {
+      item.el.style.visibility = 'hidden';
+      item.el.style.opacity = '0';
+      item.el.tabIndex = -1;
+      // 화면 밖으로 나간 칸에 '가운데' 표시가 남지 않게 지운다.
+      item.el.classList.remove('is-center');
+      item.el.removeAttribute('aria-current');
+      return;
+    }
+    const x = cx + DIAL_GEO.arc * Math.sin(angle);
+    const y = yc + DIAL_GEO.arc * Math.cos(angle);
+    const t = inner > 0 ? Math.min(1, ad / inner) : 0;
+    const fade = ad <= inner ? 1 : 1 - (ad - inner) / (DIAL_GEO.spill * step);
+    const isCenter = index === center;
+    item.el.style.visibility = 'visible';
+    item.el.style.left = `${x.toFixed(2)}px`;
+    item.el.style.top = `${y.toFixed(2)}px`;
+    item.el.style.transform = `translate(-50%, -24px) scale(${(isCenter ? 1.08 : 1 - 0.1 * t).toFixed(3)})`;
+    // 양 끝 칸은 아이콘만 흐리게 — 이름 글자는 흐리게 하지 않는다(대비 유지).
+    item.el.style.opacity = fade < 1 ? Math.max(0, fade).toFixed(3) : '1';
+    item.el.style.setProperty('--tile-fade', ad > inner * 0.9 ? '0.55' : '1');
+    item.el.classList.toggle('is-center', isCenter);
+    item.el.tabIndex = fade > 0.5 ? 0 : -1;
+    const mod = getModule(item.id);
+    item.el.setAttribute('aria-label', isCenter ? `${mod.name} 열기` : `${mod.name}, 가운데로 옮기기`);
+    if (isCenter) item.el.setAttribute('aria-current', 'true');
+    else item.el.removeAttribute('aria-current');
+  });
+}
+
+/** 가운데 모듈의 이름·설명과 양쪽 화살표(끝에 닿으면 흐리게). */
+function paintDialHub() {
+  const n = dialIds.length;
+  const loop = dialLoop();
+  const nameEl = document.getElementById('dial-name');
+  const descEl = document.getElementById('dial-desc');
+  const mod = n ? getModule(dialIds[centerIndex(dialPos, n, loop)]) : null;
+  if (nameEl) nameEl.textContent = mod ? mod.name : '켜 둔 모듈 없음';
+  if (descEl) descEl.textContent = mod ? (mod.subtitle || mod.description || '') : '';
+  const [startEnd, finishEnd] = atEnds(dialTarget, n, loop);
+  [['dial-prev', startEnd], ['dial-next', finishEnd]].forEach(([id, end]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.toggle('is-end', end);
+    btn.setAttribute('aria-disabled', String(end));
+  });
+}
+
+function animateDial() {
+  if (dialAnimating) return;
+  if (reducedMotion()) {
+    dialPos = dialTarget;
+    layoutDial();
+    return;
+  }
+  dialAnimating = true;
+  const step = () => {
+    const diff = dialTarget - dialPos;
+    if (Math.abs(diff) < 0.002) {
+      dialPos = dialTarget;
+      layoutDial();
+      dialAnimating = false;
+      normalizeDial();
+      return;
+    }
+    dialPos += diff * 0.3;
+    layoutDial();
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/** 계속 회전에서 위치 값이 한없이 커지지 않게 모듈 수의 배수만큼 되돌린다. */
+function normalizeDial() {
+  const n = dialItems.length;
+  if (!n || !dialLoop()) return;
+  while (dialTarget - dialPos > n / 2) { dialPos += n; dialTarget += n; }
+  while (dialTarget - dialPos < -n / 2) { dialPos -= n; dialTarget -= n; }
+}
+
+function nudgeDial(amount) {
+  const n = dialItems.length;
+  if (n <= 1) return;
+  dialTarget = clampPos(Math.round(dialTarget) + amount, n, dialLoop());
+  animateDial();
+}
+
+function centerDialOn(index) {
+  const n = dialItems.length;
+  if (index < 0 || index >= n) return;
+  dialTarget = targetFor(index, dialPos, n, dialLoop());
+  animateDial();
+}
+
+function onDialSlotClick(id) {
+  const index = dialIds.indexOf(id);
+  if (index < 0) return;
+  if (index !== centerIndex(dialPos, dialIds.length, dialLoop())) {
+    // 가장자리 모듈은 먼저 가운데로 끌어온다.
+    centerDialOn(index);
+    return;
+  }
+  openModuleFromNotch(id);
+}
+
+async function openModuleFromNotch(id) {
+  const mod = getModule(id);
+  if (!mod) return;
+  try {
+    if (TAURI) await invoke('open_tool', { id, title: mod.name });
+    else location.href = `./index.html?module=${encodeURIComponent(id)}`;
+    setExpanded(false);
+  } catch (error) {
+    console.error('[TIP notch] 모듈을 열지 못했습니다', error);
+    toast('모듈을 열지 못했습니다');
+  }
+}
+
+function openCenterModule() {
+  const n = dialIds.length;
+  if (!n) return;
+  openModuleFromNotch(dialIds[centerIndex(dialTarget, n, dialLoop())]);
+}
+
+/** 반원 양옆 — 달력 아이콘·미디어·타이머·보관함. 위젯이 꺼져 있거나 보일 것이 없으면 빈 자리. */
+let nextEventText = '';
+function paintDialSides() {
+  const widgets = getNotchSettings().widgets;
+  const { mediaShown, timerShown, state } = pillContent();
+
+  const cal = document.getElementById('dial-cal');
+  if (cal) {
+    cal.hidden = !widgets.calendar;
+    const label = nextEventText ? `달력 열기, 다음 일정 ${nextEventText}` : '달력 열기';
+    cal.setAttribute('aria-label', label);
+    cal.title = nextEventText || '달력 열기';
+  }
+
+  const media = document.getElementById('dial-media');
+  if (media) {
+    media.hidden = !mediaShown;
+    if (mediaShown) {
+      const title = mediaState.title || mediaState.artist || '재생 중';
+      const stateText = mediaState.playing ? '재생 중' : '일시정지';
+      document.getElementById('dial-media-title').textContent = title;
+      document.getElementById('dial-media-state').textContent = stateText;
+      media.setAttribute('aria-label', `${title}, ${stateText}. 전체 보기에서 재생 조절`);
+    }
+  }
+
+  const timer = document.getElementById('dial-timer');
+  if (timer) {
+    timer.hidden = !timerShown;
+    if (timerShown) {
+      const done = state.status === 'done';
+      const clockText = done ? '완료' : formatClock(remainingSeconds(state));
+      const stateText = done ? '타이머 끝남' : (state.status === 'paused' ? '일시정지' : '타이머 남음');
+      document.getElementById('dial-timer-clock').textContent = clockText;
+      document.getElementById('dial-timer-state').textContent = stateText;
+      timer.classList.toggle('is-paused', state.status === 'paused');
+      timer.setAttribute('aria-label', done ? '타이머 끝남. 전체 보기에서 조절'
+        : `타이머 ${describeSeconds(Math.ceil(remainingSeconds(state)))} ${state.status === 'paused' ? '멈춤' : '남음'}. 전체 보기에서 조절`);
+    }
+  }
+
+  const shelfBtn = document.getElementById('dial-shelf');
+  const badge = document.getElementById('dial-shelf-count');
+  if (shelfBtn) {
+    shelfBtn.hidden = !widgets.shelf;
+    shelfBtn.setAttribute('aria-label', `임시 보관함 열기, 파일 ${shelf.length}개`);
+  }
+  if (badge) {
+    badge.hidden = shelf.length === 0;
+    badge.textContent = shelf.length > 99 ? '99+' : String(shelf.length);
+  }
+}
+
+/** 반원의 상태 칸을 누르면 전체 보기로 펼치고 그 카드를 잠깐 강조한다(멈춤·재생은 카드에서만). */
+function goFullAndFlash(widgetId) {
+  setView('full', { focus: false });
+  setTimeout(() => {
+    const card = panelEl.querySelector(`.wg-${widgetId}`);
+    if (!card) return;
+    card.classList.add('is-flash');
+    card.scrollIntoView({ block: 'nearest' });
+    const focusable = card.querySelector('button:not([disabled]), input, textarea');
+    if (focusable && openedWithKeys) focusable.focus({ preventScroll: true });
+    setTimeout(() => card.classList.remove('is-flash'), 1400);
+  }, reducedMotion() ? 0 : 300);
+}
+
+function bindDial() {
+  document.getElementById('dial-prev').addEventListener('click', () => nudgeDial(-1));
+  document.getElementById('dial-next').addEventListener('click', () => nudgeDial(1));
+  document.getElementById('dial-cal').addEventListener('click', () => openCalendarView());
+  document.getElementById('dial-media').addEventListener('click', () => goFullAndFlash('media'));
+  document.getElementById('dial-timer').addEventListener('click', () => goFullAndFlash('timer'));
+  document.getElementById('dial-shelf').addEventListener('click', () => goFullAndFlash('shelf'));
+  document.getElementById('to-full').addEventListener('click', () => setView('full'));
+  document.getElementById('to-simple').addEventListener('click', () => setView('simple'));
+
+  const find = document.getElementById('dial-find');
+  find.addEventListener('input', () => {
+    const index = findIndex(dialIds, find.value, (id) => {
+      const mod = getModule(id);
+      return mod ? [mod.name, mod.shortName] : [];
+    });
+    if (index >= 0) centerDialOn(index);
+  });
+  find.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      openCenterModule();
+    } else if (!find.value && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      // 찾기 칸이 비어 있을 때만 ←→ 가 다이얼을 돌린다(글자가 있으면 커서를 옮긴다).
+      event.preventDefault();
+      nudgeDial(event.key === 'ArrowLeft' ? -1 : 1);
+    }
+  });
+  find.addEventListener('mousedown', () => {
+    invoke('notch_focus').catch(() => {}).finally(() => {
+      requestAnimationFrame(() => { if (document.activeElement !== find) find.focus({ preventScroll: true }); });
+    });
+  });
+  find.addEventListener('focus', openHeld);
+
+  dialEl.addEventListener('wheel', (event) => {
+    if (dialItems.length <= 1) return;
+    const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+    if (!delta) return;
+    event.preventDefault();
+    let amount = delta;
+    if (event.deltaMode === 1) amount *= 16;        // 줄 단위
+    else if (event.deltaMode === 2) amount *= 400;  // 페이지 단위
+    dialTarget = clampPos(dialTarget + amount * 0.005, dialItems.length, dialLoop());
+    animateDial();
+    // 휠이 멈추면 가까운 칸에 맞춘다.
+    clearTimeout(dialSnapTimer);
+    dialSnapTimer = setTimeout(() => {
+      dialTarget = clampPos(Math.round(dialTarget), dialItems.length, dialLoop());
+      animateDial();
+    }, 160);
+  }, { passive: false });
+
+  dialEl.addEventListener('keydown', (event) => {
+    if (event.target === find) return;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      nudgeDial(event.key === 'ArrowLeft' ? -1 : 1);
+    }
+  });
 }
 
 /* ------------------------------ 위젯 생명주기 ------------------------------ */
@@ -1836,11 +2482,20 @@ function openHeld() {
 
 pillEl.addEventListener('click', () => {
   // v1.12.3 — 펼침은 클릭으로만. (마우스오버 자동 펼침은 다른 앱을 쓰다 지나가도 화면을 가려 뻈다.)
-  setExpanded(!expanded);
+  // v1.17.0 — 처음 화면은 '노치 시작 화면' 설정을 따르고, 클릭으로 열었으니 키보드 포커스를 가져간다.
+  if (expanded) setExpanded(false);
+  else openNotch('click');
 });
 // 설정에서 '마우스를 올려서 열기'를 켰을 때만 hover 로 펼친다(기본 OFF, v1.12.3).
+// 마우스로 열었을 때는 포커스를 가져가지 않는다 — 다른 앱에서 치던 글자가 들어오지 않게.
 pillEl.addEventListener('mouseenter', () => {
-  if (getNotchSettings().hoverOpen) setExpanded(true);
+  if (getNotchSettings().hoverOpen && !expanded) openNotch('hover');
+});
+dialEl.addEventListener('click', (event) => {
+  if (event.target.closest('[data-open-settings]')) {
+    invoke('open_main', { module: null, settings: true });
+    setExpanded(false);
+  }
 });
 notchEl.addEventListener('mouseenter', cancelCollapse);
 notchEl.addEventListener('mouseleave', scheduleCollapse);
@@ -2081,17 +2736,18 @@ panelEl.addEventListener('input', (event) => {
 function setDragState(on) {
   dragHeld = !!on;
   const drop = panelEl.querySelector('#shelf-drop');
-  if (drop) drop.classList.toggle('is-over', dragHeld);
+  if (drop) drop.classList.toggle('is-over', dragHeld && view === 'full');
   // 파일을 끌고 들어오면 빈 보관함도 놓을 자리를 보여 준다(v1.15.2).
   const card = panelEl.querySelector('.wg-shelf');
   if (card) card.classList.toggle('is-empty', !dragHeld && shelf.length === 0);
+  // v1.17.0 — 접혀 있으면 펼치지 않고 알약에 '여기에 놓기', 반원이면 판 전체에 안내.
+  const dialDrop = document.getElementById('dial-drop');
+  if (dialDrop) dialDrop.hidden = !(dragHeld && expanded && view === 'simple' && !calView.open);
+  notchEl.classList.toggle('is-drag', dragHeld);
+  if (!expanded) setPillNote(dragHeld ? '여기에 놓기' : '', 0);
   syncHold();
-  if (dragHeld) {
-    cancelCollapse();
-    if (!expanded) setExpanded(true);
-  } else {
-    scheduleCollapse();
-  }
+  if (dragHeld) cancelCollapse();
+  else if (expanded) scheduleCollapse();
   fitPanel();
 }
 
@@ -2116,11 +2772,6 @@ window.addEventListener('drop', (event) => {
   setDragState(false);
   const files = event.dataTransfer && event.dataTransfer.files;
   if (!files || !files.length) return;
-  if (!expanded) setExpanded(true);
-  if (!panelEl.querySelector('#shelf-list')) {
-    toast('환경설정에서 임시 보관함 위젯을 켜 주세요');
-    return;
-  }
   addFiles(files);
 });
 
@@ -2132,8 +2783,24 @@ window.addEventListener('keydown', (event) => {
       closeCalendarForm();
       return;
     }
+    // v1.17.0 — 달력에서는 노치를 닫지 않고 열기 전 화면으로 돌아간다(닫기 버튼과 같다).
+    if (calView.open) {
+      closeCalendarView();
+      return;
+    }
     setExpanded(false);
   }
+});
+
+/* v1.17.0 — 클릭·메뉴 막대로 열어 키 창이 된 노치는, 다른 곳을 눌러 키 창을 잃으면 접는다.
+   (예전 반원 퀵바 창이 바깥을 누르면 닫히던 것과 같다. 마우스로만 연 노치는 키 창이 아니라 오지 않는다.)
+   키 창으로 바뀌는 짧은 순간의 blur 는 한 박자 뒤에 다시 보고 넘긴다. */
+window.addEventListener('blur', () => {
+  if (!expanded || !openedWithKeys) return;
+  setTimeout(() => {
+    if (!expanded || document.hasFocus() || notchHeld() || dragHeld) return;
+    setExpanded(false);
+  }, 220);
 });
 
 // 창 크기가 바뀌면 Rust 가 접거나 펼친 것 — 화면도 맞춘다.
@@ -2145,6 +2812,9 @@ function syncLayout() {
     expanded = true;
     notchEl.classList.remove('is-collapsed');
     notchEl.classList.add('is-expanded');
+    // Rust 가 먼저 펼친 경우(마우스 올리기) — 시작 화면으로 맞춘다. 포커스는 가져가지 않는다.
+    view = getNotchSettings().startView;
+    applyView();
     startWidgets();
   } else if (!wide && expanded) {
     expanded = false;
@@ -2179,7 +2849,13 @@ if (TAURI && window.__TAURI__.event) {
   // WKWebView 는 앱이 백그라운드일 때 DOM mouseenter 를 보내지 않아, 다른 앱을 쓰는 중에도
   // 이 이벤트로 펼치고 접는다.
   listen('tip://notch-hover-enter', () => {
-    if (!expanded && getNotchSettings().hoverOpen) setExpanded(true);
+    if (!expanded && getNotchSettings().hoverOpen) openNotch('hover');
+  });
+
+  // v1.17.0 — 메뉴 막대 TIP 아이콘(예전에는 반원 퀵바 창을 열었다). 열려 있으면 닫는다.
+  listen('tip://notch-tray', () => {
+    if (expanded) setExpanded(false);
+    else openNotch('tray');
   });
   listen('tip://notch-hover-leave', () => {
     if (expanded) setExpanded(false);
@@ -2198,10 +2874,17 @@ if (TAURI && window.__TAURI__.event) {
 
 /* ------------------------------ 설정 다시 읽기 ------------------------------ */
 
+/** 판 배경 불투명도 — 환경설정 '반원 배경 불투명도'(tip.quickbarOpacity.v1, 70~100%).
+ *  반원과 전체 보기가 같은 판이라 둘 다 같은 값을 쓴다(v1.17.0). */
+function applySheetOpacity() {
+  document.documentElement.style.setProperty('--sheet-alpha', (getQuickbarOpacity() / 100).toFixed(2));
+}
+
 /** 저장된 설정을 새로 읽어 모양·위젯 목록을 다시 그린다. 펼쳐져 있으면 조회도 새로 한다. */
 function refreshFromSettings() {
   syncStore();
   applyAppearance();
+  applySheetOpacity();
   settingsRev += 1;
   renderWidgets();
   // 미디어 위젯을 꺼면 알약에서도 곧바로 지우고, 켜면 바로 한 번 읽는다.
@@ -2227,6 +2910,8 @@ if (new URLSearchParams(location.search).has('bg')) {
 }
 
 applyAppearance();
+applySheetOpacity();
+bindDial();
 renderWidgets();
 syncLayout();
 // v1.15.0 — 알약의 음악·타이머 표시와 그 배경 루프, 노치 자리(가운데 여백).

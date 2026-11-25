@@ -7,7 +7,7 @@ import {
   getMenuBarVisible, setMenuBarVisible, getRadialOrderMode, setRadialOrderMode,
   getQuickbarOpacity, setQuickbarOpacity, QUICKBAR_OPACITY_MIN, QUICKBAR_OPACITY_MAX,
   QUICKBAR_OPACITY_DEFAULT, getNotchSettings, setNotchEnabled, setNotchWidget, NOTCH_WIDGETS,
-  setNotchHoverOpen,
+  setNotchHoverOpen, setNotchStartView, setNotchRotation, setNotchPillActivity,
   getSearchShortcut, setSearchShortcut, SEARCH_SHORTCUT_DEFAULT,
 } from './store.js';
 import { quickOrderIds, customQuickOrderIds, saveQuickOrder } from './quickbar.js';
@@ -882,7 +882,7 @@ function quickbarScreen(rerenderSheet) {
 
   const head = el('div', { class: 'sheet-head sheet-head-sub' }, [
     back,
-    el('h2', { text: '반원 퀵바 순서' }),
+    el('h2', { text: '모듈 순서' }),
     el('button', {
       class: 'icon-btn',
       type: 'button',
@@ -891,7 +891,7 @@ function quickbarScreen(rerenderSheet) {
       onclick: closeSheet,
     }),
   ]);
-  const options = el('div', { class: 'mode-list', role: 'radiogroup', 'aria-label': '반원 퀵바 순서 방식' });
+  const options = el('div', { class: 'mode-list', role: 'radiogroup', 'aria-label': '모듈 순서 방식' });
   RADIAL_MODE_OPTIONS.forEach(({ id, label, hint }) => {
     const on = mode === id;
     const row = el('button', {
@@ -944,14 +944,14 @@ function quickbarList(rerenderSheet) {
     const next = [...list.querySelectorAll('.qb-row')].map((row) => row.dataset.moduleId);
     if (!next.length) return;
     saveQuickOrder(next);
-    toast('반원 퀵바 순서를 저장했습니다');
+    toast('모듈 순서를 저장했습니다');
   };
 
   mods.forEach((mod) => list.append(quickbarRow(mod, save)));
   refreshQuickbarButtons(list);
 
   return el('div', { class: 'sheet-section qb-section' }, [
-    el('p', { class: 'qb-note', text: '위에서부터 반원 왼쪽 → 오른쪽 순서입니다. 끌어서 바꾸세요.' }),
+    el('p', { class: 'qb-note', text: '위에서부터 반원과 켜 둔 모듈 줄의 왼쪽에서 오른쪽 순서입니다. 끌어서 바꾸세요.' }),
     list,
     el('button', {
       class: 'sheet-reset',
@@ -960,7 +960,7 @@ function quickbarList(rerenderSheet) {
       onclick: () => {
         resetRadialOrder();
         rerenderSheet();
-        toast('퀵바 순서를 메인 화면 순서로 되돌렸습니다');
+        toast('모듈 순서를 메인 화면 순서로 되돌렸습니다');
       },
     }),
   ]);
@@ -972,7 +972,7 @@ function quickbarRow(mod, save) {
   const handle = el('button', {
     class: 'qb-handle',
     type: 'button',
-    'aria-label': `${mod.name} 퀵바 순서 바꾸기`,
+    'aria-label': `${mod.name} 순서 바꾸기`,
     title: '끌어서 순서 바꾸기',
     html: icons.grip,
   });
@@ -1079,10 +1079,10 @@ function invokeTauri(command, args) {
   return window.__TAURI__.core.invoke(command, args || {});
 }
 
-/** Mac 앱 — 상단 메뉴 막대 아이콘과 반원 퀵바 한 묶음(v1.15.1).
- *  메뉴 막대에 표시 · 메뉴 도구 투명도 · 반원 퀵바 순서를 한 곳에 모은다(예전에는 일반 탭과
- *  노치 탭에 흔어져 있어 탭을 오가야 했다). */
-function menuBarQuickbarSection() {
+/** Mac 앱 — 상단 메뉴 막대 아이콘과 반원 배경(v1.15.1 → v1.17.0).
+ *  v1.17.0 — 반원 퀵바 창이 노치 안으로 들어가면서 '모듈 순서'는 노치 묶음(모듈 회전 방식 아래)으로
+ *  옮겼다. 여기에는 메뉴 막대 아이콘과 판 배경 불투명도만 남는다. */
+function menuBarSection() {
   const visible = getMenuBarVisible();
   const toggle = el('button', {
     class: 'switch',
@@ -1106,38 +1106,23 @@ function menuBarQuickbarSection() {
     }
   });
 
-  const mode = getRadialOrderMode();
-  const orderRow = el('button', {
-    class: 'sheet-menu',
-    type: 'button',
-    'aria-label': `반원 퀵바 순서 (지금: ${RADIAL_MODE_LABELS[mode]}) 설정 열기`,
-  }, [
-    el('span', { class: 'sheet-menu-label', text: '반원 퀵바 순서' }),
-    el('span', { class: 'sheet-menu-value', text: RADIAL_MODE_LABELS[mode] }),
-    el('span', { class: 'sheet-menu-arrow', text: '›', 'aria-hidden': 'true' }),
-  ]);
-  orderRow.addEventListener('click', () => {
-    sheetTab = 'quickbar';
-    if (sheetRender) sheetRender();
-  });
-
   return el('div', { class: 'sheet-section mb-section' }, [
-    el('h3', { text: '메뉴 막대와 퀵바' }),
+    el('h3', { text: '메뉴 막대' }),
     el('p', {
       class: 'mb-note',
-      text: '상단 메뉴 막대 아이콘과 반원 퀵바를 쓸지 정하고, 퀵바의 투명도와 모듈 순서를 바꿉니다. 메뉴 막대를 끄면 Dock 아이콘으로만 열 수 있습니다.',
+      text: '메뉴 막대 TIP 아이콘을 누르면 노치가 열립니다. 끄면 Dock 아이콘으로만 열 수 있습니다.',
     }),
     el('div', { class: 'mb-row' }, [
       el('span', { class: 'mb-label', text: '메뉴 막대에 표시' }),
       toggle,
     ]),
     quickbarOpacityRow(),
-    orderRow,
   ]);
 }
 
-/** 반원 퀵바 배경 투명도 — 35~100%, 기본 92%. (v1.11.0)
- *  값은 tip.quickbarOpacity.v1 에 저장하고, 열려 있는 퀵바도 같은 키를 700ms 안에 다시 읽어 따라온다. */
+/** 반원 배경 불투명도 — 70~100%, 기본 92%. (v1.11.0 → v1.17.0)
+ *  값은 tip.quickbarOpacity.v1 에 저장한다(키 이름은 그대로). 노치의 반원과 전체 보기가 같은 판이라
+ *  둘 다 이 값을 쓰고, 저장하면 열려 있는 노치에도 바로 알린다(store.js notifyWindows). */
 function quickbarOpacityRow() {
   const readout = el('span', { class: 'op-value', text: `${getQuickbarOpacity()}%` });
   const range = el('input', {
@@ -1147,7 +1132,7 @@ function quickbarOpacityRow() {
     max: String(QUICKBAR_OPACITY_MAX),
     step: '1',
     value: String(getQuickbarOpacity()),
-    'aria-label': '메뉴 도구 투명도',
+    'aria-label': '반원 배경 불투명도',
   });
 
   const paint = () => {
@@ -1171,17 +1156,19 @@ function quickbarOpacityRow() {
 
   return el('div', { class: 'op-row' }, [
     el('div', { class: 'op-head' }, [
-      el('span', { class: 'op-label', text: '메뉴 도구 투명도' }),
+      el('span', { class: 'op-label', text: '반원 배경 불투명도' }),
       readout,
     ]),
     range,
-    el('p', { class: 'op-note', text: '반원 퀵바 배경의 불투명도입니다. 아이콘과 글자는 그대로 선명합니다.' }),
+    el('p', { class: 'op-note', text: '노치 반원과 전체 보기 배경에 함께 적용됩니다. 70%보다 낮추면 바탕화면이 비쳐 글자가 흐려져서 70%까지만 내려갑니다.' }),
   ]);
 }
 
 /* ------------------- 노치 아일랜드 설정 (v1.12.0) ------------------- */
 
-/** Mac 앱 — 노치 아일랜드 자체와 위젯별 표시를 정한다. */
+/** Mac 앱 — 노치 아일랜드 자체(사용·마우스로 열기). (v1.12.0 → v1.17.0)
+ *  v1.17.0 — 시작 화면·회전 방식·모듈 순서·닫힌 노치 표시·위젯은 아래 묶음으로 나눴다.
+ *  노치 아일랜드를 꺼도 메뉴 막대 아이콘으로 노치를 열 수 있으므로 나머지 설정은 늘 바꿀 수 있다. */
 function notchSection(rerenderSheet) {
   const notch = getNotchSettings();
 
@@ -1189,7 +1176,7 @@ function notchSection(rerenderSheet) {
     class: 'switch',
     type: 'button',
     'aria-pressed': String(notch.enabled),
-    'aria-label': '노치 아일랜드',
+    'aria-label': '노치 아일랜드 사용',
   }, el('span', { class: 'switch-track' }, el('span', { class: 'switch-thumb' })));
 
   master.addEventListener('click', async () => {
@@ -1227,39 +1214,11 @@ function notchSection(rerenderSheet) {
     toast(next ? '마우스를 올리면 노치가 펼쳐집니다' : '노치를 클릭할 때만 펼쳐집니다');
   });
 
-  const rows = NOTCH_WIDGETS.map(({ id, label, hint }) => {
-    const on = notch.widgets[id];
-    const toggle = el('button', {
-      class: 'switch',
-      type: 'button',
-      'aria-pressed': String(on),
-      'aria-label': label,
-      disabled: !notch.enabled,
-    }, el('span', { class: 'switch-track' }, el('span', { class: 'switch-thumb' })));
-
-    toggle.addEventListener('click', () => {
-      const next = !getNotchSettings().widgets[id];
-      setNotchWidget(id, next);
-      toggle.setAttribute('aria-pressed', String(next));
-      toast(next ? `${label} 위젯을 표시합니다` : `${label} 위젯을 숨깁니다`);
-      // v1.15.1 — 캘린더 위젯을 켜고 끄면 아래 '캘린더 표시 필터'의 쓸 수 있음이 바뀐다.
-      if (rerenderSheet) rerenderSheet();
-    });
-
-    return el('div', { class: `mb-row notch-row${notch.enabled ? '' : ' is-off'}` }, [
-      el('span', { class: 'mb-label' }, [
-        el('b', { text: label }),
-        el('i', { class: 'notch-hint', text: hint }),
-      ]),
-      toggle,
-    ]);
-  });
-
   return el('div', { class: 'sheet-section mb-section notch-section' }, [
     el('h3', { text: '노치 아일랜드' }),
     el('p', {
       class: 'mb-note',
-      text: '기본은 꺼짐입니다. 켜면 화면 최상단 노치 자리에 붙고, 알약을 클릭하거나 파일을 끌어다 놓으면 펼쳐집니다. 미디어, 캘린더, 웹캠 거울은 켤 때만 접근 권한을 묻습니다.',
+      text: '켜면 화면 위 가운데에 TIP 알약이 늘 붙어 있습니다. 꺼도 메뉴 막대 아이콘으로 열 수 있습니다. 미디어, 캘린더, 웹캠 거울은 켤 때만 접근 권한을 묻습니다.',
     }),
     el('div', { class: 'mb-row' }, [
       el('span', { class: 'mb-label', text: '노치 아일랜드 사용' }),
@@ -1268,10 +1227,136 @@ function notchSection(rerenderSheet) {
     el('div', { class: `mb-row notch-row${notch.enabled ? '' : ' is-off'}` }, [
       el('span', { class: 'mb-label' }, [
         el('b', { text: '마우스를 올려서 열기' }),
-        el('i', { class: 'notch-hint', text: '끄면(기본) 알약을 클릭할 때만 펼쳐집니다. 다른 앱을 쓰다 지나가도 화면을 가리지 않습니다.' }),
+        el('i', { class: 'notch-hint', text: '끄면(기본) 알약을 클릭할 때만 펼쳐집니다. 마우스로 열었을 때는 키보드 입력을 가져가지 않습니다.' }),
       ]),
       hoverToggle,
     ]),
+  ]);
+}
+
+/** 라디오 묶음 — 모듈 순서 화면의 .mode-row 모양을 그대로 쓴다(v1.17.0). */
+function notchChoiceGroup({ label, options, value, onPick }) {
+  const group = el('div', { class: 'mode-list', role: 'radiogroup', 'aria-label': label });
+  options.forEach(({ id, label: text, hint }) => {
+    const on = value === id;
+    const row = el('button', {
+      class: `mode-row${on ? ' is-on' : ''}`,
+      type: 'button',
+      role: 'radio',
+      'aria-checked': String(on),
+      'data-choice': id,
+    }, [
+      el('span', { class: 'mode-text' }, [
+        el('b', { text }),
+        el('span', { class: 'mode-hint', text: hint }),
+      ]),
+      el('span', { class: 'mode-mark', 'aria-hidden': 'true' }),
+    ]);
+    row.addEventListener('click', () => onPick(id));
+    group.append(row);
+  });
+  return group;
+}
+
+/** ② 노치 시작 화면 — 열 때 처음 보이는 화면(v1.17.0). */
+function notchStartViewSection(rerenderSheet) {
+  return el('div', { class: 'sheet-section mb-section notch-start-section' }, [
+    el('h3', { text: '시작 화면' }),
+    el('p', { class: 'mb-note', text: '노치를 열 때 처음 보이는 화면입니다. 열린 뒤에는 아래 버튼으로 언제든 바꿀 수 있습니다.' }),
+    notchChoiceGroup({
+      label: '노치 시작 화면',
+      value: getNotchSettings().startView,
+      options: [
+        { id: 'simple', label: '간단히 보기', hint: '반원에서 모듈을 돌려 고릅니다' },
+        { id: 'full', label: '전체 보기', hint: '음악, 일정, 타이머, 메모, 보관함을 한 번에 봅니다' },
+      ],
+      onPick: (id) => {
+        if (getNotchSettings().startView === id) return;
+        setNotchStartView(id);
+        toast(id === 'simple' ? '노치를 간단히 보기로 엽니다' : '노치를 전체 보기로 엽니다');
+        rerenderSheet();
+      },
+    }),
+  ]);
+}
+
+/** ③ 모듈 회전 방식 + ④ 모듈 순서 — 반원과 전체 보기의 '켜 둔 모듈'에 똑같이(v1.17.0). */
+function notchRotationSection(rerenderSheet) {
+  const mode = getRadialOrderMode();
+  const orderRow = el('button', {
+    class: 'sheet-menu',
+    type: 'button',
+    'aria-label': `모듈 순서 (지금: ${RADIAL_MODE_LABELS[mode]}) 설정 열기`,
+  }, [
+    el('span', { class: 'sheet-menu-label', text: '모듈 순서' }),
+    el('span', { class: 'sheet-menu-value', text: RADIAL_MODE_LABELS[mode] }),
+    el('span', { class: 'sheet-menu-arrow', text: '›', 'aria-hidden': 'true' }),
+  ]);
+  orderRow.addEventListener('click', () => {
+    sheetTab = 'quickbar';
+    if (sheetRender) sheetRender();
+  });
+
+  return el('div', { class: 'sheet-section mb-section notch-rotation-section' }, [
+    el('h3', { text: '모듈 회전 방식' }),
+    el('p', { class: 'mb-note', text: "반원과 전체 보기의 '켜 둔 모듈'에 똑같이 적용됩니다." }),
+    notchChoiceGroup({
+      label: '모듈 회전 방식',
+      value: getNotchSettings().rotation,
+      options: [
+        { id: 'loop', label: '계속 회전', hint: '마지막 다음에 처음이 이어집니다' },
+        { id: 'bounded', label: '처음과 끝에서 멈춤', hint: '양 끝에서 멈춥니다' },
+      ],
+      onPick: (id) => {
+        if (getNotchSettings().rotation === id) return;
+        setNotchRotation(id);
+        toast(id === 'loop' ? '모듈을 계속 회전합니다' : '처음과 끝에서 멈춥니다');
+        rerenderSheet();
+      },
+    }),
+    orderRow,
+  ]);
+}
+
+/** ⑤ 닫힌 노치 표시 — 알약에 이퀄라이저·남은 시간(v1.17.0). */
+function notchPillSection() {
+  return el('div', { class: 'sheet-section mb-section notch-pill-section' }, [
+    el('h3', { text: '닫힌 노치 표시' }),
+    el('div', { class: 'mb-row notch-row' }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: '노래와 타이머 표시' }),
+        el('i', { class: 'notch-hint', text: '노치가 닫혀 있어도 노래가 나오면 이퀄라이저, 타이머가 돌면 남은 시간을 보여 줍니다.' }),
+      ]),
+      sheetSwitch(getNotchSettings().pillActivity, '노래와 타이머 표시', (next) => {
+        setNotchPillActivity(next);
+        toast(next ? '닫힌 노치에 노래와 타이머를 표시합니다' : '닫힌 노치에는 TIP만 표시합니다');
+      }),
+    ]),
+  ]);
+}
+
+/** ⑥ 위젯 — 켜고 끄기. hint 에 반원/전체 보기 중 어디에 나오는지 적는다(store.js NOTCH_WIDGETS).
+ *  v1.17.0 — 노치 아일랜드를 꺼도 메뉴 막대로 여는 노치에 적용되므로 잠그지 않는다. */
+function notchWidgetSection(rerenderSheet) {
+  const notch = getNotchSettings();
+  const rows = NOTCH_WIDGETS.map(({ id, label, hint }) => {
+    const toggle = sheetSwitch(notch.widgets[id], label, (next) => {
+      setNotchWidget(id, next);
+      toast(next ? `${label} 위젯을 표시합니다` : `${label} 위젯을 숨깁니다`);
+      // v1.15.1 — 캘린더 위젯을 켜고 끄면 아래 '캘린더 표시 필터'의 쓸 수 있음이 바뀐다.
+      if (rerenderSheet) rerenderSheet();
+    });
+    return el('div', { class: 'mb-row notch-row' }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: label }),
+        el('i', { class: 'notch-hint', text: hint }),
+      ]),
+      toggle,
+    ]);
+  });
+  return el('div', { class: 'sheet-section mb-section notch-widget-section' }, [
+    el('h3', { text: '위젯' }),
+    el('p', { class: 'mb-note', text: '반원의 다이얼은 위젯과 상관없이 늘 보입니다.' }),
     ...rows,
   ]);
 }
@@ -1721,10 +1806,10 @@ const SHEET_TABS = [
 const TAB_NOTES = {
   general: '테마와 기본 색, 시작, 앱 업데이트를 정합니다.',
   generalWeb: '테마와 기본 색, 앱 업데이트, 문의입니다.',
-  notch: '노치 아일랜드와 메뉴 막대, 반원 퀵바를 정합니다.',
+  notch: '노치의 반원과 전체 보기, 메뉴 막대 아이콘을 정합니다.',
   search: '전역 검색(⌥Space)의 단축키와 검색 대상, 시스템 명령을 정합니다.',
   modules: '모듈별 전역 단축키와 세부 옵션입니다.',
-  quickbar: '메뉴 막대 퀵바(반원)에 모듈이 놓이는 순서입니다.',
+  quickbar: "노치 반원과 전체 보기 '켜 둔 모듈'에 모듈이 놓이는 순서입니다.",
 };
 
 function sheetNote(tab) {
@@ -1888,10 +1973,16 @@ function autostartSection() {
 /* ------------------------------ 노치 탭 ------------------------------ */
 
 function notchTab(render) {
+  // v1.17.0 — ① 노치 아일랜드 ② 시작 화면 ③ 회전 방식·④ 모듈 순서 ⑤ 닫힌 노치 표시 ⑥ 위젯
+  //           ⑦ 표시할 캘린더 ⑧ 메뉴 막대(반원 배경 불투명도)
   const parts = [sheetNote('notch')];
   parts.push(notchSection(render));
+  parts.push(notchStartViewSection(render));
+  parts.push(notchRotationSection(render));
+  parts.push(notchPillSection());
+  parts.push(notchWidgetSection(render));
   parts.push(calendarFilterSection());
-  parts.push(menuBarQuickbarSection());
+  parts.push(menuBarSection());
   return parts;
 }
 

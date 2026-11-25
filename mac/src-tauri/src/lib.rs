@@ -1,9 +1,9 @@
-// TIP (TOOL-IN-PACK) macOS 앱 — 메뉴 막대 반원 퀵바 + 전체 창.
+// TIP (TOOL-IN-PACK) macOS 앱 — 노치(반원 다이얼·전체 보기) + 전체 창.
 //
 // - 전체 창(main): 웹(PWA)과 같은 화면. 창을 닫아도 앱은 살아 있고 메뉴 막대에서 다시 연다.
-// - 메뉴 막대 아이콘(트레이) 좌클릭: 아이콘 아래에 반원 퀵바(quickbar)를 띄우고, 다시 누르면 닫는다.
-// - 퀵바의 ⚙ 버튼은 메인 창을 띄우고 `tip://open-settings` 로 설정 시트를 연다(창이 이미 떠 있어도).
-// - 퀵바에서 모듈을 고르면 420×680 컴팩트 창(tool)이 그 모듈 화면으로 열린다.
+// - 메뉴 막대 아이콘(트레이) 좌클릭: 노치를 시작 화면(반원/전체 보기)으로 열고, 다시 누르면 닫는다(v1.17.0).
+// - 노치 전체 보기의 ⚙ 버튼은 메인 창을 띄우고 `tip://open-settings` 로 설정 시트를 연다(창이 이미 떠 있어도).
+// - 노치(반원·켜 둔 모듈)에서 모듈을 고르면 420×680 컴팩트 창(tool)이 그 모듈 화면으로 열린다.
 // - 모든 창은 같은 origin 이라 localStorage(모듈 켜기/끄기, 순서, 테마)를 그대로 공유한다.
 
 use std::collections::HashSet;
@@ -36,7 +36,6 @@ mod notch;
 mod sticky;
 mod system;
 
-const QUICKBAR: &str = "quickbar";
 const TOOL: &str = "tool";
 const NOTCH: &str = "notch";
 const SEARCH: &str = "search";
@@ -45,10 +44,7 @@ const PARCEL: &str = "parcel";
 /// Tauri IPC 권한이 전혀 없다.
 const POSTCODE: &str = "postcode";
 
-// 퀵바 창 — 납작한 반타원 판(가로 284·세로 176)이 위쪽 일직선으로 메뉴 막대에 붙고,
-// 아래로 176px 내려간다. 창 높이 206 = 판 176 + 아래 그림자 여백 30.
-const QUICKBAR_W: f64 = 580.0;
-const QUICKBAR_H: f64 = 206.0;
+// v1.17.0 — 반원 퀵바 창(quickbar, 580×206)은 없앴다. 반원은 노치 창 안의 '간단히 보기'다.
 const TOOL_W: f64 = 420.0;
 const TOOL_H: f64 = 680.0;
 
@@ -58,15 +54,19 @@ const TOOL_H: f64 = 680.0;
 //  양옆으로 84px 씩 투명한 창이 메뉴 막대 아이콘을 덮어 클릭이 먹지 않았다.
 const NOTCH_PILL_W: f64 = 92.0;
 const NOTCH_PILL_H: f64 = 28.0;
-const NOTCH_OPEN_W: f64 = 452.0;
+// v1.17.0 — 반원(간단히 보기)과 전체 보기가 같은 판이라 폭을 640 으로 맞춘다(예전 452).
+const NOTCH_OPEN_W: f64 = 640.0;
 // v1.15.2 — 펼친 패널의 높이. 예전 한 값(600) 대신 내용에 맞춰 화면이 요청한 높이를 쓴다
 // (notch_resize). 아래 한계 안에서만 움직이고, 기본값은 그보다 조금 낮춘 540 이다.
 const NOTCH_OPEN_H: f64 = 540.0;
-const NOTCH_OPEN_MIN_H: f64 = 300.0;
+// v1.17.0 — 반원 판(236 + 노치 높이)까지 내려갈 수 있게 300 → 200.
+const NOTCH_OPEN_MIN_H: f64 = 200.0;
 const NOTCH_OPEN_MAX_H: f64 = 600.0;
 // v1.15.0 — 접힌 알약이 음악·타이머를 품을 때 더하는 폭(논리 pt).
-//   음악 날개: 이퀄라이저 + 짧은 곡 제목 + 진행률 바 / 타이머 날개: 남은 시간.
-const NOTCH_PILL_MEDIA_W: f64 = 150.0;
+//   음악 날개: 이퀄라이저 / 타이머 날개: 남은 시간.
+// v1.17.0 — 곡 제목·진행률을 알약에서 뺐다(반원·전체 보기에서만). 이퀄라이저만큼 150 → 34.
+//   파일을 끄는 동안의 '여기에 놓기'·담은 뒤 '보관함 +2' 는 두 날개를 모두 빌린다(화면이 둘 다 true 로 알린다).
+const NOTCH_PILL_MEDIA_W: f64 = 34.0;
 const NOTCH_PILL_TIMER_W: f64 = 84.0;
 
 // 전역 빠른 실행 검색 — 화면 가운데 위쪽의 작은 팔레트.
@@ -192,76 +192,27 @@ fn place_under_tray(app: &AppHandle, win: &WebviewWindow, width: f64, height: f6
     let _ = win.set_position(Position::Logical(LogicalPosition::new(x, y)));
 }
 
-/* ------------------------------- 퀵바 창 ------------------------------- */
+/* ------------------------------- 메뉴 막대 아이콘 → 노치 (v1.17.0) ------------------------------- */
 
-fn quickbar_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    if let Some(win) = app.get_webview_window(QUICKBAR) {
-        return Ok(win);
+/// 노치 아일랜드를 켜 두었는지 — 프런트가 set_notch_enabled 로 밀어 준다.
+/// 꺼 두었어도 메뉴 막대 아이콘으로 노치를 열 수 있고, 닫으면 알약을 남기지 않고 숨긴다.
+static NOTCH_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// 메뉴 막대 TIP 아이콘(왼쪽 클릭)·메뉴의 '노치 열기' — 예전에는 반원 퀵바 창을 열었다.
+/// 노치 창을 앞으로 올리고, 화면(notch.js)이 시작 화면 설정대로 열거나(닫혀 있으면) 닫는다.
+fn tray_toggle_notch(app: &AppHandle) {
+    let was_visible = app
+        .get_webview_window(NOTCH)
+        .map(|win| win.is_visible().unwrap_or(false))
+        .unwrap_or(false);
+    if !was_visible {
+        show_notch(app);
     }
-
-    let mut builder = WebviewWindowBuilder::new(app, QUICKBAR, WebviewUrl::App("radial.html".into()))
-        .title("TIP 퀵바")
-        .inner_size(QUICKBAR_W, QUICKBAR_H)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible(false)
-        // v1.16.0 — 만들 때 앱을 활성화하면 다른 앱의 전체화면 Space 에서 벗어난다.
-        // 초점은 show_quickbar 가 make_key 로 직접 준다.
-        .focused(false);
-
-    #[cfg(target_os = "macos")]
-    {
-        // 첫 클릭이 창을 활성화하는 데만 쓰이지 않고 바로 모듈을 누를 수 있게 한다.
-        builder = builder.accept_first_mouse(true);
+    if let Some(win) = app.get_webview_window(NOTCH) {
+        // 전체화면 앱 위에서도 열리고, 찾기 칸에 바로 칠 수 있게 키 창으로 만든다(앱은 활성화하지 않는다).
+        let _ = notch::order_front(&win);
+        let _ = win.emit("tip://notch-tray", ());
     }
-
-    let win = builder.build()?;
-
-    // 바깥을 누르거나 다른 앱으로 옮겨 가면(=포커스 아웃) 퀵바를 닫는다.
-    let handle = win.clone();
-    win.on_window_event(move |event| {
-        if matches!(event, WindowEvent::Focused(false)) {
-            let _ = handle.hide();
-        }
-    });
-
-    Ok(win)
-}
-
-fn show_quickbar(app: &AppHandle) {
-    let win = match quickbar_window(app) {
-        Ok(win) => win,
-        Err(error) => {
-            eprintln!("[TIP] 퀵바 창을 만들지 못했습니다: {error}");
-            return;
-        }
-    };
-
-    // v1.16.0 — 전체화면 앱(별도 Space) 위에서도 화면 전환 없이 메뉴 아이콘 아래에 뜨게 NSPanel 로 만든다.
-    // 검색 창과 같은 방식: orderFrontRegardless + makeKeyWindow, 앱은 활성화하지 않는다.
-    // 바깥을 누르면 Focused(false) 이벤트가 그대로 와서 창을 닫는다.
-    let _ = notch::pin_search(&win);
-    place_under_tray(app, &win, QUICKBAR_W, QUICKBAR_H, 2.0);
-    let _ = win.show();
-    let _ = notch::order_front(&win);
-    let _ = notch::make_key(&win);
-    let _ = win.emit("tip://quickbar-refresh", ());
-}
-
-fn toggle_quickbar(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window(QUICKBAR) {
-        if win.is_visible().unwrap_or(false) {
-            let _ = win.hide();
-            return;
-        }
-    }
-    show_quickbar(app);
 }
 
 /* --------------------------- 노치 아일랜드 창 (v1.12.0) --------------------------- */
@@ -434,6 +385,12 @@ fn notch_expand(app: AppHandle) {
 #[tauri::command]
 fn notch_collapse(app: AppHandle) {
     set_notch_open(&app, false);
+    // v1.17.0 — 노치 아일랜드를 꺼 둔 채 메뉴 막대로 열었던 것이면 알약을 남기지 않고 숨긴다.
+    if !NOTCH_ENABLED.load(Ordering::Relaxed) {
+        if let Some(win) = app.get_webview_window(NOTCH) {
+            let _ = win.hide();
+        }
+    }
 }
 
 /// 펼친 패널의 높이를 내용에 맞춘다(v1.15.2). 화면(notch.js)이 잰 높이를 넘기고,
@@ -805,6 +762,7 @@ fn read_shelf_bytes(path: &str) -> Result<tauri::ipc::Response, String> {
 /// 환경설정의 '노치 아일랜드 사용' 스위치 — 끄면 창을 숨긴다.
 #[tauri::command]
 fn set_notch_enabled(app: AppHandle, enabled: bool) {
+    NOTCH_ENABLED.store(enabled, Ordering::Relaxed);
     if enabled {
         show_notch(&app);
     } else {
@@ -1047,9 +1005,6 @@ fn show_main(app: &AppHandle, module: Option<String>, settings: bool) -> Result<
     } else if let Some(id) = module {
         let _ = win.emit("tip://open-module", id);
     }
-    if let Some(quickbar) = app.get_webview_window(QUICKBAR) {
-        let _ = quickbar.hide();
-    }
     Ok(())
 }
 
@@ -1096,14 +1051,6 @@ fn timer_alert(app: AppHandle, title: Option<String>, body: Option<String>) {
 
 /* -------------------------------- 명령 -------------------------------- */
 
-/// 퀵바(Esc·바깥 클릭) 닫기 — 웹에서는 `hide_radial` 로 부른다.
-#[tauri::command]
-fn hide_radial(app: AppHandle) {
-    if let Some(win) = app.get_webview_window(QUICKBAR) {
-        let _ = win.hide();
-    }
-}
-
 #[tauri::command]
 fn open_main(app: AppHandle, module: Option<String>, settings: Option<bool>) -> Result<(), String> {
     show_main(&app, module, settings.unwrap_or(false))
@@ -1118,16 +1065,12 @@ fn take_pending_settings() -> bool {
     value
 }
 
-/// 상단 메뉴 막대 아이콘(트레이)을 보일지 정한다 — 끄면 열려 있던 반원 퀵바도 닫는다.
+/// 상단 메뉴 막대 아이콘(트레이)을 보일지 정한다.
+/// (v1.17.0 — 반원 퀵바 창이 없어져 함께 닫을 창도 없다. 노치는 '노치 아일랜드 사용'이 따로 정한다.)
 #[tauri::command]
 fn set_tray_visible(app: AppHandle, visible: bool) -> Result<(), String> {
     if let Some(tray) = app.tray_by_id("tip") {
         tray.set_visible(visible).map_err(|error| error.to_string())?;
-    }
-    if !visible {
-        if let Some(win) = app.get_webview_window(QUICKBAR) {
-            let _ = win.hide();
-        }
     }
     Ok(())
 }
@@ -1168,9 +1111,6 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
         let _ = win.show();
         let _ = win.set_focus();
         let _ = win.emit("tip://open-module", id);
-        if let Some(quickbar) = app.get_webview_window(QUICKBAR) {
-            let _ = quickbar.hide();
-        }
         return Ok(());
     }
 
@@ -1191,10 +1131,6 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
     attach_file_drop(&win);
     let _ = win.show();
     let _ = win.set_focus();
-
-    if let Some(quickbar) = app.get_webview_window(QUICKBAR) {
-        let _ = quickbar.hide();
-    }
     Ok(())
 }
 
@@ -1778,7 +1714,6 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
-            hide_radial,
             open_main,
             open_tool,
             open_parcel_webview,
@@ -1882,10 +1817,9 @@ pub fn run() {
 
             let open_main_item =
                 MenuItem::with_id(&handle, "open_main", "TIP 열기", true, None::<&str>)?;
-            let open_quickbar_item =
-                MenuItem::with_id(&handle, "open_quickbar", "메뉴 막대 퀵바", true, None::<&str>)?;
+            // v1.17.0 — '메뉴 막대 퀵바'(반원 창)는 노치 안으로 옮겼다. 메뉴에는 '노치 열기' 하나만.
             let open_notch_item =
-                MenuItem::with_id(&handle, "open_notch", "노치 아일랜드", true, None::<&str>)?;
+                MenuItem::with_id(&handle, "open_notch", "노치 열기", true, None::<&str>)?;
             let open_search_item =
                 MenuItem::with_id(&handle, "open_search_menu", "빠른 실행 검색…", true, None::<&str>)?;
             // v1.14.0 — 바탕화면 스티커와 화면 스포이드를 메뉴 막대에서도 바로.
@@ -1899,7 +1833,6 @@ pub fn run() {
                 MenuItem::with_id(&handle, "quit", "TIP 종료", true, None::<&str>)?;
             let menu = MenuBuilder::new(&handle)
                 .item(&open_main_item)
-                .item(&open_quickbar_item)
                 .item(&open_notch_item)
                 .item(&open_search_item)
                 .separator()
@@ -1944,7 +1877,8 @@ pub fn run() {
                             *slot = Some((px, py, pw, ph));
                         }
                         if button == MouseButton::Left && button_state == MouseButtonState::Up {
-                            toggle_quickbar(tray.app_handle());
+                            // v1.17.0 — 반원 퀵바 창 대신 노치를 시작 화면으로 연다(열려 있으면 닫는다).
+                            tray_toggle_notch(tray.app_handle());
                         }
                     }
                 })
@@ -1952,8 +1886,7 @@ pub fn run() {
                     "open_main" => {
                         let _ = show_main(app, None, false);
                     }
-                    "open_quickbar" => show_quickbar(app),
-                    "open_notch" => show_notch(app),
+                    "open_notch" => tray_toggle_notch(app),
                     "open_search_menu" => show_search(app),
                     "new_sticky" => {
                         if let Err(error) = sticky::create_new(app, None, None) {
