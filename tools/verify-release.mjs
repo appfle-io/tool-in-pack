@@ -5,6 +5,8 @@
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.18.0 — 게임 묶음(제비뽑기 · 사다리타기 · 선착순 골인 4맵)과 공통 게임 키트,
+ *          사람 수·꽝·이름 설정, 다시하기·새로 설정하기, HiDPI 사다리·60fps 경주를 검사한다.
  * v1.15.4 — 다크 모드 버튼 대비(초록 #3F7D68 · `--accent-ink`), 화면 문구의 줄표(—) 제거,
  *          화면 글자 읽기 이름 통일, 편집 모드 핀(채움/선), 휴대폰 44px 검색창·색 선택,
  *          downloads/*.dmg 미추적을 검사한다.
@@ -166,17 +168,18 @@ const CATS = [
   ['file', '파일'],
   ['calc', '계산·조회'],
   ['dev', '개발·디자인'],
+  ['game', '게임'],
   ['mac', 'Mac 화면 도구'],
 ];
 CATS.forEach(([id, label]) => {
   check(`CATEGORIES ${id}`, registry.includes(`{ id: '${id}', label: '${label}'`));
 });
-check('CATEGORIES 정확히 6개', (registry.match(/\{ id: '[a-z]+', label: '/g) || []).length === 6);
+check('CATEGORIES 정확히 7개', (registry.match(/\{ id: '[a-z]+', label: '/g) || []).length === 7);
 check('Mac 분류는 mac 플래그', /\{ id: 'mac', label: 'Mac 화면 도구', mac: true \}/.test(registry));
 check('웹에서 Mac 분류를 숨기는 visibleCategories', /export function visibleCategories\(\)[\s\S]{0,160}category\.mac \|\| TAURI/.test(registry));
 check('홈이 visibleCategories 를 쓴다', /visibleCategories\(\)\.forEach/.test(read('js/app.js')));
 
-const ORDER = ['pinned', 'docs', 'media', 'file', 'calc', 'dev', 'mac'];
+const ORDER = ['pinned', 'docs', 'media', 'file', 'calc', 'dev', 'game', 'mac'];
 const orderLine = (store.match(/ORDER_SECTIONS = \[([^\]]+)\]/) || [, ''])[1];
 ORDER.forEach((id) => check(`ORDER_SECTIONS ${id}`, orderLine.includes(`'${id}'`)));
 check('ORDER_SECTIONS 옛 이름 호환', /ORDER_SECTION_ALIASES = \{ docs: 'docs', document: 'docs'/.test(store));
@@ -190,14 +193,15 @@ const EXPECTED = {
   file: ['file-compress', 'bulk-rename'],
   calc: ['unit-converter', 'currency-calc', 'address-search', 'parcel-tracker', 'timer', 'date-calc'],
   dev: ['dev-tools', 'regex-tester', 'color-tools', 'snippets'],
+  game: ['draw-lots', 'ladder-game', 'race-game'],
   mac: ['screen-picker', 'window-snap', 'sticky-notes', 'clipboard-history', 'screenshot-annotate'],
 };
 
 // registry 목록에 적힌 모듈만 센다(파일 시스템 탐색에 기대지 않는다).
 const listed = [...registry.matchAll(/^import\s+(\w+)\s+from\s+'\.\/([^/]+)\/module\.js';/gm)].map((m) => m[2]);
 const total = Object.values(EXPECTED).flat();
-check('registry 모듈 30개', listed.length === 30 && total.length === 30, `${listed.length}/${total.length}`);
-check('registry 가 30개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
+check('registry 모듈 33개', listed.length === 33 && total.length === 33, `${listed.length}/${total.length}`);
+check('registry 가 33개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
 check('모든 모듈이 정확히 한 분류', new Set(total).size === total.length && listed.every((id) => total.filter((entry) => entry === id).length === 1));
 check('registry 에 drag-ocr 없음(OCR 하나로 합침)', !listed.includes('drag-ocr') && !exists('modules/drag-ocr/module.js'));
 
@@ -1229,6 +1233,7 @@ check('settings-e2e 가 v1.17.1 세 버그를 본다', /v1\.17\.1 — 창이 펼
    ================================================================ */
 
 const settingsE2e = read('tools/settings-e2e.mjs');
+check('버전 1.18.0 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 18 || (minor === 18 && patch >= 0))))(VERSION.split('.').map(Number)), VERSION);
 check('버전 1.17.2 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 17 || (minor === 17 && patch >= 2))))(VERSION.split('.').map(Number)), VERSION);
 // ① 월별 보기 — 달력(왼쪽) · 일정(오른쪽)
 check('월별 보기 일정 묶음(HTML)', notchHtml17.includes('id="cal-day-pane"') && notchHtml17.includes('id="cal-day-list"'));
@@ -1269,6 +1274,80 @@ check('settings-e2e 가 v1.17.2 다섯 가지를 본다', /v1\.17\.2 — 월별 
   && /v1\.17\.2 — 설정 → 노치에 숨기기 단축키/.test(settingsE2e)
   && /v1\.17\.2 — 권한 안내에 앱 이름\(Spotify\)/.test(settingsE2e)
   && /v1\.17\.2 — 거울 영상 높이 232px 이상\(16:9\)/.test(settingsE2e));
+
+
+/* ================================================================
+   21. v1.18.0 — 게임 묶음과 미니게임 3종
+   ================================================================ */
+
+const gameFiles = ['draw-lots', 'ladder-game', 'race-game'];
+gameFiles.forEach((id) => check(`게임 모듈 파일 ${id}`, exists(`modules/${id}/module.js`)));
+check('게임 공통 키트 파일', exists('js/game-kit.js'));
+
+const kit = read('js/game-kit.js');
+check('사람 수 2~12', /PEOPLE_MIN = 2;/.test(kit) && /PEOPLE_MAX = 12;/.test(kit));
+check('꽝은 사람 수-1까지만', /Math\.min\(Math\.floor\(losers\), total - 1\)/.test(kit));
+check('이름이 비면 번호로 채움', /\|\| defaultName\(index\)/.test(kit));
+check('설정을 이 기기에 기억', /function readSetup/.test(kit) && /function saveSetup/.test(kit) && /tip\.games\./.test(kit));
+check('공정한 난수(crypto)', /crypto\.getRandomValues/.test(kit));
+check('설정 화면에 사람 수·꽝·이름', /data-field="people"/.test(kit) && /data-field="losers"/.test(kit)
+  && /gm-name-input/.test(kit) && /이름 자동 채우기/.test(kit));
+check('결과 요약에 당첨·꽝', /gm-group is-win/.test(kit) && /gm-group is-lose/.test(kit));
+check('다시하기·새로 설정하기', /data-act="retry"/.test(kit) && /data-act="setup"/.test(kit)
+  && /다시하기/.test(kit) && /새로 설정하기/.test(kit));
+
+const gameSources = gameFiles.map((id) => read(`modules/${id}/module.js`));
+check('세 게임 모두 게임 묶음', gameSources.every((src) => /^  category: 'game',$/m.test(src)));
+check('세 게임 모두 기본 켜짐', gameSources.every((src) => /^  defaultEnabled: true,$/m.test(src)));
+check('세 게임 모두 공통 설정 화면', gameSources.every((src) => /setupScreen\(host/.test(src)));
+check('세 게임 모두 꽝을 가른다', gameSources.every((src) => /lose/.test(src))
+  && /loserSlots\(/.test(gameSources[0]) && /loserSlots\(/.test(gameSources[1]) && /race\.losers/.test(gameSources[2]));
+check('게임 분류가 registry 에 있음', /\{ id: 'game', label: '게임' \}/.test(registry));
+
+// 제비뽑기 — 3D 뒤집기 · 흔들림 · 한 장씩/모두 열기
+const lots = read('modules/draw-lots/module.js');
+const gameCss = appCss;
+check('제비뽑기 이름·id', /^  id: 'draw-lots',$/m.test(lots) && /^  name: '제비뽑기',$/m.test(lots));
+check('제비뽑기 3D 뒤집기', /\.dl-card\.is-open \.dl-inner \{ transform: rotateY\(180deg\); \}/.test(gameCss)
+  && /transform-style: preserve-3d/.test(gameCss) && /backface-visibility: hidden/.test(gameCss));
+check('제비뽑기 봉투 흔들림', /@keyframes dl-wobble/.test(gameCss)
+  && /\.dl-card:not\(\.is-open\):hover \.dl-env \{ animation: dl-wobble/.test(gameCss));
+check('제비뽑기 한 장씩·모두 열기', /#dl-open-all/.test(lots) && /function openCard/.test(lots) && /function openAll/.test(lots));
+check('제비뽑기 남은·당첨·꽝 실시간', /남은 봉투/.test(lots) && /function paintCounts/.test(lots) && /gm-stat-v/.test(lots));
+
+// 사다리타기 — 겹치지 않는 가로대 · 경로 추적 · 결과 가리기
+const ladder = read('modules/ladder-game/module.js');
+check('사다리 이름·id', /^  id: 'ladder-game',$/m.test(ladder) && /^  name: '사다리타기',$/m.test(ladder));
+check('사다리 가로대는 붙지 않는다', /function makeRungs/.test(ladder) && /column \+= 2;/.test(ladder));
+check('사다리 HiDPI 캔버스', /devicePixelRatio/.test(ladder) && /setTransform\(ratio, 0, 0, ratio, 0, 0\)/.test(ladder));
+check('사다리 이름 눌러 경로 추적', /function trace\(/.test(ladder) && /function strokePartial/.test(ladder) && /closest\('\.ld-name'\)/.test(ladder));
+check('사다리 전체 동시에 보기', /전체 동시에 보기/.test(ladder) && /function traceAll/.test(ladder));
+check('사다리 결과 가리기·공개', /function revealResults/.test(ladder) && /function hideResults/.test(ladder) && /#ld-toggle/.test(ladder));
+
+// 선착순 골인 — 4맵 · 60fps · 1x/2x · 순위
+const race = read('modules/race-game/module.js');
+check('골인 이름·id', /^  id: 'race-game',$/m.test(race) && /^  name: '선착순 골인',$/m.test(race));
+check('골인 맵 4종', ['질주 트랙', '장애물 서킷', '핀볼 드롭', '지그재그 레일']
+  .every((name) => race.includes(`name: '${name}'`)));
+check('골인 requestAnimationFrame', /requestAnimationFrame\(frame\)/.test(race) && /const STEP = 1 \/ 120;/.test(race));
+check('골인 1x·2x 속도', /const SPEEDS = \[1, 2\];/.test(race) && /rc-speed-btn/.test(race));
+check('골인 핀볼 충돌 물리', /gravity/.test(race) && /function simulatePinball/.test(race) && /Math\.hypot\(dx, dy\)/.test(race));
+check('골인 지그재그 레일', /function railX/.test(race) && /Math\.sin\(/.test(race));
+check('골인 실시간 순위·도착 알림', /function paintRanking/.test(race) && /등 \$\{racer\.name\} 도착/.test(race));
+check('골인 꽝은 늦게 들어온 사람', /index >= race\.n - race\.losers/.test(race));
+
+check('게임 길 색 8종(라이트·다크)', /--gm-path-8/.test(gameCss)
+  && /:root\[data-theme='dark'\] \{[\s\S]{0,600}--gm-path-2/.test(gameCss));
+check('게임 화면 좁은 폭 대응', /@media \(max-width: 560px\) \{[\s\S]{0,400}\.gm-maps \{ grid-template-columns: 1fr; \}/.test(gameCss));
+check('sw.js 가 게임 파일을 캐시', ["'./js/game-kit.js'", "'./modules/draw-lots/module.js'", "'./modules/race-game/module.js'"]
+  .every((line) => read('sw.js').includes(line)));
+check('검색 키워드에 게임 3종', /'draw-lots':/.test(read('js/search.js')) && /'ladder-game':/.test(read('js/search.js'))
+  && /'race-game':/.test(read('js/search.js')));
+check('README 게임 3종 설명', read('README.md').includes('제비뽑기') && read('README.md').includes('사다리타기')
+  && read('README.md').includes('선착순 골인'));
+check('README v1.18.0', read('README.md').includes('| v1.18.0 |'));
+check('settings-e2e 가 게임 3종을 실행한다', /v1\.18\.0 — 제비뽑기/.test(settingsE2e)
+  && /v1\.18\.0 — 사다리타기/.test(settingsE2e) && /v1\.18\.0 — 골인 맵 4종/.test(settingsE2e));
 
 /* ------------------------------ 결과 ------------------------------ */
 

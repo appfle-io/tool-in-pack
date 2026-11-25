@@ -51,6 +51,10 @@ import textCounter from './text-counter/module.js';
 import dateCalc from './date-calc/module.js';
 import typingConverter from './typing-converter/module.js';
 import screenshotAnnotate from './screenshot-annotate/module.js';
+// v1.18.0 — 게임 묶음: 제비뽑기 · 사다리타기 · 선착순 골인
+import drawLots from './draw-lots/module.js';
+import ladderGame from './ladder-game/module.js';
+import raceGame from './race-game/module.js';
 
 /**
  * 홈 화면 섹션 순서. 여기에 적은 순서대로 홈이 그려진다.
@@ -67,6 +71,7 @@ export const CATEGORIES = [
   { id: 'file', label: '파일' },
   { id: 'calc', label: '계산·조회' },
   { id: 'dev', label: '개발·디자인' },
+  { id: 'game', label: '게임' },
   { id: 'mac', label: 'Mac 화면 도구', mac: true },
 ];
 
@@ -81,6 +86,7 @@ const CATEGORY_ALIASES = {
   file: 'file',
   calc: 'calc',
   dev: 'dev',
+  game: 'game',
   mac: 'mac',
   // 예전 '유틸리티'·'조회·연동' 은 성격이 달라 모듈마다 새 이름으로 옮겼다.
   // 옛 이름을 그대로 든 모듈이 있으면 '계산·조회' 로 모은다(임시 자리).
@@ -128,6 +134,10 @@ export const registry = [
   dateCalc,
   typingConverter,
   screenshotAnnotate,
+  // v1.18.0
+  drawLots,
+  ladderGame,
+  raceGame,
 ];
 
 const TAURI = typeof window !== 'undefined' && !!(window.__TAURI__ && window.__TAURI__.core);

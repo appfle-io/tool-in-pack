@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TIP v1.17.2 · 환경설정 4탭 + 노치 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.18.0 · 환경설정 4탭 + 노치 + 게임 3종 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
@@ -237,7 +237,7 @@ await page.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
 
-check('홈이 그려짐(모듈 30)', await page.locator('.module-card').count() === 30, String(await page.locator('.module-card').count()));
+check('홈이 그려짐(모듈 33)', await page.locator('.module-card').count() === 33, String(await page.locator('.module-card').count()));
 check('Mac 환경에서 설정 버튼 있음', await page.locator('#settings-btn').count() === 1);
 
 await openSettings();
@@ -486,7 +486,7 @@ check('모듈 — 공통 조합 기본값 Control+Shift', (await prefixSelect.in
 const prefixOptions = await prefixSelect.locator('option').allTextContents();
 check('모듈 — 공통 조합 6가지', prefixOptions.length === 6, String(prefixOptions.length));
 const moduleRows = await page.locator('.sheet-module-row').count();
-check('모듈 — 모듈 목록 30개', moduleRows === 30, String(moduleRows));
+check('모듈 — 모듈 목록 33개', moduleRows === 33, String(moduleRows));
 // v1.15.1 — 탭을 바꿔도 시트 높이가 튀지 않는다.
 const sheetHeightModules = (await page.locator('.sheet').boundingBox())?.height || 0;
 check('모듈 — 탭을 바꿔도 시트 높이 고정', Math.abs(sheetHeightGeneral - sheetHeightModules) < 2, `${Math.round(sheetHeightGeneral)} → ${Math.round(sheetHeightModules)}`);
@@ -978,7 +978,7 @@ const homeRest = await mobile.evaluate(() => ({
   handles: document.querySelectorAll('.drag-handle').length,
   editVisible: !!document.getElementById('edit-btn')?.offsetParent,
 }));
-check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 30 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
+check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 33 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
 check('v1.15.3 — 편집 버튼은 홈에만', homeRest.editVisible);
 
 await mobile.click('#edit-btn');
@@ -1289,10 +1289,10 @@ await webPage.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
 await webPage.evaluate(() => localStorage.clear());
 await webPage.reload({ waitUntil: 'networkidle' });
 const webSections = await webPage.locator('.home-section').evaluateAll((nodes) => nodes.map((node) => node.dataset.section));
-check('v1.16.0 — 웹 모듈 25개(Mac 5종 제외)', await webPage.locator('.module-card').count() === 25,
+check('v1.16.0 — 웹 모듈 28개(Mac 5종 제외)', await webPage.locator('.module-card').count() === 28,
   String(await webPage.locator('.module-card').count()));
 check('v1.16.0 — 웹에 Mac 화면 도구 섹션 없음', !webSections.includes('mac'), webSections.join(','));
-check('v1.16.0 — 여섯 분류 순서', webSections.filter((id) => id !== 'pinned').join(',') === 'docs,media,file,calc,dev',
+check('v1.18.0 — 게임 묶음이 개발·디자인 다음', webSections.filter((id) => id !== 'pinned').join(',') === 'docs,media,file,calc,dev,game',
   webSections.join(','));
 await webPage.close();
 await webContext.close();
@@ -2380,6 +2380,155 @@ check('v1.17.2 — 단축키로 숨기면 저장값·설정 스위치가 따라�
 await notchShortcutContext.close();
 }
 
+
+/* ------------------------------ v1.18.0 게임 3종 ------------------------------ */
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.evaluate(() => { location.hash = '#/'; });
+await page.waitForTimeout(350);
+check('v1.18.0 — 홈에 게임 묶음 3개', (await page.locator('.home-section[data-section="game"] .module-card').count()) === 3,
+  String(await page.locator('.home-section[data-section="game"] .module-card').count()));
+const gameTitles = await page.locator('.home-section[data-section="game"] .module-card .module-title h2').allTextContents();
+check('v1.18.0 — 게임 이름', gameTitles.join(',') === '제비뽑기,사다리타기,선착순 골인', gameTitles.join(','));
+
+/* ① 제비뽑기 — 사람 수·이름·꽝 → 한 장씩 → 모두 열기 → 다시하기 → 새로 설정하기 */
+await page.evaluate(() => { location.hash = '#/draw-lots'; });
+await page.waitForTimeout(400);
+check('v1.18.0 — 제비뽑기 설정 화면', (await page.locator('#gm-people').textContent()) === '4', await page.locator('#gm-people').textContent());
+await page.click('.gm-step[data-field="people"][data-dir="1"]');
+await page.click('.gm-step[data-field="people"][data-dir="1"]');
+await page.click('.gm-step[data-field="losers"][data-dir="1"]');
+check('v1.18.0 — 사람 수 6명·꽝 2명', (await page.locator('#gm-people').textContent()) === '6' && (await page.locator('#gm-losers').textContent()) === '2',
+  `${await page.locator('#gm-people').textContent()}/${await page.locator('#gm-losers').textContent()}`);
+check('v1.18.0 — 이름칸 6개', (await page.locator('.gm-name-input').count()) === 6, String(await page.locator('.gm-name-input').count()));
+await page.fill('.gm-name-input >> nth=0', '시우');
+await page.click('#gm-start');
+await page.waitForTimeout(400);
+check('v1.18.0 — 제비뽑기 봉투 6장', (await page.locator('.dl-card').count()) === 6, String(await page.locator('.dl-card').count()));
+check('v1.18.0 — 적은 이름이 봉투에', (await page.locator('.dl-grid').textContent()).includes('시우'));
+check('v1.18.0 — 시작할 땐 모두 닫힘', (await page.locator('.dl-card.is-open').count()) === 0);
+await page.click('.dl-card >> nth=0');
+await page.waitForTimeout(700);
+check('v1.18.0 — 한 장 뒤집기', (await page.locator('.dl-card.is-open').count()) === 1);
+const lotsHud = await page.locator('#dl-hud .gm-stat-v').allTextContents();
+check('v1.18.0 — 남은·당첨·꽝 실시간', lotsHud[0] === '5' && Number(lotsHud[1]) + Number(lotsHud[2]) === 1, lotsHud.join('/'));
+await page.click('#dl-open-all');
+await page.waitForTimeout(1400);
+check('v1.18.0 — 모두 열기', (await page.locator('.dl-card.is-open').count()) === 6, String(await page.locator('.dl-card.is-open').count()));
+check('v1.18.0 — 제비뽑기 결과 요약', (await page.locator('#dl-summary').count()) === 1);
+check('v1.18.0 — 제비뽑기 꽝 2명', (await page.locator('#dl-summary .gm-group.is-lose .gm-chip').count()) === 2,
+  String(await page.locator('#dl-summary .gm-group.is-lose .gm-chip').count()));
+check('v1.18.0 — 제비뽑기 당첨 4명', (await page.locator('#dl-summary .gm-group.is-win .gm-chip').count()) === 4);
+await page.click('#dl-summary .gm-retry');
+await page.waitForTimeout(400);
+check('v1.18.0 — 다시하기는 같은 인원으로 새로 뽑기', (await page.locator('.dl-card').count()) === 6 && (await page.locator('.dl-card.is-open').count()) === 0,
+  `${await page.locator('.dl-card').count()}/${await page.locator('.dl-card.is-open').count()}`);
+await page.click('.gm-actions [data-act="setup"]');
+await page.waitForTimeout(400);
+check('v1.18.0 — 새로 설정하기는 지난 값 그대로',
+  (await page.locator('#gm-people').textContent()) === '6' && (await page.locator('.gm-name-input').first().inputValue()) === '시우',
+  `${await page.locator('#gm-people').textContent()}/${await page.locator('.gm-name-input').first().inputValue()}`);
+await page.click('.gm-step[data-field="people"][data-dir="1"]');
+check('v1.18.0 — 설정 화면을 다시 열어도 단추가 한 번만', (await page.locator('#gm-people').textContent()) === '7',
+  await page.locator('#gm-people').textContent());
+
+/* ② 사다리타기 — 캔버스 · 이름 클릭 경로 · 전체 동시에 · 결과 가리기/공개 */
+await page.evaluate(() => { location.hash = '#/ladder-game'; });
+await page.waitForTimeout(400);
+await page.click('#gm-start');
+await page.waitForTimeout(500);
+const ladderBox = await page.locator('#ld-canvas').boundingBox();
+check('v1.18.0 — 사다리 캔버스 그려짐', !!ladderBox && ladderBox.width > 200 && ladderBox.height > 140,
+  ladderBox ? `${Math.round(ladderBox.width)}x${Math.round(ladderBox.height)}` : 'none');
+check('v1.18.0 — 사다리 결과는 가려 둠', (await page.locator('.ld-out.is-open').count()) === 0);
+await page.click('.ld-name >> nth=0');
+await page.waitForTimeout(1800);
+check('v1.18.0 — 사다리타기 이름 눌러 경로', (await page.locator('.ld-out.is-open').count()) === 1,
+  String(await page.locator('.ld-out.is-open').count()));
+const firstOut = (await page.locator('.ld-out.is-open').first().textContent()).trim();
+check('v1.18.0 — 사다리타기 결과 표시', ['당첨', '꽝', 'O', 'X'].includes(firstOut), firstOut);
+await page.click('#ld-all');
+await page.waitForTimeout(2800);
+check('v1.18.0 — 전체 동시에 보기', (await page.locator('.ld-out.is-open').count()) === 4 && (await page.locator('#ld-summary').count()) === 1,
+  `${await page.locator('.ld-out.is-open').count()}/${await page.locator('#ld-summary').count()}`);
+await page.click('#ld-toggle');
+await page.waitForTimeout(300);
+check('v1.18.0 — 결과 가리기', (await page.locator('.ld-out.is-open').count()) === 0 && (await page.locator('#ld-summary').count()) === 0);
+await page.click('#ld-toggle');
+await page.waitForTimeout(300);
+check('v1.18.0 — 결과 다시 공개', (await page.locator('.ld-out.is-open').count()) === 4, String(await page.locator('.ld-out.is-open').count()));
+await page.click('#ld-summary .gm-retry');
+await page.waitForTimeout(400);
+check('v1.18.0 — 사다리 다시하기', (await page.locator('.ld-out.is-open').count()) === 0 && (await page.locator('#ld-summary').count()) === 0);
+
+/* ③ 선착순 골인 — 4맵 · 1x/2x · 순위 · 꽝 판정 */
+await page.evaluate(() => { location.hash = '#/race-game'; });
+await page.waitForTimeout(400);
+check('v1.18.0 — 골인 맵 4종', (await page.locator('.gm-map').count()) === 4, String(await page.locator('.gm-map').count()));
+const mapNames = await page.locator('.gm-map-text b').allTextContents();
+check('v1.18.0 — 골인 맵 이름', mapNames.join(',') === '질주 트랙,장애물 서킷,핀볼 드롭,지그재그 레일', mapNames.join(','));
+await page.click('.gm-map[data-map="pinball"]');
+await page.click('#gm-start');
+await page.waitForTimeout(700);
+const raceBox = await page.locator('#rc-canvas').boundingBox();
+check('v1.18.0 — 골인 캔버스 그려짐', !!raceBox && raceBox.width > 200 && raceBox.height > 200,
+  raceBox ? `${Math.round(raceBox.width)}x${Math.round(raceBox.height)}` : 'none');
+check('v1.18.0 — 고른 맵 이름 표시', (await page.locator('.rc-mapname').textContent()) === '핀볼 드롭');
+await page.click('.rc-speed-btn[data-speed="2"]');
+check('v1.18.0 — 2x 속도 선택', await page.locator('.rc-speed-btn[data-speed="2"]').evaluate((node) => node.classList.contains('is-on')));
+await page.waitForSelector('#rc-summary', { timeout: 25000 }).catch(() => {});
+check('v1.18.0 — 선착순 골인 결과', (await page.locator('#rc-summary').count()) === 1);
+check('v1.18.0 — 골인 순위표 4명', (await page.locator('.rc-board-row').count()) === 4, String(await page.locator('.rc-board-row').count()));
+check('v1.18.0 — 골인 꽝 1명', (await page.locator('.rc-board-row.is-lose').count()) === 1, String(await page.locator('.rc-board-row.is-lose').count()));
+check('v1.18.0 — 골인 도착 인원 표시', (await page.locator('#rc-hud .gm-stat-v').nth(2).textContent()) === '4');
+await page.click('#rc-summary .gm-retry');
+await page.waitForTimeout(600);
+check('v1.18.0 — 골인 다시하기', (await page.locator('#rc-summary').count()) === 0 && (await page.locator('#rc-canvas').count()) === 1);
+for (const [id, label] of [['sprint', '질주 트랙'], ['circuit', '장애물 서킷'], ['rail', '지그재그 레일']]) {
+  await page.click('.gm-actions [data-act="setup"]');
+  await page.waitForTimeout(300);
+  await page.click(`.gm-map[data-map="${id}"]`);
+  await page.click('#gm-start');
+  await page.waitForTimeout(1600);
+  check(`v1.18.0 — ${label} 진행`, (await page.locator('.rc-mapname').textContent()) === label && (await page.locator('.rc-rank-row').count()) === 4,
+    `${await page.locator('.rc-mapname').textContent()}/${await page.locator('.rc-rank-row').count()}`);
+}
+
+/* 375px · 다크에서 게임 3종이 넘치지 않는지 */
+const gameMobileContext = await browser.newContext({ viewport: { width: 375, height: 812 }, locale: 'ko-KR', colorScheme: 'dark' });
+await gameMobileContext.addInitScript(MOCK);
+const gameMobile = await gameMobileContext.newPage();
+gameMobile.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+gameMobile.on('pageerror', (error) => consoleErrors.push(`game mobile pageerror: ${String(error)}`));
+await gameMobile.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+await gameMobile.evaluate(() => localStorage.clear());
+await gameMobile.reload({ waitUntil: 'networkidle' });
+const gameOverflow = async () => gameMobile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+await gameMobile.evaluate(() => { location.hash = '#/draw-lots'; });
+await gameMobile.waitForTimeout(350);
+check('v1.18.0 — 375px 제비뽑기 설정이 넘치지 않음', await gameOverflow());
+await gameMobile.click('#gm-start');
+await gameMobile.waitForTimeout(400);
+check('v1.18.0 — 375px 봉투가 2열 이상', await gameMobile.evaluate(() => {
+  const cards = [...document.querySelectorAll('.dl-card')];
+  const tops = new Set(cards.map((card) => Math.round(card.getBoundingClientRect().top)));
+  const firstTop = Math.round(cards[0].getBoundingClientRect().top);
+  return cards.filter((card) => Math.round(card.getBoundingClientRect().top) === firstTop).length >= 2 && tops.size >= 1;
+}));
+await gameMobile.evaluate(() => { location.hash = '#/ladder-game'; });
+await gameMobile.waitForTimeout(350);
+await gameMobile.click('#gm-start');
+await gameMobile.waitForTimeout(500);
+check('v1.18.0 — 375px 사다리가 넘치지 않음', await gameOverflow());
+await gameMobile.evaluate(() => { location.hash = '#/race-game'; });
+await gameMobile.waitForTimeout(350);
+await gameMobile.click('#gm-start');
+await gameMobile.waitForTimeout(700);
+check('v1.18.0 — 375px 골인이 넘치지 않음', await gameOverflow());
+await gameMobile.screenshot({ path: '/tmp/tip-game-mobile.png' }).catch(() => {});
+await gameMobileContext.close();
+
 // 순수 규칙(js/dial.js)
 const dialRules = await page.evaluate(async () => {
   const d = await import('./js/dial.js');
@@ -2428,7 +2577,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.17.2 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.18.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

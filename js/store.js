@@ -75,7 +75,7 @@ const ORDER_KEY = 'tip.order.v1';
    v1.16.0 — 여섯 묶음(docs·media·file·calc·dev·mac)으로 개편했다.
    예전 저장값(tip.order.v1 = { document: [...], utility: [...], online: [...] })은
    읽을 때 새 분류로 옮겨 담는다 — 핀과 모듈별 순서가 그대로 남는다. */
-export const ORDER_SECTIONS = ['pinned', 'docs', 'media', 'file', 'calc', 'dev', 'mac'];
+export const ORDER_SECTIONS = ['pinned', 'docs', 'media', 'file', 'calc', 'dev', 'game', 'mac'];
 
 /* v1.16.0 이전 섹션 id → 지금 id. (이름만 바뀐 것) */
 const ORDER_SECTION_ALIASES = { docs: 'docs', document: 'docs', media: 'media', dev: 'dev' };

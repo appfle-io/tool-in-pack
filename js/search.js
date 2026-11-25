@@ -65,6 +65,10 @@ const KEYWORDS = {
   'date-calc': '날짜 계산 d-day 디데이 만나이 근무일 공휴일 더하기',
   'typing-converter': '한영 변환 타자 오타 영문 한글 자판',
   'screenshot-annotate': '스크린샷 캡처 화살표 모자이크 표시 주석',
+  // v1.18.0
+  'draw-lots': '제비 뽑기 추첨 랜덤 봉투 당첨 꽝 뽑기',
+  'ladder-game': '사다리 타기 사다리타기 추첨 랜덤 당첨 꽝',
+  'race-game': '선착순 골인 경주 달리기 핀볼 구슬 레이스 추첨',
 };
 
 const COMMANDS = [

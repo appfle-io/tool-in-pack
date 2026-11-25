@@ -1,6 +1,6 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.17.2';
+const CACHE_VERSION = 'tip-v1.18.0';
 const APP_SHELL = [
   './',
   './index.html',
@@ -27,6 +27,7 @@ const APP_SHELL = [
   './js/calc.js',
   './js/chosung.js',
   './js/snippets.js',
+  './js/game-kit.js',
   './js/feature-settings.js',
   './js/timer-store.js',
   './js/recent.js',
@@ -74,6 +75,9 @@ const APP_SHELL = [
   './modules/date-calc/module.js',
   './modules/typing-converter/module.js',
   './modules/screenshot-annotate/module.js',
+  './modules/draw-lots/module.js',
+  './modules/ladder-game/module.js',
+  './modules/race-game/module.js',
   './vendor/heic2any.min.js',
   './vendor/pdfjs/pdf.min.js',
   './vendor/pdfjs/pdf.worker.min.js',
