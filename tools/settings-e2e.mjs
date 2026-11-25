@@ -1201,12 +1201,14 @@ const backupRound = await tauriPage.evaluate(async () => {
   localStorage.setItem('tip.snippets.v1', JSON.stringify([{ id: 's1', label: '메일', alias: '/mail', body: '서명' , created: 1, updated: 1 }]));
   localStorage.setItem('tip.accent', 'rose');
   localStorage.setItem('tip.shortcutLetters.v1', JSON.stringify({ 'text-diff': 'D' }));
+  localStorage.setItem('tip.radialOrderMode.v1', 'asc');
   const text = await b.collectBackup({ includeClipboard: false, version: '1.16.0' });
   const parsed = b.readBackup(text);
   // 지운다
   localStorage.setItem('tip.snippets.v1', '[]');
   localStorage.setItem('tip.accent', 'green');
   localStorage.removeItem('tip.shortcutLetters.v1');
+  localStorage.setItem('tip.radialOrderMode.v1', 'desc');
   const applied = await b.applyBackup(parsed);
   return {
     ok: parsed.ok,
@@ -1216,6 +1218,9 @@ const backupRound = await tauriPage.evaluate(async () => {
     snippets: localStorage.getItem('tip.snippets.v1'),
     accent: localStorage.getItem('tip.accent'),
     letters: localStorage.getItem('tip.shortcutLetters.v1'),
+    radialMode: localStorage.getItem('tip.radialOrderMode.v1'),
+    appliedOk: applied.ok,
+    appliedError: applied.error || '',
   };
 });
 check('v1.16.0 — 백업 파일 형식', backupRound.fileHasFormat && backupRound.ok);
@@ -1223,6 +1228,8 @@ check('v1.16.0 — 미리보기 항목', Array.isArray(backupRound.summary) && b
 check('v1.16.0 — 복원 뒤 스니펫 일치', (backupRound.snippets || '').includes('메일'), backupRound.snippets);
 check('v1.16.0 — 복원 뒤 색·단축키 일치', backupRound.accent === 'rose' && (backupRound.letters || '').includes('D'),
   `${backupRound.accent}/${backupRound.letters}`);
+check('v1.16.0 — 복원 뒤 글자 저장 키(퀵바 순서) 일치', backupRound.appliedOk && backupRound.radialMode === 'asc',
+  `${backupRound.appliedError}/${backupRound.radialMode}`);
 
 const broken = await tauriPage.evaluate(async () => {
   const b = await import('/js/backup.js');

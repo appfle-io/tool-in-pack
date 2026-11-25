@@ -42,6 +42,17 @@ export const BACKUP_KEYS = [
 
 const MAX_CLIPBOARD_BYTES = 6 * 1024 * 1024;
 
+/** JSON 이 아니라 글자 그대로 저장되는 키 — 되돌릴 때 JSON 검사를 하지 않는다. */
+const PLAIN_STRING_KEYS = [
+  'tip.theme',
+  'tip.accent',
+  'tip.menuBarVisible.v1',
+  'tip.quickbarOpacity.v1',
+  'tip.searchShortcut.v1',
+  'tip.shortcutPrefix.v1',
+  'tip.radialOrderMode.v1',
+];
+
 function rawValue(key) {
   try {
     return localStorage.getItem(key);
@@ -223,7 +234,7 @@ export async function applyBackup(parsed) {
   for (const [key, raw] of Object.entries(parsed.settings)) {
     if (!BACKUP_KEYS.includes(key) || typeof raw !== 'string') continue;
     // JSON 으로 저장되는 키는 문자열이 JSON 인지 확인한다(깨진 값이 들어가지 않게).
-    if (!['tip.theme', 'tip.accent', 'tip.menuBarVisible.v1', 'tip.quickbarOpacity.v1', 'tip.searchShortcut.v1', 'tip.shortcutPrefix.v1'].includes(key)) {
+    if (!PLAIN_STRING_KEYS.includes(key)) {
       try {
         JSON.parse(raw);
       } catch {
