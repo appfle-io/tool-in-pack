@@ -402,9 +402,11 @@ function moduleRow(mod, state, { sectionId = null, sortable = false, showControl
       ]),
       el('p', { text: mod.subtitle }),
     ]),
-    // v1.16.0 — '최근 사용' 줄은 실행만 한다(같은 모듈의 핀·켜기가 두 번 보이지 않게).
-    showControls ? el('div', { class: 'module-controls' }, [pinBtn, toggle, openBtn]) : null,
   );
+  // v1.16.0 — '최근 사용' 줄은 실행만 한다(같은 모듈의 핀·켜기가 두 번 보이지 않게).
+  // append 에 null 을 넘기면 'null' 글자가 붙으므로 조건이 참일 때만 붙인다.
+  // 최근 사용 줄에도 오른쪽 화살표는 둔다(카드를 눌러도 열리지만 모양을 맞춘다).
+  row.append(el('div', { class: 'module-controls' }, showControls ? [pinBtn, toggle, openBtn] : [openBtn]));
 
   row.addEventListener('click', open);
   row.addEventListener('keydown', (event) => {

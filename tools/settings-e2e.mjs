@@ -1256,6 +1256,8 @@ const recentIds = await tauriPage.evaluate(() => [...document.querySelectorAll('
 check('v1.16.0 — 최근 사용 순서·중복 제거', recentIds.slice(0, 2).join(',') === 'text-counter,date-calc', recentIds.join(','));
 check('v1.16.0 — 최근 사용은 실행만(핀·스위치 없음)',
   await tauriPage.locator('.home-section[data-section="recent"] .pin-btn').count() === 0);
+check('v1.16.0 — 최근 사용 줄에 null 글자 없음',
+  !(await tauriPage.locator('.home-section[data-section="recent"]').innerText()).includes('null'));
 const recentStored = await tauriPage.evaluate(() => JSON.parse(localStorage.getItem('tip.recent.v1') || '[]'));
 check('v1.16.0 — 최근 사용 기록 저장', recentStored[0] === 'text-counter' && new Set(recentStored).size === recentStored.length, JSON.stringify(recentStored));
 
