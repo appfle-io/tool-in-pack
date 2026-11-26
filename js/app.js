@@ -26,6 +26,8 @@ import { takeContinue } from './continue.js';
 import {
   collectBackup, backupFileName, readBackup, describeBackup, applyBackup,
 } from './backup.js';
+// v1.22.0 — 설정 → 권한 탭의 마이크 상태·권한 요청
+import { voiceMicStatus, voiceMicRequest } from './voice.js';
 import { el, toast, icons, confirmDialog } from './ui.js';
 
 /* Mac 앱(Tauri) 안에서 실행 중인지 — 메뉴 막대 퀵바와 창을 주고받는 데 쓴다. */
@@ -1071,7 +1073,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.21.0';
+const APP_VERSION = '1.22.0';
 
 let updateBusy = false;
 
@@ -1439,6 +1441,88 @@ function permissionSection() {
     }),
     ...rows,
   ]);
+}
+
+/* v1.22.0 — 마이크 권한 — 녹음 모듈은 공증된 앱에서 Entitlements(audio-input)와
+ * Info.plist(NSMicrophoneUsageDescription)가 있어야 권한 팝업이 뜬다. 상태는 Rust(AVCaptureDevice)가 알려 준다. */
+function microphoneSection() {
+  const stateEl = el('i', { class: 'notch-hint', text: '확인 중…' });
+  const statusChip = el('kbd', { class: 'shortcut-chip perm-mic-chip', text: '확인 중' });
+
+  const refresh = async () => {
+    const status = await voiceMicStatus();
+    const map = {
+      authorized: ['허용됨', true],
+      denied: ['거부됨', false],
+      restricted: ['막혀 있음', false],
+      notDetermined: ['아직 묻지 않음', false],
+      unknown: ['확인하지 못함', false],
+    };
+    const [label, ok] = map[status.status] || map.unknown;
+    statusChip.textContent = label;
+    statusChip.classList.toggle('is-ok', !!ok);
+    stateEl.textContent = status.label || '';
+  };
+
+  const ask = el('button', {
+    class: 'primary-btn ghost perm-mic-ask',
+    type: 'button',
+    text: '권한 요청',
+  });
+  ask.addEventListener('click', async () => {
+    ask.disabled = true;
+    ask.textContent = '묻는 중…';
+    await voiceMicRequest();
+    setTimeout(async () => {
+      await refresh();
+      ask.disabled = false;
+      ask.textContent = '권한 요청';
+    }, 900);
+  });
+
+  const open = el('button', {
+    class: 'primary-btn ghost perm-open',
+    type: 'button',
+    text: '시스템 설정 열기',
+  });
+  open.addEventListener('click', async () => {
+    try {
+      await invokeTauri('open_privacy_settings', { kind: 'microphone' });
+      toast("시스템 설정의 '마이크' 항목을 열었습니다");
+    } catch (error) {
+      console.error('[TIP permission]', error);
+      toast('시스템 설정을 열지 못했습니다');
+    }
+  });
+
+  refresh();
+
+  return el('div', { class: 'sheet-section mb-section perm-section perm-mic' }, [
+    el('h3', { text: '마이크 (녹음)' }),
+    el('p', {
+      class: 'mb-note',
+      text: '녹음 모듈이 소리를 담으려면 마이크 권한이 필요합니다. 처음 녹음할 때 macOS 가 묻고, 거부했다면 아래에서 다시 요청하거나 시스템 설정에서 TIP 을 켜 주세요.',
+    }),
+    el('div', { class: 'mb-row perm-row' }, [
+      el('span', { class: 'mb-label' }, [
+        el('b', { text: '마이크' }),
+        stateEl,
+      ]),
+      el('span', { class: 'perm-actions' }, [statusChip, ask, open]),
+    ]),
+  ]);
+}
+
+/** 설정 → 권한 탭 — 마이크 상태와 macOS 개인정보 보호 항목을 한곳에. */
+function permissionsTab() {
+  return [
+    el('p', {
+      class: 'sheet-tab-note',
+      text: 'macOS 가 개인정보 보호로 막는 기능의 상태를 보고, 필요한 권한을 바로 열거나 요청합니다.',
+    }),
+    microphoneSection(),
+    permissionSection(),
+  ];
 }
 
 /* ------------------- 전역 빠른 실행 검색 (v1.12.0) ------------------- */
@@ -1822,6 +1906,7 @@ const SHEET_TABS = [
   { id: 'general', label: '일반' },
   { id: 'notch', label: '노치', mac: true },
   { id: 'search', label: '검색', mac: true },
+  { id: 'permissions', label: '권한', mac: true },
   { id: 'modules', label: '모듈' },
 ];
 
@@ -1830,6 +1915,7 @@ const TAB_NOTES = {
   generalWeb: '테마와 기본 색, 앱 업데이트, 문의입니다.',
   notch: '노치의 반원과 전체 보기, 메뉴 막대 아이콘을 정합니다.',
   search: '전역 검색(⌥Space)의 단축키와 검색 대상, 시스템 명령을 정합니다.',
+  permissions: '마이크 상태와 macOS 개인정보 보호 권한을 확인하고 엽니다.',
   modules: '모듈별 전역 단축키와 세부 옵션입니다.',
   quickbar: "노치 반원과 전체 보기 '켜 둔 모듈'에 모듈이 놓이는 순서입니다.",
 };
@@ -1927,7 +2013,6 @@ function generalTab(render) {
 
   if (TAURI) {
     parts.push(autostartSection());
-    parts.push(permissionSection());
   }
 
   parts.push(updateSection());
@@ -2599,6 +2684,8 @@ function openSheet(tab = 'general', moduleId = null) {
         parts = notchTab(render);
       } else if (sheetTab === 'search') {
         parts = searchTab(render);
+      } else if (sheetTab === 'permissions') {
+        parts = permissionsTab();
       } else {
         const modsView = modulesTab(render);
         if (modsView.parts) {

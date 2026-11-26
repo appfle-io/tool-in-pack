@@ -41,6 +41,11 @@ import {
   timerState, remainingSeconds, startTimer, toggleTimer, resetTimer, extendTimer,
   formatClock, describeSeconds, TIMER_PRESETS, tickTimer, alertTimerDone,
 } from './timer-store.js';
+// v1.22.0 — 녹음 상태(Rust 가 주인)를 알약·반원·펼친 패널에 같이 보여 준다.
+import {
+  voiceState, voiceStop, voicePause, voiceResume, subscribeVoice, voiceActive,
+  formatVoiceClock, VOICE_STATUS,
+} from './voice.js';
 
 const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 
@@ -88,6 +93,9 @@ let mediaPausedAt = 0;        // 음악이 멈춘 시각 — 멈춘 뒤 5분까�
 let timerDoneAt = 0;          // 타이머가 끝난 시각 — 5초 동안 '완료'를 보이고 숨긴다
 let pillNoteText = '';        // 알약에 잠깐 보일 글자(놓기 안내·담은 개수)
 let pillNoteTimer = null;
+/* v1.22.0 — 녹음 상태 — Rust(voice.rs)가 주인이라 여기서는 사본만 들고 보간한다. */
+let voice = { status: VOICE_STATUS.idle, elapsedMs: 0, level: 0, name: null, error: null };
+let voiceSyncedAt = 0;        // 마지막으로 상태를 받은 시각(Date.now) — 녹음 중 경과 시간 보간용
 const DIAL_BASE_H = 252;      // 반원 판 높이(노치 화면에서는 노치 높이만큼 더한다)
 const MEDIA_PAUSE_KEEP_MS = 5 * 60 * 1000;
 const TIMER_DONE_KEEP_MS = 5000;
@@ -456,6 +464,13 @@ function renderWidgets() {
     count += list.length;
   };
 
+  // v1.22.0 — 녹음 중일 때만 맨 위에 녹음 카드를 둔다(경과 시간 + 중지). 꺼진 상태는 자리도 차지하지 않는다.
+  const recRow = widgetRow();
+  recRow.classList.add('wg-row-rec');
+  recRow.append(recCard());
+  recRow.hidden = !voiceOn();
+  widgetsEl.append(recRow);
+  if (voiceOn()) count += 1;
   addRow([
     widgets.media ? mediaCard() : null,
     widgets.calendar ? calendarCard() : null,
@@ -473,7 +488,8 @@ function renderWidgets() {
   // v1.13.0 — 달력 보기가 열려 있으면 위젯 목록은 그 아래에 두고 숨긴다.
   widgetsEl.hidden = calView.open ? true : count === 0;
   renderedSignature = settingsSignature();
-  // 반원의 위젯 상태(달력·미디어·타이머·보관함 표시 여부)도 같이 맞춘다.
+  // 반원의 위젯 상태(달력·미디어·타이머·보관함·녹음 표시 여부)도 같이 맞춘다.
+  paintRecordingCard();
   paintDialSides();
   if (view === 'simple') renderDial();
   fitPanel();
@@ -543,14 +559,14 @@ async function fetchMedia() {
     else if (!mediaPausedAt) mediaPausedAt = Date.now();
     mediaError = null;
     paintMediaCard();
+    // paintPill 이 알약 내용(음악·타이머·녹음)을 그대로 Rust 에 알린다 — 여기서 따로 부르면
+    // 빈 값(false)으로 덮어써 알약이 곧바로 줄어든다(v1.22.0 — 녹음 날개도 함께 지워졌다).
     paintPill();
-    updatePillMode();
   } catch (error) {
     mediaError = error;
     mediaState = null;
     paintMediaCard();
     paintPill();
-    updatePillMode();
   } finally {
     mediaBusy = false;
   }
@@ -1660,6 +1676,37 @@ async function sendToModule(moduleId, item) {
 
 /* ------------------------------ 접힌 알약 (v1.15.0) ------------------------------ */
 
+/* ------------------------------ 녹음 상태 (v1.22.0) ------------------------------ */
+
+/** 지금 녹음이 살아 있는지 — 알약·반원·펼친 패널이 같은 값을 본다. */
+function voiceOn() {
+  return voiceActive(voice);
+}
+
+/** 녹음 경과 시간 — 녹음 중에는 마지막으로 받은 값에 흐른 시간을 더한다. */
+function voiceElapsed() {
+  if (voice.status === VOICE_STATUS.recording) {
+    return Math.max(0, voice.elapsedMs + (Date.now() - voiceSyncedAt));
+  }
+  return Math.max(0, voice.elapsedMs || 0);
+}
+
+/** Rust 가 알린 녹음 상태를 받아 알약·반원·패널을 한번에 맞춘다. */
+function applyVoice(next) {
+  const wasOn = voiceOn();
+  voice = {
+    status: (next && next.status) || VOICE_STATUS.idle,
+    elapsedMs: Number(next && next.elapsedMs) || 0,
+    level: Number(next && next.level) || 0,
+    name: (next && next.name) || null,
+    error: (next && next.error) || null,
+  };
+  voiceSyncedAt = Date.now();
+  paintPill();
+  paintRecordingCard();
+  if (wasOn !== voiceOn()) fitPanel();
+}
+
 /** 지금 저장된 설정·상태에서 알약에 무엇을 보일지 정한다.
  *  v1.17.0 — 음악은 멈춘 뒤 5분까지 멈춘 이퀄라이저로 남기고, 타이머는 끝난 뒤 5초 동안 '완료'.
  *  환경설정 '노래와 타이머 표시'(pillActivity)를 끄면 늘 TIP 로고만 보인다. */
@@ -1681,9 +1728,11 @@ function pillContent() {
     || (state.status === 'done' && now - timerDoneAt < TIMER_DONE_KEEP_MS)));
 
   const activity = settings.pillActivity !== false;
+  const recShown = voiceOn();
   return {
     hasMedia: activity && mediaShown,
     hasTimer: activity && timerShown,
+    hasRec: recShown,
     mediaShown,
     timerShown,
     state,
@@ -1702,10 +1751,12 @@ function mediaPositionNow() {
 /** 접힌 알약을 그린다 — 음악은 왼쪽 날개(이퀄라이저), 타이머는 오른쪽 날개(남은 시간).
  *  파일을 끄는 동안·막 담은 뒤에는 그 안내(pill-note)가 먼저다. */
 function paintPill() {
-  const { hasMedia, hasTimer, state } = pillContent();
+  const { hasMedia, hasTimer, hasRec, state } = pillContent();
   const note = pillNoteText;
   pillEl.classList.toggle('has-media', hasMedia && !note);
   pillEl.classList.toggle('has-timer', hasTimer && !note);
+  // v1.22.0 — 녹음 중에는 알약 왼쪽에 빨간 점·REC·경과 시간을 둔다.
+  pillEl.classList.toggle('has-rec', hasRec && !note);
   pillEl.classList.toggle('has-note', !!note);
   pillEl.classList.toggle('no-notch', !notchInfo.hasNotch);
 
@@ -1731,8 +1782,28 @@ function paintPill() {
     clockEl.textContent = state.status === 'done' ? '완료' : formatClock(remainingSeconds(state));
   }
 
+  // v1.22.0 — 녹음 칩(빨간 점 · REC · 경과 시간).
+  const recEl = document.getElementById('pill-rec');
+  if (recEl) {
+    recEl.hidden = !hasRec || !!note;
+    recEl.classList.toggle('is-paused', voice.status === VOICE_STATUS.paused);
+    recEl.classList.toggle('is-saving', voice.status === VOICE_STATUS.saving);
+    const recClock = document.getElementById('pill-rec-clock');
+    if (recClock) {
+      recClock.textContent = voice.status === VOICE_STATUS.saving
+        ? '저장'
+        : formatVoiceClock(voiceElapsed());
+    }
+  }
+
   const parts = [];
   if (note) parts.push(note);
+  if (hasRec && !note) {
+    parts.push(voice.status === VOICE_STATUS.paused
+      ? `녹음 일시정지 ${formatVoiceClock(voiceElapsed())}`
+      : voice.status === VOICE_STATUS.saving ? '녹음 저장 중'
+        : `녹음 중 ${formatVoiceClock(voiceElapsed())}`);
+  }
   if (hasMedia && !note) parts.push(mediaState.playing ? '노래 재생 중' : '노래 일시정지');
   if (hasTimer && !note) {
     parts.push(state.status === 'done' ? '타이머 끝남' : `타이머 ${describeSeconds(Math.ceil(remainingSeconds(state)))} 남음`);
@@ -1740,7 +1811,7 @@ function paintPill() {
   pillEl.setAttribute('aria-label', parts.length ? `TIP 노치 열기, ${parts.join(', ')}` : 'TIP 노치 열기');
 
   // 안내 글자가 있으면 양쪽 날개 폭을 모두 빌린다.
-  updatePillMode(hasMedia || !!note, hasTimer || !!note);
+  updatePillMode(hasMedia || !!note, hasTimer || !!note, hasRec || !!note);
   paintDialSides();
 }
 
@@ -1758,12 +1829,12 @@ function setPillNote(text, ms = 0) {
 }
 
 /** 알약에 담을 내용이 바뀌면 Rust 에 알린다 — 접힌 창 폭이 그만큼 넓어진다. */
-function updatePillMode(hasMedia, hasTimer) {
+function updatePillMode(hasMedia, hasTimer, hasRec = false) {
   if (!TAURI) return;
-  const signature = `${hasMedia ? 1 : 0}${hasTimer ? 1 : 0}`;
+  const signature = `${hasMedia ? 1 : 0}${hasTimer ? 1 : 0}${hasRec ? 1 : 0}`;
   if (signature === pillModeSent) return;
   pillModeSent = signature;
-  invoke('set_notch_pill', { media: !!hasMedia, timer: !!hasTimer }).catch(() => {
+  invoke('set_notch_pill', { media: !!hasMedia, timer: !!hasTimer, rec: !!hasRec }).catch(() => {
     // 못 알렸으면 다음 그림에 다시 시도한다.
     pillModeSent = '';
   });
@@ -1911,6 +1982,62 @@ function checkTimerDone() {
   paintTimerCard();
 }
 
+/* v1.22.0 — 녹음 카드 — 녹음 중일 때만 보인다(경과 시간 + 중지). */
+function recCard() {
+  return widgetCard('rec', `
+    <div class="wg-head">
+      <span class="wg-label">녹음</span>
+      <span class="wg-side" id="rec-side">녹음 중</span>
+    </div>
+    <div class="rec-body">
+      <b class="rec-clock" id="rec-clock">00:00</b>
+      <span class="rec-meter" aria-hidden="true"><i id="rec-meter"></i></span>
+      <div class="rec-row">
+        <button class="rec-btn primary" type="button" id="rec-stop">중지하고 저장</button>
+        <button class="rec-btn" type="button" id="rec-pause">일시정지</button>
+        <button class="rec-btn" type="button" id="rec-open">녹음 열기</button>
+      </div>
+    </div>
+  `);
+}
+
+/** 녹음 카드를 지금 상태로 — 카드가 없거나 녹음 중이 아니면 행을 통째로 숨긴다. */
+function paintRecordingCard() {
+  const card = panelEl.querySelector('.wg-rec');
+  const row = card ? card.closest('.wg-row-rec') : null;
+  if (!card || !row) return;
+  const on = voiceOn();
+  row.hidden = !on;
+  if (!on) return;
+
+  const paused = voice.status === VOICE_STATUS.paused;
+  const saving = voice.status === VOICE_STATUS.saving;
+  const starting = voice.status === VOICE_STATUS.starting;
+  const clock = panelEl.querySelector('#rec-clock');
+  if (clock) {
+    clock.textContent = starting ? '연결 중' : formatVoiceClock(voiceElapsed());
+    clock.classList.toggle('is-paused', paused);
+    clock.classList.toggle('is-saving', saving);
+  }
+  const side = panelEl.querySelector('#rec-side');
+  if (side) {
+    side.textContent = saving ? '저장 중' : paused ? '일시정지' : starting ? '시작 중' : '녹음 중';
+  }
+  const fill = panelEl.querySelector('#rec-meter');
+  if (fill) {
+    const width = paused || saving || starting ? 0 : Math.max(3, Math.round((voice.level || 0) * 100));
+    fill.style.width = `${width}%`;
+  }
+  const stop = panelEl.querySelector('#rec-stop');
+  if (stop) stop.disabled = saving || starting;
+  const pause = panelEl.querySelector('#rec-pause');
+  if (pause) {
+    pause.textContent = paused ? '이어서' : '일시정지';
+    pause.disabled = saving || starting;
+  }
+  card.setAttribute('aria-label', `녹음 ${saving ? '저장 중' : paused ? '일시정지' : '녹음 중'} ${formatVoiceClock(voiceElapsed())}`);
+}
+
 /** 알약·타이머를 위한 배경 루프 — 창이 접혀 있어도 돈다. */
 function startPillLoops() {
   if (!TAURI) return;
@@ -1923,6 +2050,7 @@ function startPillLoops() {
   pillTickTimer = setInterval(() => {
     paintPill();
     paintTimerCard();
+    paintRecordingCard();
     checkTimerDone();
     paintMediaProgress();
   }, 500);
@@ -2489,7 +2617,9 @@ function paintDialSides() {
 
   const media = document.getElementById('dial-media');
   if (media) {
-    media.hidden = !mediaShown;
+    // v1.22.0 — 녹음 중에는 같은 자리를 녹음 칩이 쓴다(더 급한 정보).
+    const recOn = voiceOn();
+    media.hidden = !mediaShown || recOn;
     if (mediaShown) {
       const title = mediaState.title || mediaState.artist || '재생 중';
       const stateText = mediaState.playing ? '재생 중' : '일시정지';
@@ -2515,11 +2645,28 @@ function paintDialSides() {
   }
 
   const shelfBtn = document.getElementById('dial-shelf');
-  const badge = document.getElementById('dial-shelf-count');
+  // v1.22.0 — 반원 양옆 녹음 칩: 빨간 REC + 경과 시간. 누르면 전체 보기의 녹음 카드로 간다.
+  const recBtn = document.getElementById('dial-rec');
+  if (recBtn) {
+    const recOn = voiceOn();
+    recBtn.hidden = !recOn;
+    if (recOn) {
+      const paused = voice.status === VOICE_STATUS.paused;
+      const saving = voice.status === VOICE_STATUS.saving;
+      const recClock = document.getElementById('dial-rec-clock');
+      if (recClock) recClock.textContent = saving ? '저장' : formatVoiceClock(voiceElapsed());
+      const recState = document.getElementById('dial-rec-state');
+      if (recState) recState.textContent = saving ? '저장 중' : paused ? '일시정지' : '녹음 중';
+      recBtn.classList.toggle('is-paused', paused || saving);
+      recBtn.setAttribute('aria-label',
+        `녹음 ${saving ? '저장 중' : paused ? '일시정지' : '녹음 중'} ${formatVoiceClock(voiceElapsed())}. 전체 보기에서 중지`);
+    }
+  }
   if (shelfBtn) {
     shelfBtn.hidden = !widgets.shelf;
     shelfBtn.setAttribute('aria-label', `임시 보관함 열기, 파일 ${shelf.length}개`);
   }
+  const badge = document.getElementById('dial-shelf-count');
   if (badge) {
     badge.hidden = shelf.length === 0;
     badge.textContent = shelf.length > 99 ? '99+' : String(shelf.length);
@@ -2545,6 +2692,8 @@ function bindDial() {
   document.getElementById('dial-next').addEventListener('click', () => nudgeDial(1));
   document.getElementById('dial-cal').addEventListener('click', () => openCalendarView());
   document.getElementById('dial-media').addEventListener('click', () => goFullAndFlash('media'));
+  // v1.22.0 — 녹음 칩을 누르면 전체 보기로 펴고 녹음 카드를 강조한다(중지는 카드의 버튼).
+  document.getElementById('dial-rec').addEventListener('click', () => goFullAndFlash('rec'));
   document.getElementById('dial-timer').addEventListener('click', () => goFullAndFlash('timer'));
   document.getElementById('dial-shelf').addEventListener('click', () => goFullAndFlash('shelf'));
   document.getElementById('to-full').addEventListener('click', () => setView('full'));
@@ -2749,6 +2898,23 @@ panelEl.addEventListener('click', (event) => {
           toast('음악 앱을 조작하지 못했습니다');
         }
       });
+    return;
+  }
+
+  // v1.22.0 — 녹음 카드: 중지·저장 / 일시정지·이어서 / 모듈 창 열기.
+  if (event.target.closest('#rec-stop')) {
+    voiceStop().then((next) => applyVoice(next));
+    openHeld();
+    return;
+  }
+  if (event.target.closest('#rec-pause')) {
+    const run = voice.status === VOICE_STATUS.paused ? voiceResume : voicePause;
+    run().then((next) => applyVoice(next));
+    openHeld();
+    return;
+  }
+  if (event.target.closest('#rec-open')) {
+    openModuleFromNotch('voice-recorder');
     return;
   }
 
@@ -3047,6 +3213,9 @@ if (TAURI && window.__TAURI__.event) {
   // v1.15.0 — 타이머가 바뀌면(다른 창에서 시작·정지) 알약을 바로 다시 그린다.
   listen('tip://timer', () => { paintPill(); paintTimerCard(); });
 
+  // v1.22.0 — 녹음 상태는 Rust 가 주인이다. 단축키·모듈 창에서 시작·중지해도 노치가 그대로 따라온다.
+  listen('tip://voice-state', (event) => applyVoice(event && event.payload));
+
   // Finder 파일 드래그 — 들어오면 펼치고, 놓으면 경로를 읽어 보관함에 담는다.
   listen('tip://shelf-drag', (event) => setDragState(!!(event && event.payload)));
   listen('tip://shelf-drop', (event) => {
@@ -3102,6 +3271,8 @@ watchDialSize();
 // v1.15.0 — 알약의 음악·타이머 표시와 그 배경 루프, 노치 자리(가운데 여백).
 loadNotchMetrics();
 startPillLoops();
+// v1.22.0 — 앱이 켜질 때 이미 녹음 중이었을 수 있다(단축키로 시작한 뒤 노치를 열었다).
+if (TAURI) voiceState().then(applyVoice).catch(() => {});
 // 노치 창이 직접 저장값을 Rust 에 밀어 준다 — 메인 창이 닫혀 있어도 커서 감시가 맞게 돈다.
 invoke('set_notch_hover', { enabled: getNotchSettings().hoverOpen }).catch(() => {});
 

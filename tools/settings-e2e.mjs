@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TIP v1.21.0 · 환경설정 4탭 + 노치 + 게임 3종 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.22.0 · 환경설정 5탭 + 노치 + 녹음 + 게임 3종 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
@@ -15,7 +15,7 @@
  * 하는 일
  *   · 저장소를 로컬 HTTP 로 띄우고, Tauri(Mac 앱) 환경을 흉내 내는 window.__TAURI__ 를
  *     페이지 스크립트보다 먼저 넣는다. invoke 는 커맨드별 가짜 값을 돌려주고 호출을 기록한다.
- *   · 일반 · 노치 · 검색 · 모듈 네 탭의 버튼·토글·슬라이더·선택·모달·하위 화면을 모두 누른다.
+ *   · 일반 · 노치 · 검색 · 권한 · 모듈 다섯 탭의 버튼·토글·슬라이더·선택·모달·하위 화면을 모두 누른다.
  *   · v1.14.0 제보 버그(단축키 '변경' 직후 '취소'가 먹지 않음)의 회귀 테스트를 포함한다.
  *   · 모듈(타이머) 화면과 접힌 노치 알약(음악·타이머)도 같은 방식으로 확인한다.
  *
@@ -183,10 +183,83 @@ const MOCK = `
     sticky_restore: 1,
     clipboard_restore: 1,
   };
+  // v1.22.0 — 녹음 시뮬레이터 — 실제 Rust(voice.rs) 대신 상태만 흉내 낸다.
+  const voice = { status: 'idle', acc: 0, started: 0, name: null, error: null };
+  const voiceFiles = [{ name: 'TIP 2026-11-26 21-40-12.m4a', size: 480000, created: 1764170412000 }];
+  const voiceOut = () => {
+    const elapsed = voice.status === 'recording' ? voice.acc + (Date.now() - voice.started) : voice.acc;
+    return {
+      status: voice.status,
+      elapsedMs: elapsed,
+      level: voice.status === 'recording' ? 0.4 : 0,
+      name: voice.name,
+      mime: 'audio/mp4',
+      error: voice.error,
+      dir: '~/Music/TIP Recordings',
+      bytes: 0,
+    };
+  };
+  const voiceNotify = () => {
+    const handler = window.__TIP_LISTENERS__ && window.__TIP_LISTENERS__['tip://voice-state'];
+    if (handler) handler({ payload: voiceOut() });
+  };
+  window.__TIP_VOICE__ = voice;
+  window.__TIP_VOICE_FILES__ = voiceFiles;
+  window.__TIP_VOICE_NOTIFY__ = voiceNotify;
+  const voiceCommands = {
+    voice_status: () => voiceOut(),
+    voice_start: () => {
+      if (voice.status === 'idle') {
+        voice.status = 'recording';
+        voice.acc = 0;
+        voice.started = Date.now();
+        voice.name = 'TIP 2026-11-26 21-59-00.m4a';
+      }
+      voiceNotify();
+      return voiceOut();
+    },
+    voice_stop: () => {
+      if (voice.status === 'recording') voice.acc += Date.now() - voice.started;
+      voice.status = 'idle';
+      if (!voice.name) voice.name = 'TIP 2026-11-26 21-59-00.m4a';
+      voiceFiles.unshift({ name: voice.name, size: 240000, created: Date.now() });
+      voiceNotify();
+      return voiceOut();
+    },
+    voice_pause: () => {
+      if (voice.status === 'recording') {
+        voice.acc += Date.now() - voice.started;
+        voice.status = 'paused';
+      }
+      voiceNotify();
+      return voiceOut();
+    },
+    voice_resume: () => {
+      if (voice.status === 'paused') {
+        voice.status = 'recording';
+        voice.started = Date.now();
+      }
+      voiceNotify();
+      return voiceOut();
+    },
+    voice_toggle: () => (voice.status === 'idle' ? voiceCommands.voice_start() : voiceCommands.voice_stop()),
+    voice_list: () => voiceFiles.slice(),
+    voice_delete: (args) => {
+      const index = voiceFiles.findIndex((file) => file.name === (args && args.name));
+      if (index >= 0) voiceFiles.splice(index, 1);
+      return null;
+    },
+    voice_mic_status: () => ({ status: 'authorized', label: '허용됨' }),
+    voice_mic_request: () => null,
+    voice_reveal: () => null,
+  };
   window.__TAURI__ = {
     core: {
       invoke(command, args) {
         calls.push({ command, args: args || {} });
+        if (Object.prototype.hasOwnProperty.call(voiceCommands, command)) {
+          return Promise.resolve(voiceCommands[command](args || {}));
+        }
         // v1.17.1 — 접기 전에 '커서가 창 안인가'를 묻는다. 시험은 이 값을 직접 바꿔 본다.
         if (command === 'notch_cursor_inside') return Promise.resolve(window.__TIP_CURSOR_INSIDE__ === true);
         const value = Object.prototype.hasOwnProperty.call(answers, command) ? answers[command] : null;
@@ -252,12 +325,12 @@ await page.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
 
-check('홈이 그려짐(모듈 33)', await page.locator('.module-card').count() === 33, String(await page.locator('.module-card').count()));
+check('홈이 그려짐(모듈 34)', await page.locator('.module-card').count() === 34, String(await page.locator('.module-card').count()));
 check('Mac 환경에서 설정 버튼 있음', await page.locator('#settings-btn').count() === 1);
 
 await openSettings();
 const tabs = await page.locator('.sheet-tab').allTextContents();
-check('설정 탭 4개(일반·노치·검색·모듈)', tabs.join(',') === '일반,노치,검색,모듈', tabs.join(','));
+check('설정 탭 5개(일반·노치·검색·권한·모듈)', tabs.join(',') === '일반,노치,검색,권한,모듈', tabs.join(','));
 
 /* ------------------------------ 일반 탭 ------------------------------ */
 
@@ -301,19 +374,34 @@ const tabsYAfter = (await page.locator('.sheet-tabs').boundingBox())?.y;
 check('일반 — 스크롤해도 탭 줄 고정', Math.abs((tabsY || 0) - (tabsYAfter || 0)) < 2, `${tabsY} → ${tabsYAfter}`);
 await page.evaluate(() => { const body = document.querySelector('.sheet-body'); if (body) body.scrollTop = 0; });
 
-// 권한 3종
-const permButtons = page.locator('.perm-open');
-const permCount = await permButtons.count();
-check('일반 — macOS 권한 버튼 3종', permCount === 3, String(permCount));
-await permButtons.first().click();
-await page.waitForTimeout(120);
-check('일반 — 권한 설정 열기 호출', (await lastCall('open_privacy_settings'))?.args.kind === 'automation');
+// v1.22.0 — macOS 권한 항목은 '권한' 탭으로 옮겼다(일반 탭에는 없다).
+check('일반 — 권한 묶음은 권한 탭으로 이동', (await page.locator('.perm-section').count()) === 0);
 
 // 업데이트 확인
 await page.click('.upd-check');
 await page.waitForTimeout(250);
 check('일반 — 업데이트 확인 호출', (await calls('check_app_update')).length === 1);
 check('일반 — 업데이트 토스트', (await toastText()).includes('최신 버전'));
+
+/* ------------------------------ 권한 탭 (v1.22.0) ------------------------------ */
+
+await openSettings('permissions');
+check('권한 — 탭 설명', (await page.locator('.sheet-tab-note').first().textContent()).includes('권한'));
+check('권한 — 마이크 상태 표시', (await page.locator('.perm-mic-chip').textContent()) === '허용됨', await page.locator('.perm-mic-chip').textContent());
+check('권한 — 마이크 안내 문구', (await page.locator('.perm-mic .notch-hint').first().textContent()).includes('허용'));
+const micCallsBefore = (await calls('voice_mic_request')).length;
+await page.click('.perm-mic-ask');
+await page.waitForTimeout(1200);
+check('권한 — 마이크 권한 요청 호출', (await calls('voice_mic_request')).length === micCallsBefore + 1, String((await calls('voice_mic_request')).length));
+await page.click('.perm-mic .perm-open');
+await page.waitForTimeout(200);
+check('권한 — 마이크 시스템 설정 열기', (await lastCall('open_privacy_settings'))?.args.kind === 'microphone', JSON.stringify((await lastCall('open_privacy_settings'))?.args));
+const permButtons = page.locator('.perm-section .perm-open');
+const permCount = await permButtons.count();
+check('권한 — macOS 권한 버튼 4종(마이크 포함)', permCount === 4, String(permCount));
+await page.locator('.perm-section:not(.perm-mic) .perm-open').first().click();
+await page.waitForTimeout(150);
+check('권한 — 자동화 항목 열기', (await lastCall('open_privacy_settings'))?.args.kind === 'automation');
 
 /* ------------------------------ 노치 탭 ------------------------------ */
 
@@ -501,7 +589,7 @@ check('모듈 — 공통 조합 기본값 Control+Shift', (await prefixSelect.in
 const prefixOptions = await prefixSelect.locator('option').allTextContents();
 check('모듈 — 공통 조합 6가지', prefixOptions.length === 6, String(prefixOptions.length));
 const moduleRows = await page.locator('.sheet-module-row').count();
-check('모듈 — 모듈 목록 33개', moduleRows === 33, String(moduleRows));
+check('모듈 — 모듈 목록 34개', moduleRows === 34, String(moduleRows));
 // v1.15.1 — 탭을 바꿔도 시트 높이가 튀지 않는다.
 const sheetHeightModules = (await page.locator('.sheet').boundingBox())?.height || 0;
 check('모듈 — 탭을 바꿔도 시트 높이 고정', Math.abs(sheetHeightGeneral - sheetHeightModules) < 2, `${Math.round(sheetHeightGeneral)} → ${Math.round(sheetHeightModules)}`);
@@ -515,11 +603,14 @@ check('모듈 — 검색으로 거르기', (await page.locator('.sheet-module-ro
 await moduleSearch.fill('');
 await page.waitForTimeout(150);
 
-// 아직 단축키가 하나도 없으니 '단축키 있음만' 필터는 0개여야 한다.
-check('모듈 — 단축키 없을 때 표시도 없음', (await page.locator('.sheet-module-row .module-shortcut').count()) === 0);
+// v1.22.0 — 기본 단축키는 녹음(R) 하나다(노치 숨기기 H 는 모듈이 아니라 목록에 없다).
+const defaultShortcuts = await page.locator('.sheet-module-row .module-shortcut').count();
+check('모듈 — 기본 단축키는 녹음 하나', defaultShortcuts === 1, String(defaultShortcuts));
 await page.click('.sheet-chip:has-text("단축키 있음만")');
 await page.waitForTimeout(150);
-check('모듈 — 단축키 있음만 필터(없을 때 0개)', (await page.locator('.sheet-module-row').count()) === 0, String(await page.locator('.sheet-module-row').count()));
+const defaultFiltered = await page.locator('.sheet-module-row').count();
+check('모듈 — 단축키 있음만 필터(기본 1개)', defaultFiltered === 1, String(defaultFiltered));
+check('모듈 — 기본 단축키 모듈은 녹음', (await page.locator('.sheet-module-row').first().textContent()).includes('녹음'), (await page.locator('.sheet-module-row').first().textContent()).trim().slice(0, 20));
 await page.click('.sheet-chip:has-text("단축키 있음만")');
 await page.waitForTimeout(150);
 
@@ -566,12 +657,12 @@ check('모듈 — 다른 글자는 등록', (await stored('tip.shortcutLetters.v
 await page.click('.sheet-back');
 await page.waitForTimeout(200);
 const firstRowText = await page.locator('.sheet-module-list .sheet-module-row').first().textContent();
-check('모듈 — 단축키 있는 모듈이 위로', firstRowText.includes('스티커') || firstRowText.includes('타이머'), firstRowText.trim().slice(0, 24));
+check('모듈 — 단축키 있는 모듈이 위로', firstRowText.includes('스티커') || firstRowText.includes('타이머') || firstRowText.includes('녹음'), firstRowText.trim().slice(0, 24));
 const badgeTexts = await page.locator('.sheet-module-row .module-shortcut').allTextContents();
-check('모듈 — 단축키 표시(⌃⇧S 등)', badgeTexts.length === 2 && badgeTexts.some((text) => text.includes('S')), JSON.stringify(badgeTexts));
+check('모듈 — 단축키 표시(⌃⇧S 등)', badgeTexts.length === 3 && badgeTexts.some((text) => text.includes('S')), JSON.stringify(badgeTexts));
 await page.click('.sheet-chip:has-text("단축키 있음만")');
 await page.waitForTimeout(150);
-check('모듈 — 단축키 있음만 필터(2개)', (await page.locator('.sheet-module-row').count()) === 2, String(await page.locator('.sheet-module-row').count()));
+check('모듈 — 단축키 있음만 필터(3개)', (await page.locator('.sheet-module-row').count()) === 3, String(await page.locator('.sheet-module-row').count()));
 await page.click('.sheet-chip:has-text("단축키 있음만")');
 await page.waitForTimeout(150);
 
@@ -612,6 +703,63 @@ await page.click('.sheet-reset');
 await page.waitForTimeout(300);
 const extras = await stored('tip.shortcutExtra.v1');
 check('모듈 — 창 분할 권장 단축키 6개', extras && extras['snap:left'] === 'Control+Alt+ArrowLeft' && Object.keys(extras).length === 6, JSON.stringify(extras && Object.keys(extras)));
+
+/* ------------------------------ 녹음 모듈 (v1.22.0) ------------------------------ */
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+await page.evaluate(() => { location.hash = '#/voice-recorder'; });
+await page.waitForTimeout(700);
+check('녹음 — 화면이 열림', (await page.locator('.vr-card').count()) === 1);
+check('녹음 — 처음은 대기', (await page.locator('#vr-clock').textContent()) === '00:00', await page.locator('#vr-clock').textContent());
+check('녹음 — 저장 위치 안내', (await page.locator('#vr-dir').textContent()).includes('TIP Recordings'), await page.locator('#vr-dir').textContent());
+check('녹음 — 기본 단축키 안내(⇧R)', (await page.locator('#vr-hint').textContent()).includes('⇧R'), await page.locator('#vr-hint').textContent());
+check('녹음 — 저장한 녹음 1개', (await page.locator('.vr-item').count()) === 1, String(await page.locator('.vr-item').count()));
+check('녹음 — 마이크 권한 상태', (await page.locator('#vr-perm').textContent()) === '허용됨', await page.locator('#vr-perm').textContent());
+
+// 시작 → 녹음 중
+await page.click('#vr-main');
+await page.waitForTimeout(1600);
+check('녹음 — 시작 호출', (await calls('voice_start')).length === 1);
+check('녹음 — 녹음 중 표시', (await page.locator('#vr-tag').textContent()).includes('녹음 중'), await page.locator('#vr-tag').textContent());
+const liveClock = await page.locator('#vr-clock').textContent();
+check('녹음 — 경과 시간이 흐름', /^00:0[1-9]$/.test(liveClock), liveClock);
+check('녹음 — 파일 이름 표시', (await page.locator('#vr-meta').textContent()).includes('.m4a'), await page.locator('#vr-meta').textContent());
+check('녹음 — 주 버튼이 중지로', (await page.locator('#vr-main').textContent()) === '중지하고 저장', await page.locator('#vr-main').textContent());
+
+// 일시정지 → 이어서
+await page.click('#vr-pause');
+await page.waitForTimeout(400);
+check('녹음 — 일시정지 호출', (await calls('voice_pause')).length === 1);
+check('녹음 — 일시정지 표시', (await page.locator('#vr-pause').textContent()) === '이어서 녹음', await page.locator('#vr-pause').textContent());
+await page.click('#vr-pause');
+await page.waitForTimeout(400);
+check('녹음 — 이어서 호출', (await calls('voice_resume')).length === 1);
+
+// 중지 & 저장 — 주 버튼이 중지로 바뀐다(별도 중지 버튼 없음)
+await page.click('#vr-main');
+await page.waitForTimeout(700);
+check('녹음 — 중지 호출', (await calls('voice_stop')).length === 1);
+check('녹음 — 저장 뒤 목록 2개', (await page.locator('.vr-item').count()) === 2, String(await page.locator('.vr-item').count()));
+
+// 삭제는 두 번 눌러 확인한다.
+const recItem = page.locator('.vr-item').first();
+await recItem.locator('[data-act="delete"]').click();
+await page.waitForTimeout(200);
+check('녹음 — 삭제는 한 번 더 확인', (await recItem.locator('[data-act="delete"]').textContent()) === '정말 삭제', await recItem.locator('[data-act="delete"]').textContent());
+await recItem.locator('[data-act="delete"]').click();
+await page.waitForTimeout(500);
+check('녹음 — 삭제 호출', (await calls('voice_delete')).length === 1);
+check('녹음 — 삭제 뒤 목록 1개', (await page.locator('.vr-item').count()) === 1, String(await page.locator('.vr-item').count()));
+
+// 설정 → 모듈 → 녹음에 단축키 칸(기본 R)
+await openSettings('modules');
+await page.click('.sheet-module-row:has-text("녹음")');
+await page.waitForTimeout(250);
+check('녹음 — 설정에 단축키 항목(기본 R)', (await page.locator('.shortcut-letter').first().inputValue()) === 'R', await page.locator('.shortcut-letter').first().inputValue());
+check('녹음 — 설정에 동작 이름', (await page.locator('.sheet-body').textContent()).includes('녹음 시작 / 중지'));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
 
 /* ------------------- 주소 검색 — Mac 은 별도 창(v1.15.1) ------------------- */
 
@@ -777,6 +925,81 @@ await notch.evaluate(async () => {
 await notch.waitForTimeout(2200);
 const alertCall = await notch.evaluate(() => window.__TIP_CALLS__.filter((call) => call.command === 'timer_alert').pop());
 check('알약 — 타이머 종료 알림 호출', !!alertCall, JSON.stringify(alertCall && alertCall.args));
+
+/* -------------------- v1.22.0 녹음 — 알약·반원·펼친 패널 -------------------- */
+
+// ① 접힌 알약 — 빨간 점 · REC · 경과 시간
+const voicePillContext = await browser.newContext({ viewport: { width: 700, height: 40 }, locale: 'ko-KR', colorScheme: 'dark' });
+await voicePillContext.addInitScript(MOCK);
+const voicePill = await voicePillContext.newPage();
+voicePill.on('pageerror', (error) => consoleErrors.push(`voice pill pageerror: ${String(error)}`));
+await voicePill.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
+await voicePill.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, startView: 'simple', widgets: { media: true, timer: true, calendar: true, shelf: true, memo: true } }));
+});
+await voicePill.reload({ waitUntil: 'networkidle' });
+await voicePill.waitForTimeout(800);
+await voicePill.evaluate(() => {
+  const v = window.__TIP_VOICE__;
+  v.status = 'recording';
+  v.acc = 72000;
+  v.started = Date.now();
+  v.name = 'TIP 2026-11-26 21-59-00.m4a';
+  window.__TIP_VOICE_NOTIFY__();
+});
+await voicePill.waitForTimeout(600);
+check('v1.22.0 — 알약에 녹음 표시', await voicePill.evaluate(() => document.getElementById('pill').classList.contains('has-rec')));
+check('v1.22.0 — 알약 REC 칩 표시', await voicePill.evaluate(() => !document.getElementById('pill-rec').hidden));
+const pillRecClock = await voicePill.locator('#pill-rec-clock').textContent();
+check('v1.22.0 — 알약 녹음 경과 시간', /^01:1[2-5]$/.test(pillRecClock), pillRecClock);
+check('v1.22.0 — 녹음 중에는 TIP 로고 대신 REC', await voicePill.evaluate(() => getComputedStyle(document.getElementById('pill-logo')).display === 'none'));
+check('v1.22.0 — 알약 이름에 녹음 중', (await voicePill.locator('#pill').getAttribute('aria-label')).includes('녹음 중'));
+const recPillCall = await voicePill.evaluate(() => window.__TIP_CALLS__.filter((call) => call.command === 'set_notch_pill').pop());
+check('v1.22.0 — Rust 에 녹음 날개 알림', !!recPillCall && recPillCall.args.rec === true, JSON.stringify(recPillCall && recPillCall.args));
+
+// ② 반원 — 녹음 칩(빨간 REC + 시간)
+const voiceDialContext = await browser.newContext({ viewport: { width: 700, height: 600 }, locale: 'ko-KR', colorScheme: 'dark' });
+await voiceDialContext.addInitScript(MOCK);
+const voiceDial = await voiceDialContext.newPage();
+voiceDial.on('pageerror', (error) => consoleErrors.push(`voice dial pageerror: ${String(error)}`));
+await voiceDial.goto(`${BASE}/notch.html`, { waitUntil: 'networkidle' });
+await voiceDial.evaluate(() => {
+  localStorage.clear();
+  localStorage.setItem('tip.notch.v1', JSON.stringify({ enabled: true, startView: 'simple', widgets: { media: true, timer: true, calendar: true, shelf: true, memo: true } }));
+});
+await voiceDial.reload({ waitUntil: 'networkidle' });
+await voiceDial.waitForTimeout(800);
+await voiceDial.evaluate(() => {
+  const v = window.__TIP_VOICE__;
+  v.status = 'recording';
+  v.acc = 5000;
+  v.started = Date.now();
+  v.name = 'TIP 2026-11-26 21-59-00.m4a';
+  window.__TIP_VOICE_NOTIFY__();
+});
+await voiceDial.waitForTimeout(600);
+check('v1.22.0 — 반원에 녹음 칩', await voiceDial.evaluate(() => !document.getElementById('dial-rec').hidden));
+const dialRecClock = await voiceDial.locator('#dial-rec-clock').textContent();
+check('v1.22.0 — 반원 녹음 시간', /^00:0[5-9]$/.test(dialRecClock), dialRecClock);
+check('v1.22.0 — 반원 녹음 상태 글자', (await voiceDial.locator('#dial-rec-state').textContent()) === '녹음 중');
+
+// ③ 펼친 패널 — 녹음 카드 + 중지 버튼
+await voiceDial.click('#to-full');
+await voiceDial.waitForTimeout(500);
+check('v1.22.0 — 전체 보기에 녹음 카드', await voiceDial.evaluate(() => {
+  const row = document.querySelector('.wg-row-rec');
+  return !!row && !row.hidden;
+}));
+const cardClock = await voiceDial.locator('#rec-clock').textContent();
+check('v1.22.0 — 카드 경과 시간', /^00:0[5-9]$/.test(cardClock), cardClock);
+await voiceDial.click('#rec-stop');
+await voiceDial.waitForTimeout(500);
+check('v1.22.0 — 노치에서 한 번에 중지', (await voiceDial.evaluate(() => window.__TIP_CALLS__.filter((call) => call.command === 'voice_stop').length)) === 1);
+check('v1.22.0 — 중지하면 녹음 카드가 사라짐', await voiceDial.evaluate(() => document.querySelector('.wg-row-rec').hidden));
+// 시험 상자의 메모리를 아끼려고 이 묶음이 끝나면 창을 닫는다.
+await voicePillContext.close();
+await voiceDialContext.close();
 
 /* -------------------- v1.15.2 노치 펼친 패널 UI/UX -------------------- */
 
@@ -993,7 +1216,7 @@ const homeRest = await mobile.evaluate(() => ({
   handles: document.querySelectorAll('.drag-handle').length,
   editVisible: !!document.getElementById('edit-btn')?.offsetParent,
 }));
-check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 33 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
+check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 34 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
 check('v1.15.3 — 편집 버튼은 홈에만', homeRest.editVisible);
 
 await mobile.click('#edit-btn');
@@ -1304,7 +1527,7 @@ await webPage.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
 await webPage.evaluate(() => localStorage.clear());
 await webPage.reload({ waitUntil: 'networkidle' });
 const webSections = await webPage.locator('.home-section').evaluateAll((nodes) => nodes.map((node) => node.dataset.section));
-check('v1.16.0 — 웹 모듈 28개(Mac 5종 제외)', await webPage.locator('.module-card').count() === 28,
+check('v1.16.0 — 웹 모듈 29개(Mac 5종 제외)', await webPage.locator('.module-card').count() === 29,
   String(await webPage.locator('.module-card').count()));
 check('v1.16.0 — 웹에 Mac 화면 도구 섹션 없음', !webSections.includes('mac'), webSections.join(','));
 check('v1.18.0 — 게임 묶음이 개발·디자인 다음', webSections.filter((id) => id !== 'pinned').join(',') === 'docs,media,file,calc,dev,game',
@@ -1794,7 +2017,7 @@ const full = await dial.evaluate(() => ({
   isFull: document.getElementById('notch').classList.contains('is-full'),
   dialInert: document.getElementById('dial').inert,
   radius: getComputedStyle(document.getElementById('sheet')).borderBottomLeftRadius,
-  rows: [...document.querySelectorAll('#widgets > .wg-row')].map((row) => [...row.children].map((card) => card.dataset.widget).join('+')),
+  rows: [...document.querySelectorAll('#widgets > .wg-row')].filter((row) => !row.hidden).map((row) => [...row.children].map((card) => card.dataset.widget).join('+')),
   toSimple: document.getElementById('to-simple').textContent.trim(),
   focus: document.activeElement?.id,
 }));
@@ -2208,10 +2431,14 @@ await leaveContext.close();
 /* -------------------- v1.17.2 월별 일정·가로 스크롤·노치 숨기기·스포티파이·거울 -------------------- */
 {
 // 1. 월별 보기 — 달력(왼쪽) · 선택한 날의 일정(오른쪽)
+// v1.22.0 — 시각이 늦을 때(22시 이후) now+2시간이 내일로 넘어가 항목이 2개로 줄던 시험 버그를 고쳤다.
+//              오늘 09시를 기준으로 잡아 언제 돌려도 세 일정이 모두 '오늘'에 있다.
+const v1172Base = new Date();
+v1172Base.setHours(9, 0, 0, 0);
 const v1172Events = JSON.stringify([
-  { title: '시우 예방접종', start: Date.now() + 3_600_000, end: Date.now() + 5_400_000, allDay: false, calendarId: 'cal-1', calendar: '개인', color: '#2E5E4E' },
-  { title: '어린이집 상담 — 오후 4시 30분 선생님과 면담', start: Date.now() + 7_200_000, end: Date.now() + 9_000_000, allDay: false, calendarId: 'cal-2', calendar: '직장', color: '#0A6CFF' },
-  { title: '종일 일정 예시', start: Date.now(), end: Date.now() + 60_000, allDay: true, calendarId: 'cal-1', calendar: '개인', color: '#C93400' },
+  { title: '시우 예방접종', start: v1172Base.getTime() + 3_600_000, end: v1172Base.getTime() + 5_400_000, allDay: false, calendarId: 'cal-1', calendar: '개인', color: '#2E5E4E' },
+  { title: '어린이집 상담 — 오후 4시 30분 선생님과 면담', start: v1172Base.getTime() + 7_200_000, end: v1172Base.getTime() + 9_000_000, allDay: false, calendarId: 'cal-2', calendar: '직장', color: '#0A6CFF' },
+  { title: '종일 일정 예시', start: v1172Base.getTime(), end: v1172Base.getTime() + 60_000, allDay: true, calendarId: 'cal-1', calendar: '개인', color: '#C93400' },
 ]);
 const v1172Context = await browser.newContext({ viewport: { width: 640, height: 600 }, locale: 'ko-KR', colorScheme: 'dark' });
 await v1172Context.addInitScript(MOCK.replace('calendar_events: [],', `calendar_events: ${v1172Events},`));
@@ -3127,7 +3354,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.21.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.22.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

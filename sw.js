@@ -1,10 +1,11 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.21.0';
+const CACHE_VERSION = 'tip-v1.22.0';
 const APP_SHELL = [
   './',
   './index.html',
   './notch.html',
+  './recorder.html',
   './search.html',
   './sticky.html',
   './address-frame.html',
@@ -35,9 +36,12 @@ const APP_SHELL = [
   './js/typing.js',
   './js/mosaic.js',
   './js/backup.js',
+  './js/voice.js',
+  './js/recorder.js',
   './js/postcode.js',
   './js/postcode-done.js',
   './modules/registry.js',
+  './modules/voice-recorder/module.js',
   './modules/clipboard-history/module.js',
   './modules/address-search/module.js',
   './modules/parcel-tracker/module.js',

@@ -12,7 +12,7 @@ out="$here/dist-web"
 rm -rf "$out"
 mkdir -p "$out"
 
-for file in index.html notch.html search.html sticky.html address-frame.html postcode.html postcode-done.html manifest.json; do
+for file in index.html notch.html recorder.html search.html sticky.html address-frame.html postcode.html postcode-done.html manifest.json; do
   cp "$root/$file" "$out/$file"
 done
 

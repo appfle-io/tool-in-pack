@@ -147,6 +147,45 @@ html, body {
 }
 .pill-dot.is-playing { background: #4FBF67; box-shadow: 0 0 6px rgba(79, 191, 103, 0.9); }
 
+/* v1.22.0 — 녹음 칩: 빨간 점 + REC + 경과 시간. 알약 왼쪽 날개에 붙는다. */
+.pill-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.pill-rec b {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #EDEDEF;
+}
+.pill-rec .pill-rec-label { color: #FF6B5E; }
+.pill-rec-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #FF453A;
+  animation: pill-rec 1.2s ease-in-out infinite;
+}
+.pill-rec.is-paused .pill-rec-dot { animation: none; opacity: 0.5; }
+.pill-rec.is-paused b { opacity: 0.7; }
+.pill-rec.is-saving b { color: #FFB020; }
+@keyframes pill-rec {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.5); }
+  50% { opacity: 0.5; box-shadow: 0 0 0 4px rgba(255, 69, 58, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pill-rec-dot { animation: none; }
+}
+/* 녹음 중에는 로고·점 대신 REC 칩을 보인다. */
+.pill.has-rec .pill-logo,
+.pill.has-rec .pill-dot { display: none; }
+.pill.has-rec .pill-wing-left { justify-content: flex-end; padding-right: 5px; }
+/* 오른쪽 날개는 타이머가 있을 때만 남긴다(녹음만 있으면 알약이 짧아진다). */
+.pill:not(.has-media):not(.has-timer):not(.has-rec) .pill-wing-right { display: none; }
+
 .notch.is-expanded .pill { display: none; }
 .notch.is-collapsed .panel { display: none; }
 
@@ -1316,6 +1355,65 @@ html, body {
 .dial-timer .dial-side-text b { font-size: 15px; font-variant-numeric: tabular-nums; }
 .dial-side-text span { font-size: 12px; opacity: 0.72; white-space: nowrap; }
 .dial-timer.is-paused .dial-side-text b { opacity: 0.6; }
+
+/* v1.22.0 — 반원의 녹음 칩(미디어 칸과 같은 자리를 쓴다). */
+.dial-rec .dial-side-text b { font-size: 15px; font-variant-numeric: tabular-nums; color: #FF6B5E; }
+.dial-rec { justify-content: flex-start; }
+.dial-rec-art { border-radius: 50%; background: rgba(255, 69, 58, 0.16); color: #FF453A; }
+:root[data-theme='light'] .dial-rec .dial-side-text b { color: #C02929; }
+:root[data-theme='light'] .dial-rec-art { color: #C02929; background: rgba(255, 69, 58, 0.14); }
+.dial-rec.is-paused .dial-side-text b,
+.dial-rec.is-paused .dial-rec-art { opacity: 0.55; }
+
+/* v1.22.0 — 펼친 패널의 녹음 카드(경과 시간 + 중지). */
+.wg-row-rec[hidden] { display: none; }
+.wg-rec .rec-body { display: flex; flex-direction: column; gap: 8px; }
+.rec-clock {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #FF6B5E;
+}
+.rec-clock.is-paused { color: inherit; opacity: 0.6; }
+.rec-clock.is-saving { color: #FFB020; }
+.rec-meter {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+:root[data-theme='light'] .rec-meter { background: rgba(0, 0, 0, 0.10); }
+.rec-meter i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: #FF453A;
+  transition: width 0.1s linear;
+}
+.rec-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.rec-btn {
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rec-btn:hover { border-color: rgba(255, 255, 255, 0.35); }
+.rec-btn:disabled { opacity: 0.45; cursor: default; }
+.rec-btn.primary { background: #FF453A; border-color: #FF453A; color: #fff; }
+.rec-btn.primary:hover { background: #F03A2F; border-color: #F03A2F; }
+@media (prefers-reduced-motion: reduce) {
+  .rec-meter i { transition: none; }
+}
 
 /* 가운데 — 고른 모듈 이름·설명·찾기 칸 */
 .dial-hub {

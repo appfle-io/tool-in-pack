@@ -35,6 +35,7 @@ mod media;
 mod notch;
 mod sticky;
 mod system;
+mod voice;
 
 const TOOL: &str = "tool";
 const NOTCH: &str = "notch";
@@ -68,6 +69,8 @@ const NOTCH_OPEN_MAX_H: f64 = 600.0;
 //   파일을 끄는 동안의 '여기에 놓기'·담은 뒤 '보관함 +2' 는 두 날개를 모두 빌린다(화면이 둘 다 true 로 알린다).
 const NOTCH_PILL_MEDIA_W: f64 = 34.0;
 const NOTCH_PILL_TIMER_W: f64 = 84.0;
+// v1.22.0 — 녹음 날개: 빨간 점 · REC · 경과 시간(MM:SS). 알약 왼쪽에 붙는다.
+const NOTCH_PILL_REC_W: f64 = 86.0;
 
 // 전역 빠른 실행 검색 — 화면 가운데 위쪽의 작은 팔레트.
 // v1.14.0 — 계산기·웹 검색·파일·앱·스니펫까지 담느라 440 → 520 으로 조금 높였다.
@@ -125,6 +128,8 @@ static NOTCH_OPEN_HEIGHT: Mutex<Option<f64>> = Mutex::new(None);
 /// true 인 쪽만큼 알약 창을 넓혀 곡 제목·진행률과 타이머를 담는다.
 static PILL_MEDIA: AtomicBool = AtomicBool::new(false);
 static PILL_TIMER: AtomicBool = AtomicBool::new(false);
+/// v1.22.0 — 녹음 중 표시(REC · 경과 시간)를 알약에 담을지.
+static PILL_REC: AtomicBool = AtomicBool::new(false);
 
 /// 환경설정의 '마우스를 올려서 열기'(기본 OFF) — 프런트가 값을 밀어 준다.
 static HOVER_OPEN: AtomicBool = AtomicBool::new(false);
@@ -339,6 +344,9 @@ fn collapsed_pill_size() -> (f64, f64) {
     if PILL_TIMER.load(Ordering::Relaxed) {
         extra += NOTCH_PILL_TIMER_W;
     }
+    if PILL_REC.load(Ordering::Relaxed) {
+        extra += NOTCH_PILL_REC_W;
+    }
     (width + extra, height)
 }
 
@@ -465,10 +473,12 @@ fn notch_resize(app: AppHandle, height: f64) {
 /// 접힌 알약에 음악·타이머를 보일지 알린다. 값이 바뀌면 접힌 창 크기를 바로 다시 잡는다
 /// (펼쳐져 있으면 접을 때 새 크기로 돌아간다). 화면이 필요 없는 값은 보내지 않는다.
 #[tauri::command]
-fn set_notch_pill(app: AppHandle, media: bool, timer: bool) {
+fn set_notch_pill(app: AppHandle, media: bool, timer: bool, rec: Option<bool>) {
     let was_media = PILL_MEDIA.swap(media, Ordering::Relaxed);
     let was_timer = PILL_TIMER.swap(timer, Ordering::Relaxed);
-    let changed = was_media != media || was_timer != timer;
+    let rec = rec.unwrap_or(false);
+    let was_rec = PILL_REC.swap(rec, Ordering::Relaxed);
+    let changed = was_media != media || was_timer != timer || was_rec != rec;
     if !changed {
         return;
     }
@@ -699,6 +709,8 @@ fn open_privacy_settings(kind: String) -> Result<(), String> {
         "automation" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
         "calendars" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
         "camera" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+        // v1.22.0 — 녹음 모듈의 마이크 권한
+        "microphone" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
         // v1.14.0 — 창 분할(손쉬운 사용)과 화면 도구(화면 기록)
         "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
         "screen-recording" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -770,6 +782,12 @@ fn shortcut_pressed(app: &AppHandle, shortcut: &tauri_plugin_global_shortcut::Sh
         SEARCH_KEY => toggle_search(app),
         // v1.17.2 — 노치 숨기기/보이기(환경설정 → 노치 → 노치 숨기기 단축키, 기본 ⌃⇧H).
         NOTCH_TOGGLE_KEY => toggle_notch_enabled(app),
+        // v1.22.0 — 녹음 단축키: 한 번 누르면 바로 녹음, 다시 누르면 중지·저장.
+        voice::VOICE_ACTION_KEY => {
+            if let Err(error) = voice::voice_toggle(app.clone()) {
+                emit_toast(app, &error);
+            }
+        }
         "sticky:new" => {
             if let Err(error) = sticky::create_new(app, None, None) {
                 emit_toast(app, &error);
@@ -1899,6 +1917,25 @@ pub fn run() {
             notch_collapse,
             notch_resize,
             set_notch_pill,
+            // v1.22.0 — 녹음(상주 recorder 창 + 파일 저장 + 마이크 권한)
+            voice::voice_ready,
+            voice::voice_status,
+            voice::voice_start,
+            voice::voice_stop,
+            voice::voice_toggle,
+            voice::voice_pause,
+            voice::voice_resume,
+            voice::voice_started,
+            voice::voice_chunk,
+            voice::voice_level,
+            voice::voice_finished,
+            voice::voice_failed,
+            voice::voice_list,
+            voice::voice_read,
+            voice::voice_delete,
+            voice::voice_reveal,
+            voice::voice_mic_status,
+            voice::voice_mic_request,
             notch_metrics,
             timer_alert,
             notch_focus,
@@ -1957,6 +1994,9 @@ pub fn run() {
 
             // 열려 있던 스티커 메모를 그 자리·그 크기로 되살린다.
             sticky::restore(&handle);
+
+            // v1.22.0 — 녹음 저장 폴더를 만들어 두고 지금 상태(대기)를 화면에 알린다.
+            voice::prepare(&handle);
 
             // 메인 창 X — 앱을 끄지 않고 숨긴다. 메뉴 막대·Dock 에서 다시 연다.
             if let Some(main) = app.get_webview_window("main") {

@@ -111,6 +111,33 @@ export const NOTCH_TOGGLE_KEY = 'notch:toggle';
 export const NOTCH_TOGGLE_LETTER = 'H';
 const NOTCH_TOGGLE_MIGRATION_KEY = 'tip.shortcutMigration.v1172';
 
+/* v1.22.0 — 녹음 단축키(기본 R).
+ * 유동규 님 요구: "설정한 녹음 단축키를 1번 누르면 즉시 녹음 시작, 같은 단축키를 한 번 더 누르면
+ * 즉시 중지·저장". 노치 숨기기(H)처럼 공통 조합 + 한 글자로 두고, 처음 한 번만 기본값을 넣는다.
+ * R 을 다른 기능이 이미 쓰고 있으면 비워 두고 설정 화면에서 직접 고른다. */
+export const VOICE_ACTION_KEY = 'voice:record';
+export const VOICE_LETTER = 'R';
+const VOICE_MIGRATION_KEY = 'tip.shortcutMigration.v1220';
+
+function ensureVoiceLetter() {
+  try {
+    if (localStorage.getItem(VOICE_MIGRATION_KEY) === '1') return;
+  } catch {
+    return;   // 저장소를 못 쓰면 기본 글자도 남기지 않는다
+  }
+  const letters = readJson(LETTERS_KEY, {});
+  if (!letters[VOICE_ACTION_KEY]) {
+    const owner = shortcutOwner(acceleratorForLetter(VOICE_LETTER), VOICE_ACTION_KEY);
+    if (!owner) {
+      letters[VOICE_ACTION_KEY] = VOICE_LETTER;
+      writeJson(LETTERS_KEY, letters);
+    }
+  }
+  try {
+    localStorage.setItem(VOICE_MIGRATION_KEY, '1');
+  } catch { /* 다음 실행에 다시 시도한다 */ }
+}
+
 function ensureNotchToggleLetter() {
   try {
     if (localStorage.getItem(NOTCH_TOGGLE_MIGRATION_KEY) === '1') return;
@@ -278,6 +305,8 @@ function migrateShortcuts() {
 migrateShortcuts();
 // v1.17.2 — 노치 숨기기 기본 글자(H)는 옛 값 옮기기가 끝난 뒤에 채운다.
 ensureNotchToggleLetter();
+// v1.22.0 — 녹음 기본 글자(R)도 같은 때 한 번 채운다.
+ensureVoiceLetter();
 
 /** 지금 실제로 등록할 단축키 — 글자(공통 조합과 합침) + 그대로 쓴 조합. */
 export function shortcutEntries() {
@@ -473,6 +502,17 @@ export const MODULE_SETTINGS = {
   snippets: {
     values: [],
     actions: [],
+  },
+  // v1.22.0 — 녹음: 한 번 누르면 시작, 다시 누르면 중지·저장(같은 단축키 토글).
+  'voice-recorder': {
+    values: [],
+    actions: [
+      {
+        key: VOICE_ACTION_KEY,
+        label: '녹음 시작 / 중지',
+        hint: '한 번 누르면 바로 녹음이 시작되고, 한 번 더 누르면 중지해 저장합니다. 창을 닫아도 녹음은 이어집니다.',
+      },
+    ],
   },
 };
 

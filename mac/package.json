@@ -1,7 +1,7 @@
 {
   "name": "tip-mac",
   "private": true,
-  "version": "1.21.0",
+  "version": "1.22.0",
   "description": "TIP (TOOL-IN-PACK) macOS 앱 — 노치 아일랜드(반원·전체 보기) · Spotlight형 전역 검색 · 스티커 메모",
   "scripts": {
     "tauri": "tauri",

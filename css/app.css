@@ -4195,6 +4195,144 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
   color: var(--text);
 }
 
+/* ------------------------------ 녹음 (v1.22.0) ------------------------------ */
+
+.vr { gap: 12px; }
+.vr-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+}
+.vr-card.is-live { border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); }
+.vr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 18px;
+}
+.vr-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.vr-tag i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted-2);
+}
+.vr-tag i.is-rec {
+  background: var(--bad);
+  animation: vr-rec 1.2s ease-in-out infinite;
+}
+@keyframes vr-rec {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(192, 41, 41, 0.45); }
+  50% { opacity: 0.55; box-shadow: 0 0 0 5px rgba(192, 41, 41, 0); }
+}
+.vr-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted-2);
+}
+.vr-clock {
+  font-size: 46px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.vr-clock.is-live { color: var(--bad); }
+.vr-card.is-paused .vr-clock { color: var(--muted); }
+.vr-meter {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.vr-meter-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--bad);
+  transition: width 0.08s linear;
+}
+.vr-card.is-paused .vr-meter-fill { opacity: 0.4; }
+.vr-state { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); text-align: center; }
+.vr-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.vr-actions .v16-btn { min-width: 72px; }
+.vr-card.is-live .vr-main {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+.vr-side { font-size: 12px; color: var(--muted-2); }
+.vr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.vr-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+}
+.vr-item-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vr-item-text b {
+  font-size: 12.5px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vr-item-text span { font-size: 12px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+.vr-item-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.vr-mini {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.vr-mini:hover { border-color: var(--accent); }
+.vr-mini.is-danger { color: var(--bad); }
+.vr-mini.is-confirm { background: var(--bad); border-color: var(--bad); color: #fff; }
+.vr-perm-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+@media (max-width: 420px) {
+  .vr-clock { font-size: 40px; }
+  .vr-item { flex-direction: column; align-items: stretch; }
+  .vr-item-actions { justify-content: flex-start; }
+  .vr-mini { height: 32px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vr-tag i.is-rec { animation: none; }
+  .vr-meter-fill, .vr-clock { transition: none; }
+}
+
 /* ------------------- 모듈 단축키 — 공통 조합 + 한 글자 (v1.15.0) ------------------- */
 
 .shortcut-prefix-section .sheet-select { min-width: 190px; }

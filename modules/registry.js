@@ -51,6 +51,8 @@ import textCounter from './text-counter/module.js';
 import dateCalc from './date-calc/module.js';
 import typingConverter from './typing-converter/module.js';
 import screenshotAnnotate from './screenshot-annotate/module.js';
+// v1.22.0 — 녹음(단축키 한 번으로 시작·중지, 노치 알약·반원·패널과 상태 공유)
+import voiceRecorder from './voice-recorder/module.js';
 // v1.18.0 — 게임 묶음: 제비뽑기 · 사다리타기 · 선착순 골인
 import drawLots from './draw-lots/module.js';
 import ladderGame from './ladder-game/module.js';
@@ -134,6 +136,8 @@ export const registry = [
   dateCalc,
   typingConverter,
   screenshotAnnotate,
+  // v1.22.0
+  voiceRecorder,
   // v1.18.0
   drawLots,
   ladderGame,

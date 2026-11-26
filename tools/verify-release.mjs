@@ -112,7 +112,8 @@ if (exists(entPath)) {
   const ent = read(entPath);
   ['com.apple.security.automation.apple-events',
     'com.apple.security.personal-information.calendars',
-    'com.apple.security.device.camera'].forEach((key) => {
+    'com.apple.security.device.camera',
+    'com.apple.security.device.audio-input'].forEach((key) => {
     check(`Entitlements ${key}`, ent.includes(`<key>${key}</key>`));
   });
   check('Entitlements cs.allow-jit', ent.includes('<key>com.apple.security.cs.allow-jit</key>'));
@@ -120,7 +121,7 @@ if (exists(entPath)) {
 check('tauri.conf bundle.macOS.entitlements', conf.bundle?.macOS?.entitlements === 'Entitlements.plist',
   String(conf.bundle?.macOS?.entitlements));
 const plist = read('mac/src-tauri/Info.plist');
-check('Info.plist 사용 설명 3종', ['NSAppleEventsUsageDescription', 'NSCalendarsUsageDescription', 'NSCameraUsageDescription']
+check('Info.plist 사용 설명 4종(마이크 포함)', ['NSAppleEventsUsageDescription', 'NSCalendarsUsageDescription', 'NSCameraUsageDescription', 'NSMicrophoneUsageDescription']
   .every((key) => plist.includes(key)));
 check('Info.plist 캘린더 전체 접근 설명(macOS 14+)', plist.includes('NSCalendarsFullAccessUsageDescription'));
 
@@ -193,7 +194,7 @@ check('categoryOf 옛 이름 호환', /CATEGORY_ALIASES = \{[\s\S]{0,160}documen
 
 const EXPECTED = {
   docs: ['doc-reader', 'pdf-tools', 'md-editor', 'text-diff', 'ocr-reader', 'text-counter', 'typing-converter'],
-  media: ['img-converter', 'photo-privacy', 'video-gif', 'video-mosaic', 'icon-gen', 'qr-gen'],
+  media: ['img-converter', 'photo-privacy', 'video-gif', 'video-mosaic', 'icon-gen', 'qr-gen', 'voice-recorder'],
   file: ['file-compress', 'bulk-rename'],
   calc: ['unit-converter', 'currency-calc', 'address-search', 'parcel-tracker', 'timer', 'date-calc'],
   dev: ['dev-tools', 'regex-tester', 'color-tools', 'snippets'],
@@ -204,8 +205,8 @@ const EXPECTED = {
 // registry 목록에 적힌 모듈만 센다(파일 시스템 탐색에 기대지 않는다).
 const listed = [...registry.matchAll(/^import\s+(\w+)\s+from\s+'\.\/([^/]+)\/module\.js';/gm)].map((m) => m[2]);
 const total = Object.values(EXPECTED).flat();
-check('registry 모듈 33개', listed.length === 33 && total.length === 33, `${listed.length}/${total.length}`);
-check('registry 가 33개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
+check('registry 모듈 34개', listed.length === 34 && total.length === 34, `${listed.length}/${total.length}`);
+check('registry 가 34개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
 check('모든 모듈이 정확히 한 분류', new Set(total).size === total.length && listed.every((id) => total.filter((entry) => entry === id).length === 1));
 check('registry 에 drag-ocr 없음(OCR 하나로 합침)', !listed.includes('drag-ocr') && !exists('modules/drag-ocr/module.js'));
 
@@ -684,8 +685,8 @@ check('capabilities allow- 권한 수가 커맨드 수와 같다', capabilityPer
   `${capabilityPerms.filter((p) => p.startsWith('allow-')).length}/${manifestCommands.length}`);
 check('capabilities 에 deny- 권한 없음', !capabilityPerms.some((permission) => permission.startsWith('deny-')));
 // v1.17.0 — quickbar 창이 빠져 앱 창은 5종.
-check('capabilities 창 목록 그대로(앱 창만)', ['"main"', '"tool"', '"notch"', '"search"', '"sticky-*"']
-  .every((window) => capability.includes(window)) && capabilityJson.windows.length === 5, String(capabilityJson.windows.length));
+check('capabilities 창 목록 그대로(앱 창만)', ['"main"', '"tool"', '"notch"', '"search"', '"sticky-*"', '"recorder"']
+  .every((window) => capability.includes(window)) && capabilityJson.windows.length === 6, String(capabilityJson.windows.length));
 check('postcode·parcel 창은 어떤 권한도 없다', !capabilityJson.windows.includes('postcode') && !capabilityJson.windows.includes('parcel'));
 
 // 2. 우편번호 창 저장소 분리 — incognito + localStorage 미사용
@@ -1515,6 +1516,120 @@ check('주소 프레임이 상자를 100% 채움', /\.addr-embed \.addr-frame \{
   && /frame\.style\.height = '100%'/.test(read('modules/address-search/module.js')));
 check('우편번호 창 크기', /const POSTCODE_W: f64 = 500\.0;/.test(libSrc)
   && /const POSTCODE_H: f64 = 460\.0;/.test(libSrc));
+
+
+/* ================================================================
+   24. v1.22.0 — 녹음 모듈 · 단축키 토글 · 노치/반원 표시
+   ================================================================ */
+
+const voiceRs = read('mac/src-tauri/src/voice.rs');
+const voiceJs = read('js/voice.js');
+const recorderJs = read('js/recorder.js');
+const voiceModule = read('modules/voice-recorder/module.js');
+const voiceBuild = read('mac/src-tauri/build.rs');
+const voiceCapability = read('mac/src-tauri/capabilities/default.json');
+const voiceFeature = read('js/feature-settings.js');
+const voiceNotchHtml = read('notch.html');
+const voiceNotchJs = read('js/notch.js');
+const voiceNotchCss = read('css/notch.css');
+const voiceAppCss = read('css/app.css');
+const voiceLib = read('mac/src-tauri/src/lib.rs');
+
+check('버전 1.22.0 이상', (([major, minor]) => major > 1 || (major === 1 && minor >= 22))(VERSION.split('.').map(Number)), VERSION);
+
+// ① 녹음 엔진 — 숨은 상주 창 + Rust 가 상태의 주인
+['recorder.html', 'js/recorder.js', 'js/voice.js', 'modules/voice-recorder/module.js']
+  .forEach((file) => check(`녹음 파일 ${file}`, exists(file)));
+check('녹음 모듈이 registry 에 있음', /import voiceRecorder from '\.\/voice-recorder\/module\.js';/.test(read('modules/registry.js'))
+  && /^\s*voiceRecorder,/m.test(read('modules/registry.js')));
+check('녹음 창은 숨은 상주 창이고 닫기는 숨기기', /const RECORDER: &str = "recorder";/.test(voiceRs)
+  && /WebviewWindowBuilder::new\(app, RECORDER, WebviewUrl::App\("recorder\.html"/.test(voiceRs)
+  && /\.visible\(false\)/.test(voiceRs) && /WindowEvent::CloseRequested/.test(voiceRs)
+  && /api\.prevent_close\(\);/.test(voiceRs));
+check('녹음 조각을 곧바로 파일에 덧붙임', /fn voice_chunk/.test(voiceRs)
+  && /\.create\(true\)/.test(voiceRs) && /\.append\(true\)/.test(voiceRs));
+check('저장 폴더는 ~/Music/TIP Recordings', /const VOICE_DIR_NAME: &str = "TIP Recordings";/.test(voiceRs)
+  && /audio_dir\(\)/.test(voiceRs));
+check('파일 이름은 화면의 지역 시각으로', /fn voice_started\(app: AppHandle, mime: String, file_name: String\)/.test(voiceRs)
+  && /function stamp\(\)/.test(recorderJs));
+check('빈 녹음은 지우고 실패로 알림', /const VOICE_MIN_BYTES: u64 = 1024;/.test(voiceRs)
+  && /fs::remove_file\(path\)/.test(voiceRs));
+check('녹음 파일 이름 검사(폴더 밖 금지)', /fn checked_path/.test(voiceRs)
+  && /value\.contains\('\/'\) \|\| value\.contains\('\\\\'\) \|\| value\.contains\("\.\."\)/.test(voiceRs));
+check('Rust 가 상태를 모든 창에 알림', /app\.emit\("tip:\/\/voice-state", snapshot\(app\)\)/.test(voiceRs)
+  && /listen\('tip:\/\/voice-state'/.test(voiceNotchJs) && /subscribeVoice\(/.test(voiceModule));
+check('녹음 시작·중지·일시정지 커맨드', ['voice_start', 'voice_stop', 'voice_pause', 'voice_resume', 'voice_toggle', 'voice_list', 'voice_read', 'voice_delete']
+  .every((name) => new RegExp(`#\\[tauri::command\\]\\npub fn ${name}\\(`).test(voiceRs)));
+check('build.rs·capabilities 에 녹음 커맨드', ['voice_ready', 'voice_status', 'voice_start', 'voice_stop', 'voice_toggle',
+  'voice_pause', 'voice_resume', 'voice_started', 'voice_chunk', 'voice_level', 'voice_finished', 'voice_failed',
+  'voice_list', 'voice_read', 'voice_delete', 'voice_reveal', 'voice_mic_status', 'voice_mic_request']
+  .every((name) => voiceBuild.includes(`"${name}"`) && voiceCapability.includes(`"allow-${name.replace(/_/g, '-')}"`)));
+check('invoke_handler 에 녹음 커맨드', /voice::voice_start,/.test(voiceLib) && /voice::voice_chunk,/.test(voiceLib)
+  && /voice::voice_mic_status,/.test(voiceLib));
+
+// ② 단축키 한 번으로 시작, 한 번 더 누르면 중지 (기본 ⌃⇧R, 바꿀 수 있음)
+check('녹음 단축키 기본 R', /export const VOICE_ACTION_KEY = 'voice:record';/.test(voiceFeature)
+  && /export const VOICE_LETTER = 'R';/.test(voiceFeature)
+  && /function ensureVoiceLetter\(\)/.test(voiceFeature) && /tip\.shortcutMigration\.v1220/.test(voiceFeature));
+check('녹음 단축키는 한 글자·중복 검사를 그대로', /ensureVoiceLetter\(\);/.test(voiceFeature)
+  && /const owner = shortcutOwner\(acceleratorForLetter\(VOICE_LETTER\), VOICE_ACTION_KEY\);/.test(voiceFeature));
+check('설정 → 모듈 → 녹음에 시작/중지 단축키', /'voice-recorder': \{/.test(voiceFeature)
+  && /key: VOICE_ACTION_KEY/.test(voiceFeature) && /label: '녹음 시작 \/ 중지'/.test(voiceFeature));
+check('Rust 단축키는 토글', /const VOICE_ACTION_KEY: &str = "voice:record";/.test(voiceRs)
+  && /voice::VOICE_ACTION_KEY =>/.test(voiceLib) && /voice::voice_toggle\(app\.clone\(\)\)/.test(voiceLib));
+check('단축키를 다시 누르면 중지·저장', /pub fn voice_toggle\(app: AppHandle\)/.test(voiceRs)
+  && /if phase == Phase::Idle \{\s*\n\s*begin\(&app\)\?;/.test(voiceRs.replace(/\r/g, '')));
+
+// ③ 마이크 권한 — Entitlements · Info.plist · Rust(AVCaptureDevice) · 설정 → 권한 탭
+check('Entitlements audio-input', read('mac/src-tauri/Entitlements.plist').includes('<key>com.apple.security.device.audio-input</key>'));
+check('Info.plist 마이크 사용 설명', read('mac/src-tauri/Info.plist').includes('<key>NSMicrophoneUsageDescription</key>'));
+check('Rust 가 AVCaptureDevice 로 권한 확인', /authorizationStatusForMediaType/.test(voiceRs)
+  && /requestAccessForMediaType/.test(voiceRs)
+  && /#\[link\(name = "AVFoundation", kind = "framework"\)\]/.test(voiceRs));
+check('설정 → 권한 탭', /\{ id: 'permissions', label: '권한', mac: true \}/.test(read('js/app.js'))
+  && /function permissionsTab\(\)/.test(read('js/app.js')) && /microphoneSection\(\)/.test(read('js/app.js')));
+check('마이크 상태·요청·설정 열기 버튼', /perm-mic-chip/.test(read('js/app.js')) && /perm-mic-ask/.test(read('js/app.js'))
+  && /voiceMicRequest\(\)/.test(read('js/app.js')) && /kind: 'microphone'/.test(read('js/app.js')));
+check('Rust 가 마이크 설정 화면을 연다', /"microphone" => "x-apple\.systempreferences:com\.apple\.preference\.security\?Privacy_Microphone"/.test(voiceLib));
+check('녹음 모듈에 마이크 권한 항목', /id="vr-perm"/.test(voiceModule) && /voiceMicStatus\(\)/.test(voiceModule));
+
+// ④ 노치 — 알약 · 반원 · 펼친 패널
+check('알약에 녹음 칩(빨간 점·REC·시간)', /id="pill-rec"/.test(voiceNotchHtml) && /id="pill-rec-clock"/.test(voiceNotchHtml)
+  && /\.pill-rec-dot \{/.test(voiceNotchCss) && /@keyframes pill-rec/.test(voiceNotchCss));
+check('알약 녹음 표시는 화면이 그린다', /pillEl\.classList\.toggle\('has-rec'/.test(voiceNotchJs)
+  && /formatVoiceClock\(voiceElapsed\(\)\)/.test(voiceNotchJs));
+check('알약 폭을 Rust 가 넓힌다(rec)', /const NOTCH_PILL_REC_W: f64 = 86\.0;/.test(voiceLib)
+  && /fn set_notch_pill\(app: AppHandle, media: bool, timer: bool, rec: Option<bool>\)/.test(voiceLib)
+  && /PILL_REC\.swap\(rec, Ordering::Relaxed\)/.test(voiceLib)
+  && /invoke\('set_notch_pill', \{ media: !!hasMedia, timer: !!hasTimer, rec: !!hasRec \}\)/.test(voiceNotchJs));
+check('반원에 녹음 칩', /id="dial-rec"/.test(voiceNotchHtml) && /id="dial-rec-clock"/.test(voiceNotchHtml)
+  && /\.dial-rec \{/.test(voiceNotchCss) && /const recBtn = document\.getElementById\('dial-rec'\)/.test(voiceNotchJs));
+check('펼친 패널에 녹음 카드(경과 시간·중지)', /function recCard\(\)/.test(voiceNotchJs)
+  && /id="rec-stop"/.test(voiceNotchJs) && /function paintRecordingCard\(\)/.test(voiceNotchJs)
+  && /voiceStop\(\)\.then/.test(voiceNotchJs));
+check('노치에서 한 번에 중지', /event\.target\.closest\('#rec-stop'\)[\s\S]{0,120}voiceStop\(\)/.test(voiceNotchJs));
+check('녹음 카드는 녹음 중에만 보인다', /\.wg-row-rec\[hidden\] \{ display: none; \}/.test(voiceNotchCss)
+  && /row\.hidden = !on;/.test(voiceNotchJs));
+
+// ⑤ 웹(PWA) 녹음 — 이 화면 안에서만
+check('웹 녹음은 IndexedDB 에 보관', /const WEB_DB = 'tip-voice\.v1';/.test(voiceJs) && /indexedDB\.open/.test(voiceJs));
+check('웹 녹음도 재생·저장·삭제', /export async function voiceDownload/.test(voiceJs) && /export async function voiceDelete/.test(voiceJs)
+  && /export async function voiceUrl/.test(voiceJs));
+check('MediaRecorder 형식 고르기(mp4 우선)', /audio\/mp4;codecs=mp4a\.40\.2/.test(recorderJs)
+  && /isTypeSupported/.test(recorderJs));
+
+// ⑥ 문서·캐시·시험
+check('sw.js 프리캐시(녹음)', ["'./recorder.html'", "'./js/voice.js'", "'./js/recorder.js'", "'./modules/voice-recorder/module.js'"]
+  .every((entry) => read('sw.js').includes(entry)));
+check('Mac 앱 웹 자산에 recorder.html', read('mac/scripts/collect-web.sh').includes('recorder.html'));
+check('README v1.22.0', read('README.md').includes('| v1.22.0 |'));
+check('README 녹음 안내', read('README.md').includes('### 34) 녹음'));
+check('settings-e2e 가 녹음 모듈을 본다', /녹음 — 시작 호출/.test(settingsE2e) && /녹음 — 일시정지 호출/.test(settingsE2e)
+  && /녹음 — 삭제는 한 번 더 확인/.test(settingsE2e));
+check('settings-e2e 가 노치 녹음 표시를 본다', /v1\.22\.0 — 알약에 녹음 표시/.test(settingsE2e)
+  && /v1\.22\.0 — 반원에 녹음 칩/.test(settingsE2e) && /v1\.22\.0 — 노치에서 한 번에 중지/.test(settingsE2e));
+check('settings-e2e 가 권한 탭을 본다', /권한 — 마이크 권한 요청 호출/.test(settingsE2e)
+  && /권한 — 마이크 시스템 설정 열기/.test(settingsE2e));
 
 
 /* ------------------------------ 결과 ------------------------------ */

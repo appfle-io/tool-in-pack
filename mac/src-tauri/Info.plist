@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>녹음 모듈이 마이크로 소리를 녹음해 이 Mac 안에만 저장하는 데 사용합니다. 녹음 파일은 기기 밖으로 나가지 않습니다.</string>
   <key>NSCameraUsageDescription</key>
   <string>노치 아일랜드의 거울 위젯에서 카메라 화면을 보여 주는 데 사용합니다. 영상은 기기 밖으로 나가지 않습니다.</string>
   <key>NSAppleEventsUsageDescription</key>
