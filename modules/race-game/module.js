@@ -409,7 +409,7 @@ const module = {
         else simulateSprint(dt);
       } else if (map.id === 'pinball') simulatePinball(dt);
       else simulateRail(dt);
-      if (race.t > 40) forceFinish();
+      if (race.t > 26) forceFinish();
     }
 
     function addSpark(x, y, options = {}) {
@@ -646,16 +646,18 @@ const module = {
       return {
         pegs,
         guides: [
-          { x1: 8, y1: BOARD_H - 96, x2: 92, y2: BOARD_H - 24 },
-          { x1: BOARD_W - 8, y1: BOARD_H - 96, x2: BOARD_W - 92, y2: BOARD_H - 24 },
-          { x1: 46, y1: 44, x2: 12, y2: 96 },
-          { x1: BOARD_W - 46, y1: 44, x2: BOARD_W - 12, y2: 96 },
+          // 아래 깔때기 — 벽에서 안쪽 아래로 기울어 공을 가운데로 모은다.
+          { x1: 5, y1: BOARD_H - 92, x2: 98, y2: BOARD_H - 20 },
+          { x1: BOARD_W - 5, y1: BOARD_H - 92, x2: BOARD_W - 98, y2: BOARD_H - 20 },
+          // 아래 깔때기 끝 — 가운데로 모인 공이 골인 띠로 떨어진다.
+          { x1: 98, y1: BOARD_H - 20, x2: 150, y2: BOARD_H - 12 },
+          { x1: BOARD_W - 98, y1: BOARD_H - 20, x2: BOARD_W - 150, y2: BOARD_H - 12 },
         ],
       };
     }
 
     function simulatePinball(dt) {
-      const gravity = 640;
+      const gravity = 520;
       const { pegs, guides } = race.pegs;
       race.racers.forEach((racer) => {
         if (racer.fin != null) return;
@@ -665,7 +667,15 @@ const module = {
         }
         racer.mood = racer.hit > 0 ? 'hit' : 'run';
         racer.hit = Math.max(0, racer.hit - dt);
-        racer.vy += gravity * dt;
+        // 벽과 가이드 사이에 끼어 거의 멈추면 한 번 밀어 준다.
+        const speedNow = Math.hypot(racer.vx, racer.vy);
+        racer.stuck = speedNow < 46 ? (racer.stuck || 0) + dt : 0;
+        if (racer.stuck > 0.6) {
+          racer.stuck = 0;
+          racer.vx += (randomUnit() - 0.5) * 220;
+          racer.vy += 170;
+        }
+        racer.vy = Math.min(560, racer.vy + gravity * dt);
         racer.vx *= 1 - 0.35 * dt;
         racer.x = clamp(racer.x + racer.vx * dt, racer.rad, BOARD_W - racer.rad);
         racer.y += racer.vy * dt;
@@ -1673,7 +1683,6 @@ const module = {
       if (live) live.textContent = '경주가 끝났습니다';
       playConfetti();
       sfx.fanfare();
-      toast('경주가 끝났습니다');
     }
 
     /** 끝난 뒤 컨페티만 따로 굴린다. */
