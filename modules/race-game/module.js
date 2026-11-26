@@ -371,7 +371,7 @@ const module = {
     function frame(now) {
       raf = 0;
       if (!race) return;
-      const delta = lastTime ? Math.min(0.05, (now - lastTime) / 1000) : 1 / 60;
+      const delta = lastTime ? Math.min(0.1, (now - lastTime) / 1000) : 1 / 60;
       lastTime = now;
 
       if (race.countdown > 0) {
@@ -845,10 +845,6 @@ const module = {
       const { width, height } = race;
       ctx2d.clearRect(0, 0, width, height);
       if (!width || !height) return;
-      if (race.countdown > 0) {
-        drawCountdown();
-        return;
-      }
       if (map.kind === 'track') {
         drawTrack();
         race.racers.forEach(drawTrackRacer);
@@ -864,21 +860,35 @@ const module = {
       }
       drawSparks();
       confetti.draw(ctx2d);
+      if (race.countdown > 0) drawCountdown();
     }
 
     function drawCountdown() {
       const { width, height } = race;
       const step = Math.ceil(race.countdown / 0.6);
       const label = step > 0 ? String(Math.min(3, step)) : '출발';
+      const pulse = 1 - (race.countdown % 0.6) / 0.6;
+      const size = Math.min(96, width * 0.2);
       ctx2d.save();
-      ctx2d.fillStyle = ink.dark ? '#20232A' : ink.card;
+      ctx2d.fillStyle = ink.dark ? '#16181C' : '#FFFFFF';
+      ctx2d.globalAlpha = 0.62;
       ctx2d.fillRect(0, 0, width, height);
+      ctx2d.globalAlpha = 0.9;
+      ctx2d.strokeStyle = ink.accent;
+      ctx2d.lineWidth = 3;
+      ctx2d.beginPath();
+      ctx2d.arc(width / 2, height / 2, size * (0.62 + pulse * 0.12), 0, Math.PI * 2);
+      ctx2d.stroke();
+      ctx2d.globalAlpha = 1;
       ctx2d.fillStyle = ink.accent;
-      ctx2d.font = `800 ${Math.min(64, width * 0.17)}px Pretendard, system-ui, sans-serif`;
+      ctx2d.font = `800 ${size}px Pretendard, system-ui, sans-serif`;
       ctx2d.textAlign = 'center';
       ctx2d.textBaseline = 'middle';
-      ctx2d.globalAlpha = 0.16 + 0.84 * (1 - (race.countdown % 0.6) / 0.6);
-      ctx2d.fillText(label, width / 2, height / 2);
+      ctx2d.fillText(label, width / 2, height / 2 + size * 0.03);
+      ctx2d.globalAlpha = 0.75;
+      ctx2d.fillStyle = ink.ink;
+      ctx2d.font = '650 12px Pretendard, system-ui, sans-serif';
+      ctx2d.fillText('출발 준비', width / 2, height / 2 + size * 0.78);
       ctx2d.restore();
     }
 
@@ -1674,7 +1684,7 @@ const module = {
       let last = 0;
       const began = performance.now();
       const step = (now) => {
-        const dt = last ? Math.min(0.05, (now - last) / 1000) : 1 / 60;
+        const dt = last ? Math.min(0.1, (now - last) / 1000) : 1 / 60;
         last = now;
         const alive = confetti.step(dt);
         draw();

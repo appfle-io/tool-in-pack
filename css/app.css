@@ -5122,6 +5122,8 @@ body.is-file-drag::after {
 .ld-name:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .ld-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .ld-name-text { overflow: hidden; text-overflow: ellipsis; }
+.ld-name.is-narrow { padding: 0 3px; gap: 2px; }
+.ld-name.is-narrow::before { width: 5px; height: 5px; }
 .ld-outs { position: absolute; bottom: 4px; left: 0; right: 0; height: 26px; }
 .ld-out {
   position: absolute;

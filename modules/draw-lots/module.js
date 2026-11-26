@@ -206,7 +206,7 @@ const module = {
     function fxFrame(now) {
       raf = 0;
       if (!ctx2d || !canvas) return;
-      const delta = lastTime ? Math.min(0.05, (now - lastTime) / 1000) : 1 / 60;
+      const delta = lastTime ? Math.min(0.1, (now - lastTime) / 1000) : 1 / 60;
       lastTime = now;
       const ratio = Math.min(3, window.devicePixelRatio || 1);
       ctx2d.clearRect(0, 0, canvas.width / ratio, canvas.height / ratio);

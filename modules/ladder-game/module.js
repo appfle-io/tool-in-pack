@@ -462,7 +462,7 @@ const module = {
 
     function drawLadder() {
       const { top, bottom, rowStep } = metrics;
-      const railWidth = Math.max(5, Math.min(9, rowStep * 0.28));
+      const railWidth = Math.max(4.5, Math.min(9, rowStep * 0.28, metrics.step * 0.36));
       ctx2d.save();
       ctx2d.lineCap = 'round';
       ctx2d.lineJoin = 'round';
@@ -652,7 +652,7 @@ const module = {
     function frame(now) {
       raf = 0;
       if (!ladder || !metrics) return;
-      const delta = lastTime ? Math.min(0.05, (now - lastTime) / 1000) : 0.016;
+      const delta = lastTime ? Math.min(0.1, (now - lastTime) / 1000) : 0.016;
       lastTime = now;
       let moving = false;
       const finishedNow = [];
