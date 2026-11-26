@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TIP v1.18.0 · 환경설정 4탭 + 노치 + 게임 3종 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.19.0 · 환경설정 4탭 + 노치 + 게임 3종 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
@@ -2495,6 +2495,142 @@ for (const [id, label] of [['sprint', '질주 트랙'], ['circuit', '장애물 �
     `${await page.locator('.rc-mapname').textContent()}/${await page.locator('.rc-rank-row').count()}`);
 }
 
+/* ------------------------------ v1.19.0 게임 고퀄 업그레이드 ------------------------------ */
+
+// ① 캐릭터 아바타 12종 — 각기 다른 색, 캔버스에 실제로 그려진다
+const charInfo = await page.evaluate(async () => {
+  const kit = await import('./js/game-kit.js');
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const context = canvas.getContext('2d');
+  const painted = [];
+  for (let index = 0; index < kit.CHARACTERS.length; index += 1) {
+    context.clearRect(0, 0, 64, 64);
+    kit.drawCharacter(context, index, 32, 32, 44, { mood: 'win' });
+    const data = context.getImageData(0, 0, 64, 64).data;
+    let count = 0;
+    for (let spot = 3; spot < data.length; spot += 4) if (data[spot] > 0) count += 1;
+    painted.push(count);
+  }
+  const moods = [];
+  ['idle', 'run', 'hit', 'win', 'lose'].forEach((mood) => {
+    context.clearRect(0, 0, 64, 64);
+    kit.drawCharacter(context, 0, 32, 32, 44, { mood });
+    const data = context.getImageData(0, 0, 64, 64).data;
+    let hash = 7;
+    for (let spot = 0; spot < data.length; spot += 13) hash = (hash * 31 + data[spot]) % 1000000007;
+    moods.push(hash);
+  });
+  return {
+    count: kit.CHARACTERS.length,
+    colors: new Set(kit.CHARACTERS.map((item) => item.color)).size,
+    minPainted: Math.min(...painted),
+    moodVariety: new Set(moods).size,
+  };
+});
+check('v1.19.0 — 캐릭터 아바타 12종', charInfo.count === 12 && charInfo.colors === 12 && charInfo.minPainted > 300,
+  JSON.stringify(charInfo));
+check('v1.19.0 — 표정이 상태마다 다르다', charInfo.moodVariety >= 4, String(charInfo.moodVariety));
+
+// ② 소리 단추 — 설정 화면에도 있고, 끄면 기기에 남는다
+await page.evaluate(() => { location.hash = '#/ladder-game'; });
+await page.waitForTimeout(400);
+check('v1.19.0 — 소리 단추', (await page.locator('[data-gm-sound]').count()) >= 1);
+const soundStart = await page.locator('[data-gm-sound]').first().getAttribute('aria-pressed');
+if (soundStart !== 'true') {
+  await page.locator('[data-gm-sound]').first().click();
+  await page.waitForTimeout(120);
+}
+await page.locator('[data-gm-sound]').first().click();
+await page.waitForTimeout(120);
+check('v1.19.0 — 소리를 끄면 기억', (await page.evaluate(() => localStorage.getItem('tip.games.sound.v1'))) === '0'
+  && (await page.locator('[data-gm-sound]').first().getAttribute('aria-pressed')) === 'false');
+await page.locator('[data-gm-sound]').first().click();
+await page.waitForTimeout(120);
+check('v1.19.0 — 다시 켜면 기억', (await page.evaluate(() => localStorage.getItem('tip.games.sound.v1'))) === '1');
+
+// ③ 사다리 균형 가로대 — 쌍마다 2개 이상, 곧장 내려가는 칸 없음
+const ladderRules = await page.evaluate(async () => {
+  const module = await import('./modules/ladder-game/module.js');
+  let minPair = 99;
+  let straight = 0;
+  let collisions = 0;
+  let trials = 0;
+  for (let trial = 0; trial < 90; trial += 1) {
+    const people = 2 + (trial % 11);
+    const rows = Math.max(9, Math.min(13, people + 4));
+    const rungs = module.makeRungs(people, rows);
+    trials += 1;
+    for (let pair = 0; pair < people - 1; pair += 1) {
+      const count = rungs.reduce((sum, row) => sum + (row.includes(pair) ? 1 : 0), 0);
+      minPair = Math.min(minPair, count);
+    }
+    rungs.forEach((row) => {
+      row.forEach((column) => {
+        if (row.includes(column + 1)) collisions += 1;
+      });
+    });
+    for (let start = 0; start < people; start += 1) {
+      if (!module.walk(start, rungs).steps.length) straight += 1;
+    }
+  }
+  return { minPair, straight, collisions, trials };
+});
+check('v1.19.0 — 사다리 균형 가로대', ladderRules.minPair >= 2 && ladderRules.straight === 0 && ladderRules.collisions === 0,
+  JSON.stringify(ladderRules));
+
+// ④ 사다리 화면 — 캐릭터 배지·이름·결과 배지, 12명까지
+await page.click('#gm-start');
+await page.waitForTimeout(500);
+check('v1.19.0 — 사다리 위 캐릭터 배지', (await page.locator('#ld-canvas').count()) === 1
+  && (await page.locator('.ld-name').count()) >= 2);
+await page.click('.ld-name >> nth=0');
+await page.waitForTimeout(2400);
+check('v1.19.0 — 사다리 도착 결과 공개', (await page.locator('.ld-out.is-open').count()) === 1,
+  String(await page.locator('.ld-out.is-open').count()));
+await page.click('.gm-actions [data-act="setup"]');
+await page.waitForTimeout(350);
+const ladderPeople = Number(await page.locator('#gm-people').textContent());
+for (let step = ladderPeople; step < 12; step += 1) {
+  await page.click('.gm-step[data-field="people"][data-dir="1"]');
+}
+await page.click('#gm-start');
+await page.waitForTimeout(600);
+check('v1.19.0 — 12명 사다리도 한 화면', (await page.locator('.ld-name').count()) === 12,
+  String(await page.locator('.ld-name').count()));
+check('v1.19.0 — 12명 사다리가 넘치지 않음', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+
+// ⑤ 제비뽑기 — 봉투마다 캐릭터, 열면 도장이 찍힌다
+await page.evaluate(() => { location.hash = '#/draw-lots'; });
+await page.waitForTimeout(400);
+await page.click('#gm-start');
+await page.waitForTimeout(450);
+check('v1.19.0 — 봉투마다 캐릭터', (await page.locator('.dl-card canvas[data-avatar]').count()) === 12,
+  String(await page.locator('.dl-card canvas[data-avatar]').count()));
+await page.click('.dl-card >> nth=0');
+await page.waitForTimeout(950);
+check('v1.19.0 — 뒤집힌 봉투에 도장', (await page.locator('.dl-card.is-open .dl-back .dl-verdict').count()) === 1);
+check('v1.19.0 — 컨페티 판이 카드 위에', (await page.locator('#dl-fx').count()) === 1);
+
+// ⑥ 골인 — 네 맵 완주 뒤 시상대
+const racePeople = 4;
+await page.evaluate(() => { location.hash = '#/race-game'; });
+await page.waitForTimeout(400);
+await page.click('.gm-map[data-map="sprint"]');
+await page.click('#gm-start');
+await page.waitForTimeout(400);
+await page.click('.rc-speed-btn[data-speed="2"]');
+await page.waitForSelector('#rc-summary', { timeout: 30000 }).catch(() => {});
+await page.waitForTimeout(400);
+check('v1.19.0 — 시상대 1·2·3등', (await page.locator('#rc-summary .rc-pod').count()) === 3,
+  String(await page.locator('#rc-summary .rc-pod').count()));
+check('v1.19.0 — 1등은 왕관 아바타', (await page.locator('#rc-summary .rc-pod-1 canvas[data-avatar]').count()) === 1);
+check('v1.19.0 — 순위표 전원', (await page.locator('#rc-summary .rc-board-row').count()) === racePeople,
+  String(await page.locator('#rc-summary .rc-board-row').count()));
+check('v1.19.0 — 결과에 캐릭터 얼굴', (await page.locator('#rc-summary canvas[data-avatar]').count()) >= 3,
+  String(await page.locator('#rc-summary canvas[data-avatar]').count()));
+
 /* 375px · 다크에서 게임 3종이 넘치지 않는지 */
 const gameMobileContext = await browser.newContext({ viewport: { width: 375, height: 812 }, locale: 'ko-KR', colorScheme: 'dark' });
 await gameMobileContext.addInitScript(MOCK);
@@ -2577,7 +2713,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.18.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.19.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

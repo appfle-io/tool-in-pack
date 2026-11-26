@@ -5,6 +5,10 @@
  * CI(macos-latest)에서 빌드 전에, 그리고 로컬에서 `node tools/verify-release.mjs` 로 돌린다.
  * 실패하면 목록을 보여 주고 exit code 1 로 끝난다(빌드·태그를 막는다).
  *
+ * v1.19.0 — 게임 3종 고퀄 업그레이드: 캐릭터 아바타 12종(표정 5종) · 효과음(Web Audio)과
+ *          음소거 기억 · 컨페티 · 사다리 균형 가로대(쌍마다 2개 이상, 곧장 내려감 없음) ·
+ *          네 맵의 부스터·진흙·순풍·허들·게이트·범퍼·풍차·왕복 발판·가속 슈트 · 시상대 ·
+ *          제비뽑기 봉투와 도장 스탬프를 검사한다.
  * v1.18.0 — 게임 묶음(제비뽑기 · 사다리타기 · 선착순 골인 4맵)과 공통 게임 키트,
  *          사람 수·꽝·이름 설정, 다시하기·새로 설정하기, HiDPI 사다리·60fps 경주를 검사한다.
  * v1.15.4 — 다크 모드 버튼 대비(초록 #3F7D68 · `--accent-ink`), 화면 문구의 줄표(—) 제거,
@@ -1233,6 +1237,7 @@ check('settings-e2e 가 v1.17.1 세 버그를 본다', /v1\.17\.1 — 창이 펼
    ================================================================ */
 
 const settingsE2e = read('tools/settings-e2e.mjs');
+check('버전 1.19.0 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 19 || (minor === 19 && patch >= 0))))(VERSION.split('.').map(Number)), VERSION);
 check('버전 1.18.0 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 18 || (minor === 18 && patch >= 0))))(VERSION.split('.').map(Number)), VERSION);
 check('버전 1.17.2 이상', (([major, minor, patch]) => major > 1 || (major === 1 && (minor > 17 || (minor === 17 && patch >= 2))))(VERSION.split('.').map(Number)), VERSION);
 // ① 월별 보기 — 달력(왼쪽) · 일정(오른쪽)
@@ -1320,7 +1325,7 @@ const ladder = read('modules/ladder-game/module.js');
 check('사다리 이름·id', /^  id: 'ladder-game',$/m.test(ladder) && /^  name: '사다리타기',$/m.test(ladder));
 check('사다리 가로대는 붙지 않는다', /function makeRungs/.test(ladder) && /column \+= 2;/.test(ladder));
 check('사다리 HiDPI 캔버스', /devicePixelRatio/.test(ladder) && /setTransform\(ratio, 0, 0, ratio, 0, 0\)/.test(ladder));
-check('사다리 이름 눌러 경로 추적', /function trace\(/.test(ladder) && /function strokePartial/.test(ladder) && /closest\('\.ld-name'\)/.test(ladder));
+check('사다리 이름 눌러 경로 추적', /function trace\(/.test(ladder) && /function strokePath/.test(ladder) && /closest\('\.ld-name'\)/.test(ladder));
 check('사다리 전체 동시에 보기', /전체 동시에 보기/.test(ladder) && /function traceAll/.test(ladder));
 check('사다리 결과 가리기·공개', /function revealResults/.test(ladder) && /function hideResults/.test(ladder) && /#ld-toggle/.test(ladder));
 
@@ -1334,7 +1339,7 @@ check('골인 1x·2x 속도', /const SPEEDS = \[1, 2\];/.test(race) && /rc-speed
 check('골인 핀볼 충돌 물리', /gravity/.test(race) && /function simulatePinball/.test(race) && /Math\.hypot\(dx, dy\)/.test(race));
 check('골인 지그재그 레일', /function railX/.test(race) && /Math\.sin\(/.test(race));
 check('골인 실시간 순위·도착 알림', /function paintRanking/.test(race) && /등 \$\{racer\.name\} 도착/.test(race));
-check('골인 꽝은 늦게 들어온 사람', /index >= race\.n - race\.losers/.test(race));
+check('골인 꽝은 늦게 들어온 사람', /const winCount = race\.n - race\.losers;/.test(race) && /index >= winCount/.test(race));
 
 check('게임 길 색 8종(라이트·다크)', /--gm-path-8/.test(gameCss)
   && /:root\[data-theme='dark'\] \{[\s\S]{0,600}--gm-path-2/.test(gameCss));
@@ -1348,6 +1353,61 @@ check('README 게임 3종 설명', read('README.md').includes('제비뽑기') &&
 check('README v1.18.0', read('README.md').includes('| v1.18.0 |'));
 check('settings-e2e 가 게임 3종을 실행한다', /v1\.18\.0 — 제비뽑기/.test(settingsE2e)
   && /v1\.18\.0 — 사다리타기/.test(settingsE2e) && /v1\.18\.0 — 골인 맵 4종/.test(settingsE2e));
+
+/* ================================================================
+   22. v1.19.0 — 게임 3종 고퀄 업그레이드
+   ================================================================ */
+
+check('공통 키트 캐릭터 12종', (kit.match(/^  \{ id: '/gm) || []).length === 12);
+check('캐릭터 표정 5종', /const EXPRESSIONS = \['idle', 'run', 'hit', 'win', 'lose'\];/.test(kit));
+check('캐릭터를 캔버스로 그린다', /export function drawCharacter/.test(kit) && /export function drawBadge/.test(kit)
+  && /function drawFace/.test(kit) && /export function drawNameTag/.test(kit));
+check('당첨 왕관·꽝 땀방울', /function drawCrown/.test(kit) && /땀방울/.test(kit));
+check('아바타 캔버스 페인터', /export function paintAvatars/.test(kit) && /export function avatarCanvas/.test(kit));
+check('효과음은 Web Audio 로 만든다', /new Ctor\(\)/.test(kit) && /createOscillator/.test(kit)
+  && /export const sfx = \{/.test(kit) && /fanfare\(\)/.test(kit) && /boost\(\)/.test(kit));
+check('음소거는 기기에 기억', /SOUND_KEY = 'tip\.games\.sound\.v1'/.test(kit) && /export function setSound/.test(kit)
+  && /export function bindSound/.test(kit) && /export function soundButton/.test(kit));
+check('컨페티·스파클', /export function createConfetti/.test(kit) && /burst\(x, y/.test(kit) && /sparkle\(x, y/.test(kit));
+check('시상대(1·2·3등)', /export function podiumHtml/.test(kit) && /rc-pod-\$\{rank\}/.test(kit));
+
+const kitHas = (text) => kit.includes(text);
+check('게임마다 소리 단추', gameSources.every((src) => /\$\{soundButton\(\)\}/.test(src) && /bindSound\(host, signal\)/.test(src)));
+check('게임마다 캐릭터 아바타', gameSources.every((src) => /paintAvatars|drawCharacter|avatarCanvas/.test(src)));
+check('게임마다 컨페티', gameSources.every((src) => /createConfetti\(\)/.test(src)));
+
+// 사다리 — 균형 가로대 · 나무 레일 · 배지 · 캐릭터 하강
+check('사다리 쌍마다 가로대 2개 이상', /MIN_RUNGS_PER_PAIR = 2;/.test(ladder) && /countPair\(pair\) < MIN_RUNGS_PER_PAIR/.test(ladder));
+check('사다리 곧장 내려감 없음', /walk\(start, grid\)\.steps\.length === 0/.test(ladder));
+check('사다리 규칙을 시험할 수 있게 내보냄', /export \{ makeRungs, walk, mixPaths \};/.test(ladder));
+check('사다리 나무 레일·반사광', /function drawLadder/.test(ladder) && /--gm-rail/.test(gameCss) && /railHi/.test(ladder));
+check('사다리 위 캐릭터 배지·하강 연출', /drawBadge\(ctx2d/.test(ladder) && /function pointOnPath/.test(ladder)
+  && /tilt: \(spot\.tilt \|\| 0\)/.test(ladder) && /const mood = state\.done \?/.test(ladder));
+check('사다리 도착 배지 팡', /animation: ld-pop/.test(gameCss) && /@keyframes ld-ring/.test(gameCss));
+
+// 골인 — 네 맵의 새 장치
+check('골인 질주 트랙 부스터·방해물·순풍', /boostAt/.test(race) && /hazardAt/.test(race)
+  && /순풍/.test(race) && /역풍/.test(race) && /race\.tape/.test(race));
+check('골인 서킷 허들·게이트·가속 레인', /function simulateCircuit/.test(race) && /props\.hurdles/.test(race)
+  && /gateOpen/.test(race) && /speedLane/.test(race));
+check('골인 핀볼 범퍼·회전 풍차·가이드', /kind: row\.spin \? 'spinner' : 'bumper'/.test(race)
+  && /peg\.angle \+= peg\.omega \* dt/.test(race) && /guides/.test(race));
+check('골인 레일 왕복 발판·가속 슈트', /platform\.dir \* platform\.speed/.test(race) && /chutes/.test(race)
+  && /function railX/.test(race));
+check('골인 캐릭터·이름표·궤적', /drawCharacter\(ctx2d, racer\.color/.test(race) && /drawNameTag/.test(race)
+  && /racer\.trail\.push/.test(race) && /pushDust/.test(race));
+check('골인 시상대와 컨페티', /podiumHtml\(/.test(race) && /function playConfetti/.test(race));
+check('시상대 CSS', /\.rc-podium \{/.test(gameCss) && /\.rc-pod-1 \.rc-pod-block/.test(gameCss));
+
+// 제비뽑기 — 아바타 봉투 · 도장 · 스파클
+check('제비뽑기 카드 아바타', /avatarCanvas\(who/.test(lots) && /dl-env/.test(lots));
+check('제비뽑기 도장 스탬프', /@keyframes dl-stamp/.test(gameCss) && /\.dl-card\.is-open \.dl-verdict \{ animation: dl-stamp/.test(gameCss));
+check('제비뽑기 당첨 스파클·컨페티', /dl-face-shine/.test(lots) && /burstAt\(/.test(lots) && /dl-fx/.test(gameCss));
+
+check('README v1.19.0', read('README.md').includes('| v1.19.0 |'));
+check('settings-e2e 가 v1.19.0 을 본다', /v1\.19\.0 — 캐릭터 아바타 12종/.test(settingsE2e)
+  && /v1\.19\.0 — 사다리 균형 가로대/.test(settingsE2e) && /v1\.19\.0 — 소리 단추/.test(settingsE2e)
+  && /v1\.19\.0 — 시상대/.test(settingsE2e));
 
 /* ------------------------------ 결과 ------------------------------ */
 
