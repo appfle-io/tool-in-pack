@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TIP v1.20.0 · 환경설정 4탭 + 노치 + 게임 3종 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.21.0 · 환경설정 4탭 + 노치 + 게임 3종 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
@@ -2398,6 +2398,14 @@ await notchShortcutContext.close();
 
 /* ------------------------------ v1.18.0 게임 3종 ------------------------------ */
 
+// 사람 수는 숫자칸에 직접 적을 수도 있다(v1.21.0 — 30명까지).
+const readPeople = async () => Number(await page.locator('#gm-people').inputValue());
+const setPeople = async (count) => {
+  await page.fill('#gm-people', String(count));
+  await page.locator('#gm-people').blur();
+  await page.waitForTimeout(220);
+};
+
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 await page.evaluate(() => { location.hash = '#/'; });
@@ -2410,12 +2418,12 @@ check('v1.18.0 — 게임 이름', gameTitles.join(',') === '제비뽑기,사다
 /* ① 제비뽑기 — 사람 수·이름·꽝 → 한 장씩 → 모두 열기 → 다시하기 → 새로 설정하기 */
 await page.evaluate(() => { location.hash = '#/draw-lots'; });
 await page.waitForTimeout(400);
-check('v1.18.0 — 제비뽑기 설정 화면', (await page.locator('#gm-people').textContent()) === '4', await page.locator('#gm-people').textContent());
+check('v1.18.0 — 제비뽑기 설정 화면', (await readPeople()) === 4, String(await readPeople()));
 await page.click('.gm-step[data-field="people"][data-dir="1"]');
 await page.click('.gm-step[data-field="people"][data-dir="1"]');
 await page.click('.gm-step[data-field="losers"][data-dir="1"]');
-check('v1.18.0 — 사람 수 6명·꽝 2명', (await page.locator('#gm-people').textContent()) === '6' && (await page.locator('#gm-losers').textContent()) === '2',
-  `${await page.locator('#gm-people').textContent()}/${await page.locator('#gm-losers').textContent()}`);
+check('v1.18.0 — 사람 수 6명·꽝 2명', (await readPeople()) === 6 && (await page.locator('#gm-losers').textContent()) === '2',
+  `${await readPeople()}/${await page.locator('#gm-losers').textContent()}`);
 check('v1.18.0 — 이름칸 6개', (await page.locator('.gm-name-input').count()) === 6, String(await page.locator('.gm-name-input').count()));
 await page.fill('.gm-name-input >> nth=0', '시우');
 await page.click('#gm-start');
@@ -2441,32 +2449,58 @@ check('v1.18.0 — 다시하기는 같은 인원으로 새로 뽑기', (await pa
   `${await page.locator('.dl-card').count()}/${await page.locator('.dl-card.is-open').count()}`);
 await page.click('.gm-actions [data-act="setup"]');
 await page.waitForTimeout(400);
+const namesAfterSetup = await page.locator('.gm-name-input').evaluateAll((nodes) => nodes.map((node) => node.value));
 check('v1.18.0 — 새로 설정하기는 지난 값 그대로',
-  (await page.locator('#gm-people').textContent()) === '6' && (await page.locator('.gm-name-input').first().inputValue()) === '시우',
-  `${await page.locator('#gm-people').textContent()}/${await page.locator('.gm-name-input').first().inputValue()}`);
+  (await readPeople()) === 6 && namesAfterSetup.length === 6 && namesAfterSetup.includes('시우'),
+  `${await readPeople()}/${namesAfterSetup.join(',')}`);
 await page.click('.gm-step[data-field="people"][data-dir="1"]');
-check('v1.18.0 — 설정 화면을 다시 열어도 단추가 한 번만', (await page.locator('#gm-people').textContent()) === '7',
-  await page.locator('#gm-people').textContent());
+check('v1.18.0 — 설정 화면을 다시 열어도 단추가 한 번만', (await readPeople()) === 7, String(await readPeople()));
 
-/* ② 사다리타기 — 캔버스 · 이름 클릭 경로 · 전체 동시에 · 결과 가리기/공개 */
+/* ② 사다리타기 — 가림막 · 셔플 · 시작하면 공개 · 결과 가리기/공개 */
 await page.evaluate(() => { location.hash = '#/ladder-game'; });
 await page.waitForTimeout(400);
 await page.click('#gm-start');
-await page.waitForTimeout(500);
+await page.waitForTimeout(520);
 const ladderBox = await page.locator('#ld-canvas').boundingBox();
 check('v1.18.0 — 사다리 캔버스 그려짐', !!ladderBox && ladderBox.width > 200 && ladderBox.height > 140,
   ladderBox ? `${Math.round(ladderBox.width)}x${Math.round(ladderBox.height)}` : 'none');
+check('v1.21.0 — 시작 전 가림막이 가로대를 덮음',
+  (await page.locator('#ld-curtain').count()) === 1
+  && (await page.locator('#ld-veil .ld-start').isVisible())
+  && (await page.locator('.ld').getAttribute('data-revealed')) === '0'
+  && (await page.locator('#ld-curtain.is-open').count()) === 0);
+check('v1.21.0 — 가림막이 사다리 높이를 다 덮음', await page.evaluate(() => {
+  const curtain = document.querySelector('#ld-curtain').getBoundingClientRect();
+  const canvas = document.querySelector('#ld-canvas').getBoundingClientRect();
+  return curtain.height >= canvas.height - 2 && curtain.width >= canvas.width - 2 && curtain.height > 150;
+}), await page.evaluate(() => {
+  const curtain = document.querySelector('#ld-curtain').getBoundingClientRect();
+  const canvas = document.querySelector('#ld-canvas').getBoundingClientRect();
+  return `${Math.round(curtain.width)}x${Math.round(curtain.height)} / ${Math.round(canvas.width)}x${Math.round(canvas.height)}`;
+}));
 check('v1.18.0 — 사다리 결과는 가려 둠', (await page.locator('.ld-out.is-open').count()) === 0);
-await page.click('.ld-name >> nth=0');
-await page.waitForTimeout(1800);
-check('v1.18.0 — 사다리타기 이름 눌러 경로', (await page.locator('.ld-out.is-open').count()) === 1,
-  String(await page.locator('.ld-out.is-open').count()));
+check('v1.21.0 — 시작 전에는 이름을 눌러도 길을 볼 수 없음', (await page.locator('.ld-name:disabled').count()) >= 2,
+  String(await page.locator('.ld-name:disabled').count()));
+// 시작을 눌러도 더 섞지 않는다 — 사용자가 본 순서 그대로 출발
+const orderBeforeStart = await page.locator('.ld').getAttribute('data-order');
+const shufflesBeforeStart = await page.locator('.ld').getAttribute('data-shuffles');
+await page.click('#ld-start');
+await page.waitForTimeout(700);
+check('v1.21.0 — 시작을 누르면 가림막이 열림', (await page.locator('#ld-curtain.is-open').count()) === 1
+  && (await page.locator('.ld').getAttribute('data-revealed')) === '1');
+check('v1.21.0 — 시작은 순서를 다시 섞지 않음',
+  (await page.locator('.ld').getAttribute('data-order')) === orderBeforeStart
+  && (await page.locator('.ld').getAttribute('data-shuffles')) === shufflesBeforeStart,
+  `${orderBeforeStart} → ${await page.locator('.ld').getAttribute('data-order')}`);
+await page.waitForTimeout(3200);
+check('v1.18.0 — 사다리타기 모두 내려감', (await page.locator('.ld-out.is-open').count()) === 4 && (await page.locator('#ld-summary').count()) === 1,
+  `${await page.locator('.ld-out.is-open').count()}/${await page.locator('#ld-summary').count()}`);
 const firstOut = (await page.locator('.ld-out.is-open').first().textContent()).trim();
 check('v1.18.0 — 사다리타기 결과 표시', ['당첨', '꽝', 'O', 'X'].includes(firstOut), firstOut);
-await page.click('#ld-all');
-await page.waitForTimeout(2800);
-check('v1.18.0 — 전체 동시에 보기', (await page.locator('.ld-out.is-open').count()) === 4 && (await page.locator('#ld-summary').count()) === 1,
-  `${await page.locator('.ld-out.is-open').count()}/${await page.locator('#ld-summary').count()}`);
+await page.click('.ld-name >> nth=0');
+await page.waitForTimeout(2200);
+check('v1.21.0 — 이름을 누르면 그 사람이 다시 내려감', (await page.locator('.ld-out.is-open').count()) === 4,
+  String(await page.locator('.ld-out.is-open').count()));
 await page.click('#ld-toggle');
 await page.waitForTimeout(300);
 check('v1.18.0 — 결과 가리기', (await page.locator('.ld-out.is-open').count()) === 0 && (await page.locator('#ld-summary').count()) === 0);
@@ -2474,8 +2508,10 @@ await page.click('#ld-toggle');
 await page.waitForTimeout(300);
 check('v1.18.0 — 결과 다시 공개', (await page.locator('.ld-out.is-open').count()) === 4, String(await page.locator('.ld-out.is-open').count()));
 await page.click('#ld-summary .gm-retry');
-await page.waitForTimeout(400);
+await page.waitForTimeout(500);
 check('v1.18.0 — 사다리 다시하기', (await page.locator('.ld-out.is-open').count()) === 0 && (await page.locator('#ld-summary').count()) === 0);
+check('v1.21.0 — 다시하기도 가림막부터', (await page.locator('.ld').getAttribute('data-revealed')) === '0'
+  && (await page.locator('#ld-curtain.is-open').count()) === 0);
 
 /* ③ 선착순 골인 — 4맵 · 1x/2x · 순위 · 꽝 판정 */
 await page.evaluate(() => { location.hash = '#/race-game'; });
@@ -2595,21 +2631,18 @@ const ladderRules = await page.evaluate(async () => {
 check('v1.19.0 — 사다리 균형 가로대', ladderRules.minPair >= 2 && ladderRules.straight === 0 && ladderRules.collisions === 0,
   JSON.stringify(ladderRules));
 
-// ④ 사다리 화면 — 캐릭터 배지·이름·결과 배지, 12명까지
+// ④ 사다리 화면 — 캐릭터 배지·이름·결과 배지, 가림막 뒤 이름은 잠김
 await page.click('#gm-start');
 await page.waitForTimeout(500);
 check('v1.19.0 — 사다리 위 캐릭터 배지', (await page.locator('#ld-canvas').count()) === 1
   && (await page.locator('.ld-name').count()) >= 2);
-await page.click('.ld-name >> nth=0');
-await page.waitForTimeout(2400);
-check('v1.19.0 — 사다리 도착 결과 공개', (await page.locator('.ld-out.is-open').count()) === 1,
+await page.click('#ld-start');
+await page.waitForTimeout(3600);
+check('v1.19.0 — 사다리 도착 결과 공개', (await page.locator('.ld-out.is-open').count()) >= 1,
   String(await page.locator('.ld-out.is-open').count()));
 await page.click('.gm-actions [data-act="setup"]');
 await page.waitForTimeout(350);
-const ladderPeople = Number(await page.locator('#gm-people').textContent());
-for (let step = ladderPeople; step < 12; step += 1) {
-  await page.click('.gm-step[data-field="people"][data-dir="1"]');
-}
+await setPeople(12);
 await page.click('#gm-start');
 await page.waitForTimeout(600);
 check('v1.19.0 — 12명 사다리도 한 화면', (await page.locator('.ld-name').count()) === 12,
@@ -2716,9 +2749,7 @@ check('v1.20.0 — 한 판이 12초 이상', raceSeconds >= 11, `${raceSeconds.t
 // ③ 지그재그 레일 12명 · 꼴찌 당첨 — 전원 완주, 마지막 사람이 당첨
 await page.click('#rc-summary [data-act="setup"]');
 await page.waitForTimeout(400);
-for (let step = 4; step < 12; step += 1) {
-  await page.click('.gm-step[data-field="people"][data-dir="1"]');
-}
+await setPeople(12);
 await page.click('.gm-mode[data-mode="last"]');
 await page.waitForTimeout(150);
 await page.click('.gm-map[data-map="rail"]');
@@ -2798,6 +2829,187 @@ check('v1.20.0 — 검색 결과가 한 줄', (await page.locator('.clip-item').
 await page.fill('#clip-query', '');
 await page.waitForTimeout(150);
 
+/* ------------------------------ v1.21.0 가림막 · 수동 셔플 · 30명 ------------------------------ */
+
+// ① 준비 화면에 들어오면 한 번 섞인 상태 — 셔플을 누를 때마다 즉시 다시 섞인다
+await page.evaluate(() => { location.hash = '#/ladder-game'; });
+await page.waitForTimeout(450);
+const setupRoot = page.locator('.gm-root');
+const setupOrder = async () => {
+  const first = await page.locator('.gm-name-input').first().inputValue();
+  const all = await page.locator('.gm-name-input').evaluateAll((nodes) => nodes.map((node) => node.value));
+  return { first, all: all.join('|') };
+};
+check('v1.21.0 — 준비 화면에 들어오면 한 번 섞인 상태', (await setupRoot.getAttribute('data-shuffles')) === '1',
+  String(await setupRoot.getAttribute('data-shuffles')));
+const shuffleOrders = [await setupOrder()];
+const shuffleCounts = [await setupRoot.getAttribute('data-shuffles')];
+for (let press = 0; press < 3; press += 1) {
+  await page.click('#gm-shuffle');
+  await page.waitForTimeout(140);
+  shuffleOrders.push(await setupOrder());
+  shuffleCounts.push(await setupRoot.getAttribute('data-shuffles'));
+}
+check('v1.21.0 — 셔플을 누를 때마다 순서가 바뀜',
+  shuffleOrders[1].all !== shuffleOrders[0].all && shuffleOrders[2].all !== shuffleOrders[1].all
+  && shuffleOrders[3].all !== shuffleOrders[2].all,
+  shuffleOrders.map((item) => item.all).join(' → '));
+check('v1.21.0 — 셔플 횟수가 누른 만큼 늘어남', shuffleCounts.join(',') === '1,2,3,4', shuffleCounts.join(','));
+
+// ② 이름 채움·비우기 편의성은 그대로
+await page.click('#gm-refill');
+await page.waitForTimeout(120);
+check('v1.21.0 — 이름 자동 채우기', (await page.locator('.gm-name-input').first().inputValue()).length > 0);
+await page.click('#gm-clear');
+await page.waitForTimeout(120);
+check('v1.21.0 — 이름 비우기', (await page.locator('.gm-name-input').first().inputValue()) === '');
+await page.click('#gm-refill');
+await page.waitForTimeout(120);
+
+// ③ 22명 — 기둥 최소 간격을 지키고 가로로 스크롤한다
+await setPeople(22);
+check('v1.21.0 — 22명 이름칸', (await page.locator('.gm-name-input').count()) === 22,
+  String(await page.locator('.gm-name-input').count()));
+check('v1.21.0 — 22명 이름 목록은 세 칸으로 compact', await page.evaluate(() => {
+  const el = document.querySelector('.gm-names');
+  const columns = getComputedStyle(el).gridTemplateColumns.split(' ').filter(Boolean).length;
+  const maxHeight = getComputedStyle(el).maxHeight;
+  return el.classList.contains('is-dense') && columns === 3 && maxHeight !== 'none';
+}));
+await page.click('#gm-start');
+await page.waitForTimeout(600);
+check('v1.21.0 — 22명 사다리 이름 22개', (await page.locator('.ld-name').count()) === 22,
+  String(await page.locator('.ld-name').count()));
+const ladder22 = await page.evaluate(() => {
+  const stage = document.querySelector('#ld-stage');
+  const inner = document.querySelector('#ld-inner');
+  const names = [...document.querySelectorAll('.ld-name')].map((node) => node.getBoundingClientRect());
+  let overlap = 0;
+  for (let index = 0; index < names.length; index += 1) {
+    for (let other = index + 1; other < names.length; other += 1) {
+      const a = names[index];
+      const b = names[other];
+      const sameRow = Math.abs(a.top - b.top) < 4;
+      if (sameRow && a.right > b.left + 1 && b.right > a.left + 1) overlap += 1;
+    }
+  }
+  return {
+    scroll: inner.getBoundingClientRect().width > stage.clientWidth + 1,
+    innerWidth: Math.round(inner.getBoundingClientRect().width),
+    stageWidth: Math.round(stage.clientWidth),
+    overlap,
+    step: Math.round(inner.getBoundingClientRect().width / 22),
+  };
+});
+check('v1.21.0 — 22명은 기둥 간격 30px 이상·이름표 겹침 없음', ladder22.step >= 30 && ladder22.overlap === 0,
+  JSON.stringify(ladder22));
+check('v1.21.0 — 22명이 페이지를 넘치게 하지 않음', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+await page.screenshot({ path: join(ROOT, 'screenshots', 'game-22-ladder-hidden.png') }).catch(() => {});
+
+// ④ 30명 — 셔플로 자리를 바꾸고 시작하면 그대로 출발
+await page.click('.gm-actions [data-act="setup"]');
+await page.waitForTimeout(400);
+await setPeople(30);
+check('v1.21.0 — 사람 수 30명까지', (await readPeople()) === 30, String(await readPeople()));
+await page.click('#gm-start');
+await page.waitForTimeout(700);
+check('v1.21.0 — 30명 사다리 이름 30개', (await page.locator('.ld-name').count()) === 30,
+  String(await page.locator('.ld-name').count()));
+check('v1.21.0 — 30명 가림막이 사다리를 덮음', await page.evaluate(() => {
+  const curtain = document.querySelector('#ld-curtain');
+  const canvas = document.querySelector('#ld-canvas');
+  if (!curtain || !canvas) return false;
+  const c = curtain.getBoundingClientRect();
+  const b = canvas.getBoundingClientRect();
+  const style = getComputedStyle(curtain);
+  return c.width >= b.width - 2 && c.height >= b.height - 2 && Number(style.opacity) === 1;
+}));
+await page.screenshot({ path: join(ROOT, 'screenshots', 'game-30-ladder-hidden.png') }).catch(() => {});
+const playOrder = async () => page.locator('.ld').getAttribute('data-order');
+const playShuffles = async () => page.locator('.ld').getAttribute('data-shuffles');
+const playOrder0 = await playOrder();
+const playShuffles0 = Number(await playShuffles());
+await page.click('#ld-shuffle');
+await page.waitForTimeout(420);
+const playOrder1 = await playOrder();
+await page.click('#ld-shuffle');
+await page.waitForTimeout(420);
+const playOrder2 = await playOrder();
+check('v1.21.0 — 게임 화면 셔플도 누를 때마다 바뀜', playOrder1 !== playOrder0 && playOrder2 !== playOrder1,
+  `${playOrder0.slice(0, 18)}… → ${playOrder1.slice(0, 18)}… → ${playOrder2.slice(0, 18)}…`);
+check('v1.21.0 — 게임 화면 셔플 횟수', Number(await playShuffles()) === playShuffles0 + 2,
+  `${playShuffles0} → ${await playShuffles()}`);
+const orderAtStart = await playOrder();
+const shufflesAtStart = await playShuffles();
+await page.click('#ld-start');
+await page.waitForTimeout(700);
+check('v1.21.0 — 30명 시작은 순서를 그대로 둠', (await playOrder()) === orderAtStart && (await playShuffles()) === shufflesAtStart);
+await page.screenshot({ path: join(ROOT, 'screenshots', 'game-30-ladder-open.png') }).catch(() => {});
+await page.waitForTimeout(5200);
+check('v1.21.0 — 30명 사다리 모두 내려감', (await page.locator('.ld-out.is-open').count()) === 30 && (await page.locator('#ld-summary').count()) === 1,
+  `${await page.locator('.ld-out.is-open').count()}/${await page.locator('#ld-summary').count()}`);
+check('v1.21.0 — 30명 결과에 이름 30개', (await page.locator('#ld-summary .gm-chip').count()) === 30,
+  String(await page.locator('#ld-summary .gm-chip').count()));
+
+// ⑤ 30명 제비뽑기 — 카드가 작아지고 넘치지 않으며 다 열린다
+await page.evaluate(() => { location.hash = '#/draw-lots'; });
+await page.waitForTimeout(450);
+await setPeople(30);
+await page.click('#gm-start');
+await page.waitForTimeout(500);
+check('v1.21.0 — 봉투 30장', (await page.locator('.dl-card').count()) === 30, String(await page.locator('.dl-card').count()));
+check('v1.21.0 — 30장은 작은 카드로 깔림', (await page.locator('.dl.is-crowded').count()) === 1);
+check('v1.21.0 — 30명 제비뽑기가 넘치지 않음',
+  await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
+  && await page.evaluate(() => {
+    const grid = document.querySelector('.dl-grid').getBoundingClientRect();
+    const cards = [...document.querySelectorAll('.dl-card')];
+    return cards.every((card) => {
+      const box = card.getBoundingClientRect();
+      return box.left >= -1 && box.right <= grid.right + 1 && box.width > 40;
+    });
+  }));
+await page.screenshot({ path: join(ROOT, 'screenshots', 'game-30-draw.png') }).catch(() => {});
+await page.click('#dl-open-all');
+await page.waitForTimeout(4200);
+check('v1.21.0 — 30장 모두 열기', (await page.locator('.dl-card.is-open').count()) === 30,
+  String(await page.locator('.dl-card.is-open').count()));
+check('v1.21.0 — 30명 결과 요약', (await page.locator('#dl-summary .gm-chip').count()) === 30,
+  String(await page.locator('#dl-summary .gm-chip').count()));
+
+// ⑥ 30명 핀볼 — 끼임 없이 전원 골인
+await page.evaluate(() => { location.hash = '#/race-game'; });
+await page.waitForTimeout(450);
+await setPeople(30);
+await page.click('.gm-map[data-map="pinball"]');
+await page.click('#gm-start');
+await page.waitForTimeout(500);
+await page.click('.rc-speed-btn[data-speed="2"]');
+let pinball30 = { forced: '0', stalls: 0, nudges: 0, summary: false };
+const pinballStart = Date.now();
+while (Date.now() - pinballStart < 90000) {
+  const state = await page.evaluate(() => {
+    const root = document.querySelector('.rc');
+    return {
+      forced: (root && root.dataset.forced) || '0',
+      stalls: parseFloat((root && root.dataset.stalls) || '0') || 0,
+      nudges: Number((root && root.dataset.nudges) || 0),
+      summary: !!document.querySelector('#rc-summary'),
+      duration: Number((root && root.dataset.duration) || 0),
+    };
+  });
+  pinball30 = { ...state, stalls: Math.max(pinball30.stalls, state.stalls), nudges: Math.max(pinball30.nudges, state.nudges) };
+  if (state.summary) break;
+  await page.waitForTimeout(120);
+}
+await page.waitForTimeout(400);
+check('v1.21.0 — 30명 핀볼 전원 골인', (await page.locator('#rc-summary .rc-board-row').count()) === 30,
+  String(await page.locator('#rc-summary .rc-board-row').count()));
+check('v1.21.0 — 30명 핀볼 강제 종료 없음', pinball30.forced === '0', String(pinball30.forced));
+check('v1.21.0 — 30명 핀볼 가장 긴 정체 3초 미만', pinball30.stalls < 3, `${pinball30.stalls.toFixed(1)}초`);
+await page.screenshot({ path: join(ROOT, 'screenshots', 'game-30-pinball.png') }).catch(() => {});
+check('v1.21.0 — 30명 골인 결과표 30줄', (await page.locator('#rc-summary .rc-board-row').count()) === 30);
+
 /* 375px · 다크에서 게임 3종이 넘치지 않는지 */
 const gameMobileContext = await browser.newContext({ viewport: { width: 375, height: 812 }, locale: 'ko-KR', colorScheme: 'dark' });
 await gameMobileContext.addInitScript(MOCK);
@@ -2829,6 +3041,41 @@ await gameMobile.waitForTimeout(350);
 await gameMobile.click('#gm-start');
 await gameMobile.waitForTimeout(700);
 check('v1.18.0 — 375px 골인이 넘치지 않음', await gameOverflow());
+// v1.21.0 — 375px 에서 30명도 넘치지 않는다
+const mobileThirty = async (hash) => {
+  await gameMobile.evaluate((target) => { location.hash = target; }, hash);
+  await gameMobile.waitForTimeout(400);
+  await gameMobile.fill('#gm-people', '30');
+  await gameMobile.locator('#gm-people').blur();
+  await gameMobile.waitForTimeout(260);
+};
+await mobileThirty('#/ladder-game');
+check('v1.21.0 — 375px 30명 이름 목록 넘치지 않음', await gameOverflow());
+await gameMobile.click('#gm-start');
+await gameMobile.waitForTimeout(700);
+check('v1.21.0 — 375px 30명 사다리 넘치지 않음', await gameOverflow());
+check('v1.21.0 — 375px 30명 사다리는 가로로 스크롤', await gameMobile.evaluate(() => {
+  const stage = document.querySelector('#ld-stage');
+  const inner = document.querySelector('#ld-inner');
+  return !!stage && !!inner && inner.getBoundingClientRect().width > stage.clientWidth + 40;
+}));
+await gameMobile.screenshot({ path: join(ROOT, 'screenshots', 'game-375-30-ladder.png') }).catch(() => {});
+await mobileThirty('#/draw-lots');
+await gameMobile.click('#gm-start');
+await gameMobile.waitForTimeout(600);
+check('v1.21.0 — 375px 30장 봉투 넘치지 않음', await gameOverflow()
+  && (await gameMobile.evaluate(() => {
+    const cards = [...document.querySelectorAll('.dl-card')];
+    const width = window.innerWidth;
+    return cards.length === 30 && cards.every((card) => card.getBoundingClientRect().right <= width + 1);
+  })));
+await gameMobile.screenshot({ path: join(ROOT, 'screenshots', 'game-375-30-draw.png') }).catch(() => {});
+await mobileThirty('#/race-game');
+await gameMobile.click('.gm-map[data-map="pinball"]');
+await gameMobile.click('#gm-start');
+await gameMobile.waitForTimeout(900);
+check('v1.21.0 — 375px 30명 핀볼 넘치지 않음', await gameOverflow());
+await gameMobile.screenshot({ path: join(ROOT, 'screenshots', 'game-375-30-pinball.png') }).catch(() => {});
 await gameMobile.screenshot({ path: '/tmp/tip-game-mobile.png' }).catch(() => {});
 await gameMobileContext.close();
 
@@ -2880,7 +3127,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.20.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.21.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

@@ -1291,7 +1291,7 @@ gameFiles.forEach((id) => check(`게임 모듈 파일 ${id}`, exists(`modules/${
 check('게임 공통 키트 파일', exists('js/game-kit.js'));
 
 const kit = read('js/game-kit.js');
-check('사람 수 2~12', /PEOPLE_MIN = 2;/.test(kit) && /PEOPLE_MAX = 12;/.test(kit));
+check('사람 수 2~30', /PEOPLE_MIN = 2;/.test(kit) && /PEOPLE_MAX = 30;/.test(kit));
 check('꽝은 사람 수-1까지만', /Math\.min\(Math\.floor\(losers\), total - 1\)/.test(kit));
 check('이름이 비면 번호로 채움', /\|\| defaultName\(index\)/.test(kit));
 check('설정을 이 기기에 기억', /function readSetup/.test(kit) && /function saveSetup/.test(kit) && /tip\.games\./.test(kit));
@@ -1327,7 +1327,8 @@ check('사다리 이름·id', /^  id: 'ladder-game',$/m.test(ladder) && /^  name
 check('사다리 가로대는 붙지 않는다', /function makeRungs/.test(ladder) && /column \+= 2;/.test(ladder));
 check('사다리 HiDPI 캔버스', /devicePixelRatio/.test(ladder) && /setTransform\(ratio, 0, 0, ratio, 0, 0\)/.test(ladder));
 check('사다리 이름 눌러 경로 추적', /function trace\(/.test(ladder) && /function strokePath/.test(ladder) && /closest\('\.ld-name'\)/.test(ladder));
-check('사다리 전체 동시에 보기', /전체 동시에 보기/.test(ladder) && /function traceAll/.test(ladder));
+check('사다리 가림막 뒤 모두 내려가기', /function traceAll/.test(ladder) && /ld-curtain/.test(ladder)
+  && /function revealStart/.test(ladder));
 check('사다리 결과 가리기·공개', /function revealResults/.test(ladder) && /function hideResults/.test(ladder) && /#ld-toggle/.test(ladder));
 
 // 선착순 골인 — 4맵 · 60fps · 1x/2x · 순위
@@ -1446,6 +1447,23 @@ check('골인 진단 상태(dataset)', /root\.dataset\.stuck/.test(race) && /roo
 check('선착순 골인 스트레스 도구', exists('tools/race-stress.mjs')
   && /MAPS/.test(read('tools/race-stress.mjs')) && /peakStuck/.test(read('tools/race-stress.mjs')));
 check('README v1.20.0', read('README.md').includes('| v1.20.0 |'));
+check('README v1.21.0', read('README.md').includes('| v1.21.0 |'));
+check('게임 사람 수 30명', /PEOPLE_MAX = 30/.test(read('js/game-kit.js')) && read('js/game-kit.js').includes('2명에서 30명'));
+check('자리 색 30종', /SLOT_COLORS/.test(read('js/game-kit.js'))
+  && (read('js/game-kit.js').match(/SLOT_COLORS = \[([\s\S]*?)\];/) || ['', ''])[1].split(',').length >= 30);
+check('사다리 가림막·셔플', /ld-curtain/.test(read('modules/ladder-game/module.js'))
+  && /function shuffleSeats/.test(read('modules/ladder-game/module.js'))
+  && /ld-veil/.test(read('modules/ladder-game/module.js')));
+check('골인 자리 속도 편향 제거', !/racer\.i % 3/.test(read('modules/race-game/module.js'))
+  && /racer\.pace/.test(read('modules/race-game/module.js')));
+check('자리 공정성 도구', exists('tools/seat-fairness.mjs')
+  && /chiSquare3Survival/.test(read('tools/seat-fairness.mjs'))
+  && /personWins/.test(read('tools/seat-fairness.mjs')));
+check('settings-e2e 가 v1.21.0 을 본다', /v1\.21\.0 — 시작 전 가림막이 가로대를 덮음/.test(settingsE2e)
+  && /v1\.21\.0 — 셔플을 누를 때마다 순서가 바뀜/.test(settingsE2e)
+  && /v1\.21\.0 — 시작은 순서를 다시 섞지 않음/.test(settingsE2e)
+  && /v1\.21\.0 — 30명 사다리 모두 내려감/.test(settingsE2e)
+  && /v1\.21\.0 — 30명 핀볼 전원 골인/.test(settingsE2e));
 check('settings-e2e 가 v1.20.0 을 본다', /v1\.20\.0 — 판정 방식 3종/.test(settingsE2e)
   && /v1\.20\.0 — 결승선 앞 슬로우 모션/.test(settingsE2e) && /v1\.20\.0 — 핀볼 양옆 끼임 없음/.test(settingsE2e)
   && /v1\.20\.0 — 레일 12명 전원 골인/.test(settingsE2e));
@@ -1457,7 +1475,22 @@ check('모듈 창 패널 함수', /pub fn pin_tool/.test(notchSrc) && /pub fn or
   && /fn order_front_level/.test(notchSrc));
 check('모든 Space·전체화면 패널 동작', /CanJoinAllSpaces/.test(notchSrc)
   && /FullScreenAuxiliary/.test(notchSrc) && /Stationary/.test(notchSrc));
-check('모듈 창은 제목줄을 살리고 비활성 패널만 더함', /panel\.styleMask\(\) \| NSWindowStyleMask::NonactivatingPanel/.test(notchSrc));
+// v1.21.0 — 창 클래스를 NSPanel 로 바꾸던 방식이 닫을 때(dealloc) EXC_BAD_ACCESS 강제종료를 냈다.
+// pin_tool 블록만 잘라서 본다(노치 창 configure_panel 은 그대로 TipNotchPanel 을 쓴다).
+const toolBlock = notchSrc.slice(notchSrc.indexOf('pub fn pin_tool'), notchSrc.indexOf('fn configure_panel'));
+const toolCode = toolBlock.split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');
+check('모듈 창은 창 클래스를 바꾸지 않는다(강제종료 원인 제거)',
+  !/AnyObject::set_class/.test(toolCode) && !/setFloatingPanel/.test(toolCode)
+  && !/setBecomesKeyOnlyIfNeeded/.test(toolCode), toolCode.slice(0, 40));
+check('모듈 창은 NSWindow 메서드만으로 띄운다',
+  /window\.setLevel\(TOOL_WINDOW_LEVEL\)/.test(toolCode)
+  && /window\.setCollectionBehavior\(nonactivating_behavior\(\)\)/.test(toolCode)
+  && /window\.setHidesOnDeactivate\(false\)/.test(toolCode)
+  && /window\.setReleasedWhenClosed\(false\)/.test(toolCode));
+check('모듈 창 닫기는 숨기기로(다시 열면 재사용)',
+  /WindowEvent::CloseRequested \{ api, \.\. \}/.test(libSrc) && /\.prevent_close\(\);/.test(libSrc)
+  && /let _ = handle\.hide\(\);/.test(libSrc)
+  && libSrc.indexOf('prevent_close') > libSrc.indexOf('fn open_tool'));
 check('open_tool 이 패널로 띄운다', /notch::pin_tool\(&win\)/.test(libSrc)
   && /notch::order_front_tool\(&win\)/.test(libSrc) && /notch::make_key\(&win\)/.test(libSrc)
   && /let pinned = notch::pin_tool\(&win\);/.test(libSrc));

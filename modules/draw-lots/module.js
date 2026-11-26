@@ -1,9 +1,11 @@
 /*
- * TIP · 제비뽑기 (draw-lots, v1.19.0)
+ * TIP · 제비뽑기 (draw-lots, v1.21.0)
  *
  * 봉투를 한 장씩 뒤집거나(3D 뒤집기·살짝 흔들림), 한꺼번에 열어 당첨과 꽝을 가른다.
  * 열릴 때 도장이 쾅 찍히고, 당첨이면 카드 위로 스파클과 컨페티가 터진다.
- * 사람 수(2~12)와 꽝 개수(0~사람 수-1)를 정하고, 이름은 비워 두면 '1번'부터 채워진다.
+ * 사람 수(2~30)와 꽝 개수(0~사람 수-1)를 정하고, 이름은 비워 두면 '1번'부터 채워진다.
+ * 30명이면 카드가 작아지고 네 줄로 빈틈없이 깔린다(넘치지 않게).
+ * 준비 화면의 [셔플] 이 순서를 섞고, 봉투는 깔 때마다 한 번 더 섞는다.
  * 결과를 뽑는 일은 모두 이 브라우저 안에서 한다.
  */
 
@@ -46,7 +48,7 @@ const module = {
   shortName: '제비뽑기',
   kind: 'tool',
   category: 'game',
-  version: '1.19.0',
+  version: '1.21.0',
   subtitle: '봉투를 한 장씩 뒤집기',
   description: '사람 수와 꽝 개수를 정하고 봉투를 눌러 당첨과 꽝을 가립니다. 봉투가 3D로 뒤집히며 도장이 찍히고, 한 장씩 뽑거나 한꺼번에 열 수 있습니다.',
   icon: ICON,
@@ -117,8 +119,9 @@ const module = {
 
     function renderPlay() {
       stopFx();
+      const many = cards.length > 12 ? (cards.length > 20 ? ' is-crowded' : ' is-many') : '';
       host.innerHTML = `
-        <div class="gm dl">
+        <div class="gm dl${many}" data-count="${cards.length}">
           <div class="gm-hud" id="dl-hud">
             ${hudStat('남은 봉투', String(cards.length), 'left')}
             ${hudStat('당첨', '0', 'win')}
@@ -282,11 +285,13 @@ const module = {
 
     function openAll() {
       const rest = cards.map((card, index) => (card.open ? -1 : index)).filter((index) => index >= 0);
+      // 카드가 많으면 도장이 찍히는 간격을 좀히 한꺼번에 열리도록 한다.
+      const gap = cards.length > 20 ? 55 : cards.length > 12 ? 75 : REVEAL_GAP;
       rest.forEach((index, order) => {
         const timer = setTimeout(() => {
           timers.delete(timer);
           openCard(index, true);
-        }, order * REVEAL_GAP);
+        }, order * gap);
         timers.add(timer);
       });
     }

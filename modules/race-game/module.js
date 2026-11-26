@@ -1,8 +1,15 @@
 /*
- * TIP · 선착순 골인 (race-game, v1.20.0)
+ * TIP · 선착순 골인 (race-game, v1.21.0)
  *
- * 사람 수(2~12)와 꽝 개수를 정하고 맵을 고르면, 모두 함께 출발해 먼저 골인한 사람이 당첨이다.
+ * 사람 수(2~30)와 꽝 개수를 정하고 맵을 고르면, 모두 함께 출발해 먼저 골인한 사람이 당첨이다.
  * 판정은 선착순(뒤 N명 꽝) · 꼴찌가 당첨(마지막 N명) · 1등만 당첨 중에서 고른다.
+ *
+ * v1.21.0
+ *   · 출발 자리 편향 제거 — 준비 화면과 [다시하기] 에서 자리를 한 번 섞고,
+ *     관중이 들어오는 순서(자리)와 상관없이 같은 조건으로 달리도록 출발 x 오프셋·초기 속도·
+ *     각도·지연을 매 판 무작위로 뽑는다. 범퍼·풍차·문의 초기 위상과 돌풍 시드도 매 판 새로 뽑는다.
+ *   · 30명까지 — 트랙은 레인 높이를 줄여 한 판에 담고,래는 카메라가 따라간다.
+ *     사람이 많을수록 정체 탈출을 더 빨리 걸어 전원 완주를 지킨다.
  *
  * 맵 4종 — 모두 긴 코스를 카메라가 따라가며, 12~22초 동안 순위가 뒤집힌다.
  *   · 질주 트랙     부스터 패드 · 진흙/바나나 · 순풍/역풍 게이트 · 돌풍 이벤트
@@ -25,7 +32,7 @@
  */
 
 import {
-  setupScreen, resultPanel, bindActions, hudStat, randomUnit, escapeText,
+  setupScreen, resultPanel, bindActions, hudStat, randomUnit, escapeText, shuffle,
   soundButton, bindSound, sfx, createConfetti, drawCharacter, drawNameTag,
   paintAvatars, podiumHtml, characterColor, VERDICT_MODES,
 } from '../../js/game-kit.js';
@@ -130,7 +137,7 @@ const module = {
   shortName: '골인',
   kind: 'tool',
   category: 'game',
-  version: '1.20.0',
+  version: '1.21.0',
   subtitle: '먼저 들어오면 당첨',
   description: '사람 수와 꽝 개수, 판정 방식을 정하고 맵을 고르면 모두 함께 출발합니다. 질주 트랙, 장애물 서킷, 핀볼 드롭, 지그재그 레일 네 맵의 긴 코스를 캐릭터들이 달리고 튕기며, 결승선 앞에서 느려지듯 순위가 갈립니다.',
   icon: ICON,
@@ -147,6 +154,7 @@ const module = {
     bindSound(host, signal);
 
     let setup = null;
+    let lineup = [];          // [{ name, who }] — 자리 순서
     let map = MAPS[0];
     let race = null;
     let canvas = null;
@@ -169,6 +177,7 @@ const module = {
     function showSetup() {
       stopFrame();
       race = null;
+      lineup = [];
       confetti.clear();
       setupScreen(host, {
         gameId: 'race-game',
@@ -178,6 +187,7 @@ const module = {
         signal,
         onStart: (next) => {
           setup = next;
+          lineup = next.names.slice(0, next.people).map((name, who) => ({ name, who }));
           map = MAPS.find((item) => item.id === next.map) || MAPS[0];
           startRace();
         },
@@ -213,42 +223,49 @@ const module = {
     }
 
     function createRacers(n) {
-      return Array.from({ length: n }, (_, index) => ({
-        i: index,
-        name: setup.names[index],
-        color: index,
-        p: 0,
-        x: 0,
-        y: 0,
-        vx: (randomUnit() - 0.5) * 60,
-        vy: 90 + randomUnit() * 40,
-        rad: Math.max(6, Math.min(9, 30 / Math.sqrt(n))),
-        skill: 0.93 + randomUnit() * 0.14,
-        boost: 0,
-        slow: 0,
-        hit: 0,
-        jump: 0,
-        wind: 0,
-        windTag: '',
-        fin: null,
-        rank: 0,
-        mood: 'idle',
-        flash: 0,
-        trail: [],
-        dust: [],
-        todo: 0,
-        lane: index,
-        phase: randomUnit() * Math.PI * 2,
-        waves: 1.4 + randomUnit() * 0.7,
-        delay: 0,
-        idle: 0,
-        rescues: 0,
-        bounceCool: 0,
-        markY: 0,
-        markT: 0,
-        flowT: 0,
-        stallMax: 0,
-      }));
+      return Array.from({ length: n }, (_, index) => {
+        const person = lineup[index] || { name: setup.names[index] || `${index + 1}번`, who: index };
+        return {
+          i: index,
+          who: person.who,
+          name: person.name,
+          color: person.who,
+          p: 0,
+          x: 0,
+          y: 0,
+          vx: (randomUnit() - 0.5) * 60,
+          vy: 90 + randomUnit() * 40,
+          // 사람이 많아져도 보드 안에서 부딪히며 내려갈 수 있게 반지름을 조금씩 줄인다.
+          rad: clamp(Math.min(9, Math.max(4.6, 44 / Math.sqrt(n))), 4.6, 9),
+          skill: 0.93 + randomUnit() * 0.14,
+          // 기본 속도도 사람마다 따로 뽑는다 — 자리(席) 번호로 속도를 더 주면 3번 자리가 영원히 이긴다.
+          pace: 122 + randomUnit() * 24,
+          boost: 0,
+          slow: 0,
+          hit: 0,
+          jump: 0,
+          wind: 0,
+          windTag: '',
+          fin: null,
+          rank: 0,
+          mood: 'idle',
+          flash: 0,
+          trail: [],
+          dust: [],
+          todo: 0,
+          lane: index,
+          phase: randomUnit() * Math.PI * 2,
+          waves: 1.4 + randomUnit() * 0.7,
+          delay: 0,
+          idle: 0,
+          rescues: 0,
+          bounceCool: 0,
+          markY: 0,
+          markT: 0,
+          flowT: 0,
+          stallMax: 0,
+        };
+      });
     }
 
     function startRace() {
@@ -277,7 +294,7 @@ const module = {
         slow: 0,
         slowBudget: SLOW_BUDGET,
         slowShown: false,
-        twistAt: 2.2,
+        twistAt: 1.3 + randomUnit() * 1.6,
         width: 0,
         height: 0,
         scale: 1,
@@ -290,25 +307,28 @@ const module = {
       startFrame();
     }
 
-    /** 맵마다 출발 자리를 잡는다. */
+    /** 맵마다 출발 자리를 잡는다 — 자리와 상관없이 조건을 같게 하려고 매번 새로 뽑는다. */
     function placeRacers() {
       race.racers.forEach((racer) => {
         if (map.kind === 'track') {
+          // 모든 레인이 같은 출발선에서 시작하고, 부스터·방해물은 레이 마다 무작위다.
           racer.p = 0;
           const spot = trackSpot(racer);
           racer.x = spot.x;
           racer.y = spot.y;
         } else if (map.id === 'pinball') {
-          racer.x = (BOARD_W * (racer.i + 0.5)) / race.n;
-          racer.y = -6 - racer.i * 3;
-          racer.vx = (randomUnit() - 0.5) * 70;
-          racer.vy = 60 + randomUnit() * 30;
-          racer.delay = 0.12 + racer.i * 0.04;
+          const slot = (BOARD_W * (racer.i + 0.5)) / race.n;
+          const spread = Math.min(BOARD_W / race.n, 26);
+          racer.x = clamp(slot + (randomUnit() - 0.5) * spread * 0.8, racer.rad, BOARD_W - racer.rad);
+          racer.y = -6 - randomUnit() * 12;
+          racer.vx = (randomUnit() - 0.5) * 190;
+          racer.vy = 55 + randomUnit() * 70;
+          racer.delay = randomUnit() * 0.16;
           racer.markY = racer.y;
           racer.markT = 0;
         } else {
-          racer.y = -8 - racer.i * 4;
-          racer.x = railX(racer);
+          racer.y = -8 - randomUnit() * 18;
+          racer.x = clamp(railX(racer) + (randomUnit() - 0.5) * 6, racer.rad, BOARD_W - racer.rad);
         }
       });
     }
@@ -350,6 +370,8 @@ const module = {
 
       canvas = host.querySelector('#rc-canvas');
       ctx2d = canvas ? canvas.getContext('2d') : null;
+      const rootEl = host.querySelector('.rc');
+      if (rootEl && race) rootEl.dataset.order = race.racers.map((racer) => racer.name).join('|');
       sizeCanvas();
       paintGauge(true);
       paintRanking(true);
@@ -375,8 +397,10 @@ const module = {
       let width;
       let height;
       if (map.kind === 'track') {
+        // 레인 높이를 640px 남짓 안에 맞춰 30명도 한 판에 담는다(최소 15px).
+        const lane = clamp(640 / n, 15, LANE_MIN);
         width = Math.min(container, 780);
-        height = Math.max(180, n * LANE_MIN + 26);
+        height = Math.max(150, Math.round(n * lane + 26));
       } else {
         width = Math.min(container, 430);
         height = Math.round(clamp(width * 1.2, 320, DROP_VIEW_MAX));
@@ -796,8 +820,9 @@ const module = {
       row(898, 3, 12, true);
 
       // 여닫는 문 — 벽에 붙은 체로 늘 아래쪽을 향해 흔들려, 공이 문 위에 걸터앉지 못한다.
-      doors.push({ x: 0, y: 978, len: 68, base: 0.55, amp: 0.32, omega: 1.9, phase: 0 });
-      doors.push({ x: BOARD_W, y: 1052, len: 68, base: Math.PI - 0.55, amp: 0.32, omega: 2.2, phase: 1.2 });
+      // 위상·속도를 매 판 새로 뽑아 특정 자리가 문 앞에 서는 운을 타지 않게 한다.
+      doors.push({ x: 0, y: 978, len: 68, base: 0.55, amp: 0.32, omega: 1.7 + randomUnit() * 0.7, phase: randomUnit() * Math.PI * 2 });
+      doors.push({ x: BOARD_W, y: 1052, len: 68, base: Math.PI - 0.55, amp: 0.32, omega: 1.9 + randomUnit() * 0.8, phase: randomUnit() * Math.PI * 2 });
 
       row(1118, 5, 10, false);
       row(1184, 3, 12, true);
@@ -960,8 +985,9 @@ const module = {
       }
     }
 
-    /** 정체 탈출 — 0.45초 넘게 거의 멈춰 있으면 확실히 아래로 빼 준다. */
+    /** 정체 탈출 — 사람이 많을수록 조금 더 빨리 아래로 빼 준다. */
     function rescue(racer, dt) {
+      const crowd = clamp(race.n / 12, 1, 2.6);
       const speed = Math.hypot(racer.vx, racer.vy);
       racer.idle = speed < STUCK_SPEED ? racer.idle + dt : Math.max(0, racer.idle - dt * 1.6);
       // 진행 정체 감시 — 6px 도 못 내려간 가장 긴 시간을 잔다(끼임 판정에 쓴다).
@@ -976,14 +1002,14 @@ const module = {
           race.stats.stallX = Math.round(racer.x);
         }
       }
-      // 1.3초 넘게 제자리면 아래로 흘려보낸다 — 화면에 '끼어 멈춘' 모습이 남지 않게.
-      if (racer.markT && race.t - racer.markT > 1.3 && race.t - (racer.flowT || 0) > 0.4) {
+      // 제자리면 아래로 흘려보낸다 — 화면에 '끼어 멈춘' 모습이 남지 않게.
+      if (racer.markT && race.t - racer.markT > 1.3 / crowd && race.t - (racer.flowT || 0) > 0.4 / crowd) {
         racer.flowT = race.t;
-        racer.vy = Math.max(racer.vy, 180);
+        racer.vy = Math.max(racer.vy, 200 * crowd);
         racer.vx *= 0.35;
         race.stats.flow += 1;
       }
-      if (racer.idle < STUCK_TIME) return;
+      if (racer.idle < STUCK_TIME / crowd) return;
       racer.idle = 0;
       racer.rescues += 1;
       race.stats.stuck += 1;
@@ -1066,11 +1092,13 @@ const module = {
         if (racer.y >= H - 16) {
           racer.y = H - 16;
           arrive(racer);
-          // 골인한 사람은 결승 띠 위에 두 줄로 나린히 — 서로 겹쳐 보이지 않게 한다.
+          // 골인한 사람은 결승 띠 위에 줄로 나린히 — 서로 겹쳐 보이지 않게 한다.
           const slot = Math.max(0, racer.rank - 1);
-          const row = Math.floor(slot / 6);
-          racer.x = clamp(30 + (slot % 6) * 60 + row * 30, racer.rad, BOARD_W - racer.rad);
-          racer.y = H - 16 - row * 46;
+          const cols = race.n > 20 ? 8 : 6;
+          const cell = BOARD_W / cols;
+          const row = Math.floor(slot / cols);
+          racer.x = clamp(cell * (slot % cols) + cell / 2, racer.rad, BOARD_W - racer.rad);
+          racer.y = H - 16 - row * (race.n > 20 ? 30 : 46);
           racer.vx = 0;
         }
       });
@@ -1081,9 +1109,9 @@ const module = {
     /* ------------------------------ 지그재그 레일 ------------------------------ */
 
     function buildRail(n) {
-      const lanes = Array.from({ length: n }, (_, index) => ({
-        waves: 3.4 + (index % 3) * 0.5,
-        phase: ((index * Math.PI * 2) / Math.max(1, n)) * 0.7,
+      const lanes = Array.from({ length: n }, () => ({
+        waves: 3.2 + randomUnit() * 1.1,
+        phase: randomUnit() * Math.PI * 2,
         amp: Math.min(28, (BOARD_W / Math.max(2, n)) * 0.34),
       }));
       const platforms = [
@@ -1122,7 +1150,7 @@ const module = {
         if (slows.some((slow) => ratio >= slow.from && ratio <= slow.to)) speedFactor *= 0.62;
         if (racer.boost > 0) speedFactor *= 1.45;
         if (racer.slow > 0) speedFactor *= 0.55;
-        racer.vy = (128 + 20 * (racer.i % 3)) * racer.skill * speedFactor;
+        racer.vy = racer.pace * racer.skill * speedFactor;
         racer.y += racer.vy * dt;
         let x = railX(racer);
 
@@ -1640,7 +1668,7 @@ const module = {
         ctx2d.restore();
       }
 
-      const size = Math.max(15, Math.min(21, laneH * 0.52));
+      const size = clamp(laneH * 0.56, 8, 21);
       const mood = racer.fin != null ? (isWinner(racer.rank) ? 'win' : 'lose') : racer.mood;
       drawCharacter(ctx2d, racer.color, spot.x, spot.y, size, {
         mood: mood === 'idle' ? 'run' : mood,
@@ -1650,8 +1678,8 @@ const module = {
       });
 
       drawNameTag(ctx2d, racer.name, spot.x, spot.y - size * 0.85 - 2, {
-        size: laneH > 44 ? 10 : 8.5,
-        maxWidth: Math.max(44, 160 / Math.max(2, race.n)),
+        size: clamp(laneH * 0.42, 6.5, 10),
+        maxWidth: Math.max(38, Math.min(120, 160 / Math.max(2, race.n))),
         bg: ink.dark ? 'rgba(30,32,38,0.86)' : 'rgba(255,255,255,0.9)',
         border: color,
         color: ink.text,
@@ -2004,8 +2032,8 @@ const module = {
       });
 
       drawNameTag(ctx2d, racer.name, x, y - size * 0.72 - 5, {
-        size: 9,
-        maxWidth: Math.max(38, (BOARD_W / race.n) * 1.5),
+        size: clamp(racer.rad * 1.5, 6.5, 9.5),
+        maxWidth: Math.max(32, Math.min(90, (BOARD_W / race.n) * 1.5)),
         bg: ink.dark ? 'rgba(30,32,38,0.86)' : 'rgba(255,255,255,0.92)',
         border: color,
         color: ink.text,
@@ -2209,19 +2237,22 @@ const module = {
 
     /* ------------------------------ 연결 ------------------------------ */
 
+    /** 다시하기 — 새 판을 준비하면서 자리를 한 번 섞어 둔다. */
+    function nextRound() {
+      if (!setup) return;
+      lineup = shuffle(lineup);
+      startRace();
+    }
+
     host.addEventListener('click', (event) => {
       if (event.target.closest('#rc-again')) {
         event.preventDefault();
-        if (!setup) return;
-        startRace();
+        nextRound();
       }
     }, { signal });
 
     bindActions(host, {
-      onRetry: () => {
-        if (!setup) return;
-        startRace();
-      },
+      onRetry: () => nextRound(),
       onSetup: () => showSetup(),
     }, signal);
 

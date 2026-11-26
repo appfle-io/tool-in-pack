@@ -1,12 +1,15 @@
-/* TIP · 게임 공통 (v1.20.0)
+/* TIP · 게임 공통 (v1.21.0)
  *
  * 제비뽑기 · 사다리타기 · 선착순 골인이 함께 쓰는 것만 모았다.
- *   · 사람 수(2~12)와 꽝 개수(0~사람 수-1)를 정하는 설정 화면
- *   · 참가자 이름 입력(비우면 '1번'부터 자동으로 채운다)
+ *   · 사람 수(2~30)와 꽝 개수(0~사람 수-1)를 정하는 설정 화면
+ *   · 참가자 이름 입력(비우면 '1번'부터 자동으로 채운다) — 30명도 스크롤 안에서
+ *   · 순서 섞기(수동 셔플) — 준비 화면에 들어올 때 한 번, 단추를 누를 때마다 다시
+ *     (시작을 누르면 더 섞지 않는다. 사용자가 보고 정한 그 자리에서 출발한다)
  *   · 설정 기억(tip.games.<게임>.v1) — 새로 설정하기로 돌아오면 지난 값 그대로
  *   · 다시하기 / 새로 설정하기 버튼과 결과 요약(당첨과 꽝을 나눠서)
  *   · 공정한 난수(crypto)와 섞기
  *   · 캐릭터 아바타 12종(캔버스 직접 드로잉) — 대기·질주·충돌·당첨·꽝 표정
+ *     + 30명까지 서로 구분되는 자리 색 30종(링·배지·이름표 테두리)
  *   · 효과음(Web Audio)과 음소거 토글(tip.games.sound.v1)
  *   · 컨페티·스파클
  *
@@ -14,7 +17,7 @@
  */
 
 export const PEOPLE_MIN = 2;
-export const PEOPLE_MAX = 12;
+export const PEOPLE_MAX = 30;
 export const NAME_MAX = 12;
 
 /** 판정 방식 — 지금은 선착순 골인이 쓴다(사람 수·꽝 개수와 자연스럽게 맞춘다). */
@@ -161,9 +164,24 @@ export function characterAt(index) {
   return CHARACTERS[slot];
 }
 
-/** 아바타 색 — 선·궤적·이름표 테두리. */
+/**
+ * 자리 색 30종 — 30명이어도 링·배지·이름표 테두리 색이 겹치지 않게.
+ * 캐릭터가 12종이라 얼굴은 돌아가지만, 이 색으로 사람을 구분한다.
+ */
+export const SLOT_COLORS = [
+  '#E0559B', '#EF7B1E', '#9A6C3F', '#7C5CD6', '#D9562B', '#4B5563',
+  '#D4A000', '#3FA34D', '#12A5A5', '#2F6FE0', '#8A93A5', '#C2603F',
+  '#B5006B', '#8C6D1F', '#0E7C66', '#5A4FCF', '#C2185B', '#2E7D32',
+  '#0277BD', '#6D4C41', '#7B1FA2', '#7FA41B', '#D84315', '#37548A',
+  '#E96AA8', '#3FA79C', '#B7810C', '#7E57C2', '#7CB342', '#00838F',
+];
+
+/** 아바타 색 — 선·궤적·이름표 테두리. 자리마다 다른 30색. */
 export function characterColor(index) {
-  return characterAt(index).color;
+  const value = Number(index);
+  const size = SLOT_COLORS.length;
+  const slot = Number.isFinite(value) ? ((Math.floor(value) % size) + size) % size : 0;
+  return SLOT_COLORS[slot];
 }
 
 const EXPRESSIONS = ['idle', 'run', 'hit', 'win', 'lose'];
@@ -576,7 +594,7 @@ export function drawBadge(ctx, index, x, y, radius, options = {}) {
     sparkle: options.sparkle,
   });
   ctx.lineWidth = Math.max(1.6, radius * 0.16);
-  ctx.strokeStyle = ch.color;
+  ctx.strokeStyle = characterColor(index);
   ctx.beginPath();
   ctx.arc(x, y, radius - ctx.lineWidth / 2, 0, Math.PI * 2);
   ctx.stroke();
@@ -966,6 +984,31 @@ export function setupScreen(host, options) {
   if (modes.length && !modes.some((mode) => mode.id === state.mode)) state.mode = modes[0].id;
   // 판정 방식을 오가도 사용자가 고른 꽝 개수를 잃지 않게 따로 들고 있는다.
   let keptLosers = state.mode === 'solo' ? Math.min(1, state.people - 1) : state.losers;
+  // 준비 화면에 들어오면 한 번 섞어 둔다 — 시작 전 기본이 이미 섞인 상태.
+  let shuffles = 0;
+
+  function markShuffles() {
+    host.dataset.shuffles = String(shuffles);
+    host.dataset.order = state.names.slice(0, state.people).join('|');
+    const note = host.querySelector('#gm-shuffle-note');
+    if (note) {
+      note.textContent = shuffles === 1
+        ? '순서를 한 번 섞었습니다. 셔플을 누를 때마다 다시 섞입니다.'
+        : `${shuffles}번 섞었습니다. 시작하면 이 순서 그대로 출발합니다.`;
+    }
+  }
+
+  /** 지금 보이는 이름 순서를 그대로 한 번 더 섞는다(수동 셔플). */
+  function shuffleNames() {
+    if (state.people < 2) return;
+    readNames();
+    const head = state.names.slice(0, state.people);
+    state.names = [...shuffle(head), ...state.names.slice(state.people)];
+    shuffles += 1;
+    sfx.flip();
+    paintNames();
+    markShuffles();
+  }
 
   host.innerHTML = `
     <div class="gm gm-setup">
@@ -974,10 +1017,11 @@ export function setupScreen(host, options) {
           <span class="gm-label" id="gm-people-label">사람 수</span>
           <div class="gm-stepper" role="group" aria-labelledby="gm-people-label">
             <button class="gm-step" type="button" data-field="people" data-dir="-1" aria-label="사람 수 줄이기">−</button>
-            <output class="gm-value" id="gm-people" aria-live="polite">${state.people}</output>
+            <input class="gm-value gm-num" id="gm-people" type="text" inputmode="numeric" size="2"
+                   value="${state.people}" aria-label="사람 수(2에서 30)" autocomplete="off" spellcheck="false">
             <button class="gm-step" type="button" data-field="people" data-dir="1" aria-label="사람 수 늘리기">+</button>
           </div>
-          <span class="gm-sub">2명에서 12명</span>
+          <span class="gm-sub">2명에서 30명</span>
           <span class="gm-row-end">${soundButton()}</span>
         </div>
         <div class="gm-row">
@@ -1012,9 +1056,14 @@ export function setupScreen(host, options) {
       <div class="gm-panel">
         <div class="gm-row gm-row-head">
           <span class="gm-label">참가자 이름</span>
-          <button class="gm-link" type="button" id="gm-refill">이름 자동 채우기</button>
+          <div class="gm-name-tools">
+            <button class="gm-link" type="button" id="gm-shuffle" aria-label="이름 순서 섞기">셔플</button>
+            <button class="gm-link" type="button" id="gm-refill">이름 자동 채우기</button>
+            <button class="gm-link" type="button" id="gm-clear">이름 비우기</button>
+          </div>
         </div>
         <div class="gm-names" id="gm-names"></div>
+        <p class="gm-hint" id="gm-shuffle-note"></p>
       </div>
 
       <div class="gm-start-row">
@@ -1038,12 +1087,15 @@ export function setupScreen(host, options) {
                data-index="${index}" aria-label="${index + 1}번 참가자 이름" spellcheck="false"
                autocomplete="off" enterkeyhint="done">
       </label>`).join('');
+    // 30명이면 이름이 촘촘해지므로 세 칸으로 놓고 목록 안에서 스크롤한다.
+    namesEl.classList.toggle('is-dense', state.people > 16);
+    namesEl.classList.toggle('is-crowded', state.people > 24);
     paintAvatars(namesEl);
   }
 
   function paintCounts() {
     const solo = state.mode === 'solo';
-    peopleEl.textContent = String(state.people);
+    if (peopleEl && peopleEl.value !== String(state.people)) peopleEl.value = String(state.people);
     losersEl.textContent = String(solo ? state.people - 1 : state.losers);
     if (losersLabel) losersLabel.textContent = state.mode === 'last' ? '당첨' : '꽝';
     if (solo) {
@@ -1080,15 +1132,23 @@ export function setupScreen(host, options) {
     paintNames();
   }
 
+  /** 사람 수를 바꾼다 — 숫자를 직접 적어도, 단추를 눌러도 같은 길로 들어온다. */
+  function setPeople(next) {
+    const value = Math.floor(Number(next));
+    const target = Math.max(PEOPLE_MIN, Math.min(PEOPLE_MAX, Number.isFinite(value) ? value : state.people));
+    if (target === state.people) return false;
+    // 이름칸에 적어 둔 값을 먼저 state 로 옮긴 뒤 인원을 바꾼다.
+    readNames();
+    state.people = target;
+    if (state.mode === 'solo') keptLosers = Math.max(1, Math.min(keptLosers, state.people - 1));
+    state.losers = Math.min(state.losers, state.people - 1);
+    if (state.mode === 'last') state.losers = Math.max(1, state.losers);
+    return true;
+  }
+
   function step(field, dir) {
     if (field === 'people') {
-      const next = Math.max(PEOPLE_MIN, Math.min(PEOPLE_MAX, state.people + dir));
-      if (next === state.people) return;
-      state.people = next;
-      // 이름칸에 적어 둔 값을 먼저 state 로 옮긴 뒤 인원을 바꾼다.
-      readNames();
-      if (state.mode === 'solo') keptLosers = Math.max(1, Math.min(keptLosers, state.people - 1));
-      state.losers = Math.min(state.losers, state.people - 1);
+      if (!setPeople(state.people + dir)) return;
     } else {
       if (state.mode === 'solo') return;
       const min = state.mode === 'last' ? 1 : 0;
@@ -1137,11 +1197,25 @@ export function setupScreen(host, options) {
       step(stepButton.dataset.field, Number(stepButton.dataset.dir));
       return;
     }
+    if (event.target.closest('#gm-shuffle')) {
+      event.preventDefault();
+      shuffleNames();
+      return;
+    }
     if (event.target.closest('#gm-refill')) {
       event.preventDefault();
       state.names = Array.from({ length: PEOPLE_MAX }, (_, index) => defaultName(index));
       sfx.click();
       paintNames();
+      markShuffles();
+      return;
+    }
+    if (event.target.closest('#gm-clear')) {
+      event.preventDefault();
+      state.names = Array.from({ length: PEOPLE_MAX }, () => '');
+      sfx.click();
+      paintNames();
+      markShuffles();
       return;
     }
     const mapButtonEl = event.target.closest('.gm-map');
@@ -1171,14 +1245,30 @@ export function setupScreen(host, options) {
     }
   }, listen);
 
+  host.addEventListener('change', (event) => {
+    if (event.target !== peopleEl) return;
+    setPeople(peopleEl.value);
+    paint();
+    saveSetup(gameId, finalSetup());
+  }, listen);
+
   host.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && event.target.classList.contains('gm-name-input')) {
       event.preventDefault();
       event.target.blur();
+    } else if (event.key === 'Enter' && event.target === peopleEl) {
+      event.preventDefault();
+      peopleEl.blur();
     }
   }, listen);
 
+  // 준비 화면에 들어오면 한 번 섞어 둔다 — 시작 전 기본이 이미 섞인 상태.
+  if (state.people >= 2) {
+    state.names = [...shuffle(state.names.slice(0, state.people)), ...state.names.slice(state.people)];
+    shuffles = 1;
+  }
   paint();
+  markShuffles();
 }
 
 /* ------------------------------ 결과 ------------------------------ */
