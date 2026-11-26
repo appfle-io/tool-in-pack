@@ -3335,6 +3335,13 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
 .clip-item:active { background: var(--card-2); }
 .clip-item.is-pinned { border-color: var(--accent); }
 .clip-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* v1.20.0 — ↑↓ 로 고른 항목. 테두리·바탕과 왼쪽 굶은 막대로 한눈에 보이게 한다. */
+.clip-item.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.clip-item.is-active .clip-text { color: var(--text); }
 
 .clip-thumb {
   flex: none;
@@ -3509,11 +3516,20 @@ body.is-dragging .module-card:not(.is-dragging) { cursor: grabbing; }
 
 .addr-embed {
   width: 100%;
-  height: 420px;
+  /* v1.20.0 — 카카오 우편번호 UI 가 스스로 쓰는 높이(안내문 + 바닥 푸터)에 상자를 맞춘다.
+     v1.19.0 까지 420px 이라 푸터가 잘렸고, Mac 창은 720px 이라 아래가 회게 비었다.
+     폭이 좁을수록 안내문이 여러 줄로 넘어가 조금 더 높아진다(실제 화면을 재어 맞췄다). */
+  height: 452px;
   border-radius: var(--radius);
   border: 1px solid var(--line);
   overflow: hidden;
   background: var(--card);
+}
+@media (max-width: 560px) {
+  .addr-embed { height: 462px; }
+}
+@media (max-width: 420px) {
+  .addr-embed { height: 474px; }
 }
 .addr-embed iframe,
 .addr-embed .addr-frame { width: 100% !important; height: 100% !important; border: 0; display: block; }
@@ -4772,6 +4788,27 @@ body.is-file-drag::after {
 .gm-face { display: block; flex: none; }
 .gm-face.is-badge { border-radius: 50%; }
 
+.gm-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.gm-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-start;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--card-2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.gm-mode:hover { border-color: var(--line-strong); }
+.gm-mode.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.gm-mode b { font-size: 12.5px; font-weight: 650; }
+.gm-mode span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.gm-mode.is-on span { color: var(--accent-ink); opacity: 0.8; }
+
 .gm-maps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .gm-map {
   display: flex;
@@ -5169,6 +5206,41 @@ body.is-file-drag::after {
 
 .rc { gap: 10px; }
 .rc-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rc-progress {
+  position: relative;
+  flex: 1;
+  min-width: 60px;
+  height: 14px;
+}
+.rc-progress-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.rc-progress-window {
+  position: absolute;
+  top: 50%;
+  height: 10px;
+  margin-top: -5px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  opacity: 0.75;
+}
+.rc-progress-dots { position: absolute; left: 0; right: 0; top: 0; bottom: 0; }
+.rc-progress-dots i {
+  position: absolute;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--card);
+}
 .rc-mapname { font-size: 12.5px; font-weight: 650; color: var(--muted); }
 .rc-speed { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 9px; background: var(--card-2); }
 .rc-speed-btn {

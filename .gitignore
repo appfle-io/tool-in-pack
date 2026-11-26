@@ -15,3 +15,6 @@ downloads/*.dmg
 
 # 릴리스에서 내려받은 해시 목록 — Release 자산으로만 둔다.
 downloads/SHA256SUMS.txt
+
+# tools/race-stress.mjs 가 남기는 확인용 화면
+screenshots/

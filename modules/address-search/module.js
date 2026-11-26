@@ -159,9 +159,9 @@ function mount(root, ctx) {
   function createKoreanFrame() {
     const frame = document.createElement('iframe');
     frame.className = 'addr-frame';
-    // v1.14.0 — 프레임이 모듈 폭을 꽉 채우게 한다(예전에는 높이가 어긋나 작게 보였다).
+    // v1.20.0 — 프레임은 상자(addr-embed)를 100%×100% 로 꽉 채운다. 상자 높이는 CSS 가 카카오 UI 에 맞춘다.
     frame.style.width = '100%';
-    frame.style.height = '480px';
+    frame.style.height = '100%';
     frame.style.display = 'block';
     frame.style.border = '0';
     frame.title = '우편번호 검색';

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * TIP v1.19.0 · 환경설정 4탭 + 노치 + 게임 3종 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.20.0 · 환경설정 4탭 + 노치 + 게임 3종 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
  *   TIP_PLAYWRIGHT=/path/to/node_modules/playwright node tools/settings-e2e.mjs
+ *   TIP_CHROME_ARGS=--renderer-process-limit=1 node tools/settings-e2e.mjs   # 메모리가 빠듯한 시험 상자
  *
  * Playwright 와 브라우저는 환경에 맞게 찾는다(v1.15.1).
  *   · 브라우저 — TIP_CHROME 이 있으면 그것을, 없으면 Playwright 가 설치한 Chromium 을 쓴다.
@@ -94,7 +95,9 @@ const BASE = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({
   ...(EXE ? { executablePath: EXE } : {}),
   ...(LIB ? { env: { ...process.env, LD_LIBRARY_PATH: LIB } } : {}),
-  args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+  // 메모리가 빠듯한 시험 상자에서는 TIP_CHROME_ARGS 로 브라우저 인수를 더한다(예: --renderer-process-limit=1).
+  args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+    ...(process.env.TIP_CHROME_ARGS || '').split(' ').filter(Boolean)],
 });
 
 const consoleErrors = [];
@@ -144,6 +147,18 @@ const MOCK = `
     run_system_command: null,
     set_system_commands: null,
     set_clipboard_exclude_secret: null,
+    // v1.20.0 — 클립보드 ↑↓·Enter 시험용 목록(모듈은 고정 → 최신 순으로 그린다).
+    clipboard_list: [
+      { id: 'clip-1', kind: 'text', text: '가장 최근에 복사한 글', pinned: false, created: 1764000000000 },
+      { id: 'clip-2', kind: 'text', text: '두 번째로 복사한 글', pinned: false, created: 1763999000000 },
+      { id: 'clip-3', kind: 'text', text: '세 번째로 복사한 글', pinned: false, created: 1763998000000 },
+    ],
+    clipboard_copy: null,
+    clipboard_pin: null,
+    clipboard_delete: null,
+    clipboard_clear: null,
+    clipboard_add_text: null,
+    clipboard_add_image: null,
     open_postcode_window: null,
     close_postcode_window: null,
     take_postcode_result: null,
@@ -2631,6 +2646,158 @@ check('v1.19.0 — 순위표 전원', (await page.locator('#rc-summary .rc-board
 check('v1.19.0 — 결과에 캐릭터 얼굴', (await page.locator('#rc-summary canvas[data-avatar]').count()) >= 3,
   String(await page.locator('#rc-summary canvas[data-avatar]').count()));
 
+/* ------------------------------ v1.20.0 긴 코스 · 슬로우 모션 · 판정 방식 ------------------------------ */
+
+// ① 설정 화면의 판정 방식 3종 — 1등만이면 꽝을 잠그고, 꼴찌 당첨이면 당첨 인원으로 바뀐다
+await page.click('#rc-summary [data-act="setup"]');
+await page.waitForTimeout(400);
+check('v1.20.0 — 판정 방식 3종', (await page.locator('.gm-mode').count()) === 3,
+  (await page.locator('.gm-mode b').allTextContents()).join(','));
+await page.click('.gm-mode[data-mode="solo"]');
+await page.waitForTimeout(150);
+check('v1.20.0 — 1등만 고르면 꽝은 나머지 전부', (await page.locator('#gm-losers').textContent()) === '3'
+  && (await page.locator('.gm-step[data-field="losers"][data-dir="1"]').isDisabled()),
+  `${await page.locator('#gm-losers').textContent()} / 잠김 ${await page.locator('.gm-step[data-field="losers"][data-dir="1"]').isDisabled()}`);
+await page.click('.gm-mode[data-mode="last"]');
+await page.waitForTimeout(150);
+check('v1.20.0 — 꼴찌 당첨은 당첨 인원으로 표시', (await page.locator('#gm-losers-label').textContent()) === '당첨'
+  && (await page.locator('#gm-losers-sub').textContent()).includes('마지막'),
+  `${await page.locator('#gm-losers-label').textContent()} / ${await page.locator('#gm-losers-sub').textContent()}`);
+await page.click('.gm-mode[data-mode="first"]');
+await page.waitForTimeout(150);
+await page.click('.gm-map[data-map="pinball"]');
+await page.click('#gm-start');
+await page.waitForTimeout(500);
+check('v1.20.0 — 진행 게이지에 사람마다 점', (await page.locator('#rc-progress-dots i').count()) === 4,
+  String(await page.locator('#rc-progress-dots i').count()));
+
+// ② 핀볼 4명 — 카메라·슬로우 모션·끼임·전원 완주
+await page.click('.rc-speed-btn[data-speed="2"]');
+let photoSeen = false;
+let camFirst = 0;
+let camLast = 0;
+let stuckPeak = 0;
+let stallPeak = 0;
+let nudgePeak = 0;
+let forcedFlag = '0';
+const runStarted = Date.now();
+while (Date.now() - runStarted < 40000) {
+  const state = await page.evaluate(() => {
+    const root = document.querySelector('.rc');
+    return {
+      cam: Number((root && root.dataset.cam) || 0),
+      phase: (root && root.dataset.phase) || '',
+      stuck: Number((root && root.dataset.stuck) || 0),
+      nudges: Number((root && root.dataset.nudges) || 0),
+      stalls: parseFloat((root && root.dataset.stalls) || '0') || 0,
+      forced: (root && root.dataset.forced) || '0',
+      summary: !!document.querySelector('#rc-summary'),
+    };
+  });
+  if (!camFirst) camFirst = state.cam;
+  camLast = Math.max(camLast, state.cam);
+  stuckPeak = Math.max(stuckPeak, state.stuck);
+  stallPeak = Math.max(stallPeak, state.stalls);
+  nudgePeak = Math.max(nudgePeak, state.nudges);
+  forcedFlag = state.forced;
+  if (state.phase === 'photo') photoSeen = true;
+  if (state.summary) break;
+  await page.waitForTimeout(90);
+}
+check('v1.20.0 — 긴 코스를 카메라가 따라 내려감', camFirst < 80 && camLast > 500, `${Math.round(camFirst)} → ${Math.round(camLast)}`);
+check('v1.20.0 — 결승선 앞 슬로우 모션', photoSeen);
+check('v1.20.0 — 핀볼 양옆 끼임 없음', stallPeak < 3 && nudgePeak === 0, `가장 오래 멈춫 ${stallPeak.toFixed(1)}초 / 탈출 보정 ${stuckPeak}회`);
+check('v1.20.0 — 시간 초과 강제 종료 없음', forcedFlag === '0');
+check('v1.20.0 — 핀볼 4명 전원 골인', (await page.locator('#rc-summary .rc-board-row').count()) === 4,
+  String(await page.locator('#rc-summary .rc-board-row').count()));
+const raceSeconds = await page.evaluate(() => Number((document.querySelector('.rc') || {}).dataset?.duration || 0));
+check('v1.20.0 — 한 판이 12초 이상', raceSeconds >= 11, `${raceSeconds.toFixed(1)}초`);
+
+// ③ 지그재그 레일 12명 · 꼴찌 당첨 — 전원 완주, 마지막 사람이 당첨
+await page.click('#rc-summary [data-act="setup"]');
+await page.waitForTimeout(400);
+for (let step = 4; step < 12; step += 1) {
+  await page.click('.gm-step[data-field="people"][data-dir="1"]');
+}
+await page.click('.gm-mode[data-mode="last"]');
+await page.waitForTimeout(150);
+await page.click('.gm-map[data-map="rail"]');
+await page.click('#gm-start');
+await page.waitForTimeout(400);
+await page.click('.rc-speed-btn[data-speed="2"]');
+let railStuck = 0;
+let railForced = '0';
+const railStarted = Date.now();
+while (Date.now() - railStarted < 40000) {
+  const state = await page.evaluate(() => {
+    const root = document.querySelector('.rc');
+    return {
+      stuck: Number((root && root.dataset.stuck) || 0),
+      forced: (root && root.dataset.forced) || '0',
+      summary: !!document.querySelector('#rc-summary'),
+    };
+  });
+  railStuck = Math.max(railStuck, state.stuck);
+  railForced = state.forced;
+  if (state.summary) break;
+  await page.waitForTimeout(90);
+}
+check('v1.20.0 — 레일 12명 전원 골인', (await page.locator('#rc-summary .rc-board-row').count()) === 12,
+  String(await page.locator('#rc-summary .rc-board-row').count()));
+check('v1.20.0 — 레일 끼임·강제 종료 없음', railStuck === 0 && railForced === '0', `끼임 ${railStuck}/강제 ${railForced}`);
+check('v1.20.0 — 꼴찌 당첨은 마지막 사람', (await page.locator('#rc-summary .rc-board-row').last().getAttribute('class') || '').indexOf('is-lose') < 0
+  && (await page.locator('#rc-summary .rc-board-row.is-lose').count()) === 11,
+  String(await page.locator('#rc-summary .rc-board-row.is-lose').count()));
+check('v1.20.0 — 꼴찌 당첨 안내 문구', (await page.locator('#rc-summary .gm-result-note').textContent()).includes('마지막 1명 당첨'),
+  await page.locator('#rc-summary .gm-result-note').textContent());
+
+/* ------------------------------ v1.20.0 클립보드 ↑↓ · Enter ------------------------------ */
+
+await page.evaluate(() => { location.hash = '#/clipboard-history'; });
+await page.waitForTimeout(700);
+const clipRows = await page.locator('.clip-item').count();
+check('v1.20.0 — 클립보드 목록 그리기', clipRows === 3, String(clipRows));
+const activeId = async () => page.evaluate(() => {
+  const row = document.querySelector('.clip-item.is-active');
+  return row ? row.dataset.id : '';
+});
+check('v1.20.0 — 첫 줄이 선택된 상태', (await activeId()) === 'clip-1', await activeId());
+await page.keyboard.press('ArrowDown');
+await page.waitForTimeout(120);
+check('v1.20.0 — ↓ 로 다음 항목', (await activeId()) === 'clip-2', await activeId());
+await page.keyboard.press('ArrowDown');
+await page.waitForTimeout(120);
+check('v1.20.0 — ↓ 로 마지막 항목', (await activeId()) === 'clip-3', await activeId());
+await page.keyboard.press('ArrowDown');
+await page.waitForTimeout(120);
+check('v1.20.0 — 목록 팔에서 더 내려가지 않음', (await activeId()) === 'clip-3', await activeId());
+await page.keyboard.press('ArrowUp');
+await page.waitForTimeout(120);
+check('v1.20.0 — ↑ 로 위 항목', (await activeId()) === 'clip-2', await activeId());
+const activeLook = await page.evaluate(() => {
+  const row = document.querySelector('.clip-item.is-active');
+  const style = row ? getComputedStyle(row) : null;
+  return { current: row ? row.getAttribute('aria-current') : '', border: style ? style.borderTopColor : '', shadow: style ? style.boxShadow : '' };
+});
+check('v1.20.0 — 선택이 눈에 보임', activeLook.current === 'true' && (activeLook.shadow || '').includes('inset'),
+  JSON.stringify(activeLook));
+await page.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+await page.keyboard.press('Enter');
+await page.waitForTimeout(250);
+const clipboardCopy = await page.evaluate(() => window.__TIP_CALLS__.filter((call) => call.command === 'clipboard_copy'));
+check('v1.20.0 — Enter 로 선택 항목 다시 복사', clipboardCopy.length === 1 && clipboardCopy[0].args.id === 'clip-2',
+  JSON.stringify(clipboardCopy));
+const clipToast = await page.evaluate(() => (document.querySelector('.toast')?.textContent || ''));
+check('v1.20.0 — 복사 안내가 뜸', clipToast.includes('클립보드에 복사'), clipToast);
+// 검색어를 치는 동안에는 방향키를 빼앗지 않는다.
+await page.click('#clip-query');
+await page.fill('#clip-query', '두 번째');
+await page.waitForTimeout(200);
+check('v1.20.0 — 검색 결과가 한 줄', (await page.locator('.clip-item').count()) === 1,
+  String(await page.locator('.clip-item').count()));
+await page.fill('#clip-query', '');
+await page.waitForTimeout(150);
+
 /* 375px · 다크에서 게임 3종이 넘치지 않는지 */
 const gameMobileContext = await browser.newContext({ viewport: { width: 375, height: 812 }, locale: 'ko-KR', colorScheme: 'dark' });
 await gameMobileContext.addInitScript(MOCK);
@@ -2713,7 +2880,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.19.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.20.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

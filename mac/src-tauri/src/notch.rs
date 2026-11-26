@@ -30,6 +30,11 @@
 #[cfg(target_os = "macos")]
 const NOTCH_WINDOW_LEVEL: objc2_app_kit::NSWindowLevel = 27;
 
+/// 단축키로 여는 모듈 창의 레벨 — NSFloatingWindowLevel(3)·NSModalPanelWindowLevel(8) 언저리.
+/// 메뉴 막대(24)·노치 패널(27)보다는 아래라 매뉴 막대를 가리지 않으면서, 전체화면 앱 위로 올라온다.
+#[cfg(target_os = "macos")]
+const TOOL_WINDOW_LEVEL: objc2_app_kit::NSWindowLevel = 8;
+
 /// 노치 높이를 화면에서 읽지 못했을 때 쓰는 값(노치 디스플레이의 메뉴 막대 높이).
 #[cfg(target_os = "macos")]
 const DEFAULT_NOTCH_H: f64 = 32.0;
@@ -159,6 +164,50 @@ pub fn pin_search(win: &tauri::WebviewWindow) -> bool {
     configure_panel(win)
 }
 
+/// 단축키로 여는 모듈 창(tool)도 같은 패널로 만든다(v1.20.0).
+/// v1.19.0 까지는 일반 창이라, 다른 앱이 전체화면일 때 단축키를 누르면 데스크톱 Space 로 넘어갔다.
+/// 제목 표시줄·크기 조절은 그대로 두고 NonactivatingPanel 만 더해 패널로 바꾼다.
+#[cfg(target_os = "macos")]
+pub fn pin_tool(win: &tauri::WebviewWindow) -> bool {
+    use objc2::runtime::AnyObject;
+    use objc2_app_kit::{NSPanel, NSWindowStyleMask};
+
+    let Some(_mtm) = objc2::MainThreadMarker::new() else {
+        eprintln!("[TIP] 모듈 패널 설정은 메인 스레드에서만 할 수 있습니다");
+        return false;
+    };
+    let Ok(ptr) = win.ns_window() else {
+        eprintln!("[TIP] 모듈 창의 NSWindow 를 가져오지 못했습니다");
+        return false;
+    };
+    let Some(panel_class) = panel_class() else {
+        eprintln!("[TIP] 모듈 패널 클래스(NSPanel)를 준비하지 못했습니다");
+        return false;
+    };
+
+    // SAFETY: 메인 스레드에서 이 창의 NSWindow 포인터로 클래스·스타일·레벨만 바꾼다.
+    // TipNotchPanel 은 NSPanel 의 서브클래스이고 추가 ivar 가 없어 인스턴스 크기가 같다.
+    unsafe {
+        let object = &*(ptr as *const AnyObject);
+        AnyObject::set_class(object, panel_class);
+        let panel = &*(ptr as *const NSPanel);
+
+        // 모듈 창은 제목 표시줄·닫기·크기 조절을 그대로 두고 NonactivatingPanel 만 더한다.
+        // (스타일을 통째로 바꾸면 제목 표시줄이 사라진다.)
+        panel.setStyleMask(panel.styleMask() | NSWindowStyleMask::NonactivatingPanel);
+        panel.setFloatingPanel(true);
+        panel.setBecomesKeyOnlyIfNeeded(false);
+        panel.setHidesOnDeactivate(false);
+        panel.setReleasedWhenClosed(false);
+        panel.setAcceptsMouseMovedEvents(true);
+
+        // 스타일을 바꾼 뒤에 레벨·동작을 건다(순서가 바뀌면 AppKit 이 되돌린다).
+        panel.setLevel(TOOL_WINDOW_LEVEL);
+        panel.setCollectionBehavior(nonactivating_behavior());
+    }
+    true
+}
+
 #[cfg(target_os = "macos")]
 fn configure_panel(win: &tauri::WebviewWindow) -> bool {
     use objc2::runtime::AnyObject;
@@ -220,6 +269,17 @@ fn nonactivating_behavior() -> objc2_app_kit::NSWindowCollectionBehavior {
 /// 노치가 그 Space 에서 사라지지 않게. 크기·위치는 place 가 따로 잡는다.
 #[cfg(target_os = "macos")]
 pub fn order_front(win: &tauri::WebviewWindow) -> bool {
+    order_front_level(win, NOTCH_WINDOW_LEVEL)
+}
+
+/// 단축키로 연 모듈 창을 앞으로 — 전체화면 앱 위에서도 Space 를 바꾸지 않는다(v1.20.0).
+#[cfg(target_os = "macos")]
+pub fn order_front_tool(win: &tauri::WebviewWindow) -> bool {
+    order_front_level(win, TOOL_WINDOW_LEVEL)
+}
+
+#[cfg(target_os = "macos")]
+fn order_front_level(win: &tauri::WebviewWindow, level: objc2_app_kit::NSWindowLevel) -> bool {
     use objc2_app_kit::NSWindow;
 
     let Some(_mtm) = objc2::MainThreadMarker::new() else {
@@ -232,7 +292,7 @@ pub fn order_front(win: &tauri::WebviewWindow) -> bool {
     // SAFETY: 메인 스레드에서 이 창의 NSWindow 포인터로 순서·레벨·동작만 바꾼다.
     unsafe {
         let window = &*(ptr as *const NSWindow);
-        window.setLevel(NOTCH_WINDOW_LEVEL);
+        window.setLevel(level);
         window.setCollectionBehavior(nonactivating_behavior());
         // orderFrontRegardless — 앱을 활성화하지 않고 창만 앞으로. 전체화면 앱 위에서 유일하게 먹는 순서 변경.
         window.orderFrontRegardless();
@@ -371,6 +431,16 @@ pub fn pin(_win: &tauri::WebviewWindow) -> bool {
 
 #[cfg(not(target_os = "macos"))]
 pub fn pin_search(_win: &tauri::WebviewWindow) -> bool {
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn pin_tool(_win: &tauri::WebviewWindow) -> bool {
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn order_front_tool(_win: &tauri::WebviewWindow) -> bool {
     false
 }
 

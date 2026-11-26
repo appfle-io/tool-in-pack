@@ -1,4 +1,4 @@
-/* TIP · 게임 공통 (v1.19.0)
+/* TIP · 게임 공통 (v1.20.0)
  *
  * 제비뽑기 · 사다리타기 · 선착순 골인이 함께 쓰는 것만 모았다.
  *   · 사람 수(2~12)와 꽝 개수(0~사람 수-1)를 정하는 설정 화면
@@ -16,6 +16,14 @@
 export const PEOPLE_MIN = 2;
 export const PEOPLE_MAX = 12;
 export const NAME_MAX = 12;
+
+/** 판정 방식 — 지금은 선착순 골인이 쓴다(사람 수·꽝 개수와 자연스럽게 맞춘다). */
+export const VERDICT_MODES = [
+  { id: 'first', label: '선착순', sub: '뒤 N명 꽝' },
+  { id: 'last', label: '꼴찌 당첨', sub: '마지막 N명' },
+  { id: 'solo', label: '1등만', sub: '나머지 꽝' },
+];
+const MODE_IDS = VERDICT_MODES.map((mode) => mode.id);
 
 const STORE_PREFIX = 'tip.games.';
 export const SOUND_KEY = 'tip.games.sound.v1';
@@ -75,7 +83,11 @@ function clampInt(value, min, max, fallback) {
 /** 들어온 값을 쓸 수 있는 설정으로 다듬는다. 이름이 비면 '1번'처럼 채운다. */
 export function normalizeSetup(raw) {
   const people = clampInt(raw && raw.people, PEOPLE_MIN, PEOPLE_MAX, 4);
-  const losers = clampInt(raw && raw.losers, 0, people - 1, Math.min(1, people - 1));
+  const mode = raw && MODE_IDS.includes(raw.mode) ? raw.mode : 'first';
+  let losers = clampInt(raw && raw.losers, 0, people - 1, Math.min(1, people - 1));
+  // 1등만 당첨이면 나머지는 모두 꽝, 꼴찌 당첨이면 최소 한 명은 당첨이다.
+  if (mode === 'solo') losers = people - 1;
+  else if (mode === 'last') losers = clampInt(Math.max(1, losers), 1, people - 1, 1);
   const names = [];
   for (let index = 0; index < PEOPLE_MAX; index += 1) {
     const given = raw && Array.isArray(raw.names) ? raw.names[index] : '';
@@ -83,7 +95,7 @@ export function normalizeSetup(raw) {
     names.push(text || defaultName(index));
   }
   const map = raw && typeof raw.map === 'string' ? raw.map : '';
-  return { people, losers, names, map };
+  return { people, losers, names, map, mode };
 }
 
 export function readSetup(gameId) {
@@ -933,13 +945,13 @@ function mapButton(map, active) {
 }
 
 /**
- * 사람 수 · 꽝 · 이름(· 맵)을 정하는 화면을 host 안에 그린다.
+ * 사람 수 · 꽝 · 이름(· 맵 · 판정 방식)을 정하는 화면을 host 안에 그린다.
  * 시작을 누르면 onStart(setup) 을 부르고, 그 설정은 이 기기에 남는다.
  *
- * options: { gameId, maps, hint, signal, onStart }
+ * options: { gameId, maps, modes, hint, signal, onStart }
  */
 export function setupScreen(host, options) {
-  const { gameId, maps = [], hint = '', signal, onStart } = options;
+  const { gameId, maps = [], modes = [], hint = '', signal, onStart } = options;
   const state = normalizeSetup(readSetup(gameId));
   // 설정 화면을 다시 그릴 때마다 지난 화면의 단추 연결을 끊는다(두 번 눌리지 않게).
   if (host.__gmSetup) host.__gmSetup.abort();
@@ -951,6 +963,9 @@ export function setupScreen(host, options) {
   }
   const listen = { signal: controller.signal };
   if (maps.length && !maps.some((map) => map.id === state.map)) state.map = maps[0].id;
+  if (modes.length && !modes.some((mode) => mode.id === state.mode)) state.mode = modes[0].id;
+  // 판정 방식을 오가도 사용자가 고른 꽝 개수를 잃지 않게 따로 들고 있는다.
+  let keptLosers = state.mode === 'solo' ? Math.min(1, state.people - 1) : state.losers;
 
   host.innerHTML = `
     <div class="gm gm-setup">
@@ -974,6 +989,16 @@ export function setupScreen(host, options) {
           </div>
           <span class="gm-sub" id="gm-losers-sub"></span>
         </div>
+        ${modes.length ? `
+        <div class="gm-row gm-row-head"><span class="gm-label" id="gm-mode-label">판정</span></div>
+        <div class="gm-modes" role="radiogroup" aria-labelledby="gm-mode-label">
+          ${modes.map((mode) => `
+            <button class="gm-mode${mode.id === state.mode ? ' is-on' : ''}" type="button" role="radio"
+                    aria-checked="${mode.id === state.mode ? 'true' : 'false'}" data-mode="${escapeText(mode.id)}">
+              <b>${escapeText(mode.label)}</b>
+              <span>${escapeText(mode.sub || '')}</span>
+            </button>`).join('')}
+        </div>` : ''}
       </div>
 
       ${maps.length ? `
@@ -1000,6 +1025,7 @@ export function setupScreen(host, options) {
 
   const peopleEl = host.querySelector('#gm-people');
   const losersEl = host.querySelector('#gm-losers');
+  const losersLabel = host.querySelector('#gm-losers-label');
   const losersSub = host.querySelector('#gm-losers-sub');
   const namesEl = host.querySelector('#gm-names');
 
@@ -1016,23 +1042,41 @@ export function setupScreen(host, options) {
   }
 
   function paintCounts() {
+    const solo = state.mode === 'solo';
     peopleEl.textContent = String(state.people);
-    losersEl.textContent = String(state.losers);
-    losersSub.textContent = state.people <= PEOPLE_MIN + 1
-      ? `0명 또는 ${state.people - 1}명`
-      : `0명에서 ${state.people - 1}명까지`;
+    losersEl.textContent = String(solo ? state.people - 1 : state.losers);
+    if (losersLabel) losersLabel.textContent = state.mode === 'last' ? '당첨' : '꽝';
+    if (solo) {
+      losersSub.textContent = `1등만 당첨 · 나머지 ${state.people - 1}명 꽝`;
+    } else if (state.mode === 'last') {
+      losersSub.textContent = `마지막 ${state.losers}명이 당첨`;
+    } else if (state.people <= PEOPLE_MIN + 1) {
+      losersSub.textContent = `0명 또는 ${state.people - 1}명`;
+    } else {
+      losersSub.textContent = `0명에서 ${state.people - 1}명까지`;
+    }
     host.querySelectorAll('.gm-step').forEach((button) => {
       const field = button.dataset.field;
       const dir = Number(button.dataset.dir);
       const value = field === 'people' ? state.people : state.losers;
       const max = field === 'people' ? PEOPLE_MAX : state.people - 1;
-      const min = field === 'people' ? PEOPLE_MIN : 0;
-      button.disabled = dir < 0 ? value <= min : value >= max;
+      const min = field === 'people' ? PEOPLE_MIN : (state.mode === 'last' ? 1 : 0);
+      const locked = field === 'losers' && solo;
+      button.disabled = locked || (dir < 0 ? value <= min : value >= max);
+    });
+  }
+
+  function paintModes() {
+    host.querySelectorAll('.gm-mode').forEach((node) => {
+      const on = node.dataset.mode === state.mode;
+      node.classList.toggle('is-on', on);
+      node.setAttribute('aria-checked', on ? 'true' : 'false');
     });
   }
 
   function paint() {
     paintCounts();
+    paintModes();
     paintNames();
   }
 
@@ -1043,13 +1087,29 @@ export function setupScreen(host, options) {
       state.people = next;
       // 이름칸에 적어 둔 값을 먼저 state 로 옮긴 뒤 인원을 바꾼다.
       readNames();
+      if (state.mode === 'solo') keptLosers = Math.max(1, Math.min(keptLosers, state.people - 1));
       state.losers = Math.min(state.losers, state.people - 1);
     } else {
-      const next = Math.max(0, Math.min(state.people - 1, state.losers + dir));
+      if (state.mode === 'solo') return;
+      const min = state.mode === 'last' ? 1 : 0;
+      const next = Math.max(min, Math.min(state.people - 1, state.losers + dir));
       if (next === state.losers) return;
       state.losers = next;
+      keptLosers = next;
       losersEl.textContent = String(state.losers);
     }
+    sfx.click();
+    paint();
+  }
+
+  /** 판정 방식을 고른다 — 1등만이면 꽝 개수를 잠그고, 돌아오면 쓰던 값을 살린다. */
+  function pickMode(id) {
+    if (id === state.mode) return;
+    if (state.mode !== 'solo') keptLosers = state.losers;
+    state.mode = id;
+    if (id === 'solo') state.losers = state.people - 1;
+    else if (id === 'last') state.losers = Math.max(1, Math.min(keptLosers, state.people - 1));
+    else state.losers = Math.max(0, Math.min(keptLosers, state.people - 1));
     sfx.click();
     paint();
   }
@@ -1067,7 +1127,7 @@ export function setupScreen(host, options) {
       const text = String(state.names[index] || '').trim().slice(0, NAME_MAX);
       names.push(text || defaultName(index));
     }
-    return normalizeSetup({ people: state.people, losers: state.losers, names, map: state.map });
+    return normalizeSetup({ people: state.people, losers: state.mode === 'solo' ? state.people - 1 : state.losers, names, map: state.map, mode: state.mode });
   }
 
   host.addEventListener('click', (event) => {
@@ -1094,6 +1154,12 @@ export function setupScreen(host, options) {
         node.classList.toggle('is-on', on);
         node.setAttribute('aria-checked', on ? 'true' : 'false');
       });
+      return;
+    }
+    const modeButton = event.target.closest('.gm-mode');
+    if (modeButton) {
+      event.preventDefault();
+      pickMode(modeButton.dataset.mode);
       return;
     }
     if (event.target.closest('#gm-start')) {

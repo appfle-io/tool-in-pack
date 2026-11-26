@@ -20,6 +20,8 @@ const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
 const WEB_KEY = 'tip.clipboard.v1';
 const LIMIT = 100;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+/// 목록 아래 안내 — 키보드로 고르고 다시 복사하는 길을 알려 준다(v1.20.0).
+const HINT_TEXT = '↑↓ 로 고르고 Enter 로 다시 복사합니다. 고정한 항목은 지우기 전까지 남습니다.';
 
 const CLIP_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4.5" width="12" height="16.5" rx="2.2"/><path d="M9 4.5V3.6A1.6 1.6 0 0 1 10.6 2h2.8A1.6 1.6 0 0 1 15 3.6v.9"/><path d="M9.2 10.5h5.6M9.2 14h5.6M9.2 17.4h3.4"/></svg>';
 
@@ -122,6 +124,8 @@ function mount(root, ctx) {
   let items = [];
   let filter = 'all';
   let query = '';
+  // v1.20.0 — ↑↓ 로 고른 항목(Enter 로 바로 다시 복사).
+  let activeId = '';
   let busy = false;
   let armedClear = false;
   let armedTimer = null;
@@ -174,7 +178,7 @@ function mount(root, ctx) {
       </p>
 
       <footer class="clip-foot">
-        <span id="clip-hint" class="clip-hint">고정한 항목은 지우기 전까지 남습니다.</span>
+        <span id="clip-hint" class="clip-hint">↑↓ 로 고르고 Enter 로 다시 복사합니다. 고정한 항목은 지우기 전까지 남습니다.</span>
         <button id="clip-clear" class="clip-clear" type="button">전체 삭제</button>
       </footer>
     </section>
@@ -268,8 +272,13 @@ function mount(root, ctx) {
       }, { signal });
 
       row.addEventListener('click', () => copyItem(item), { signal });
+      row.addEventListener('focus', () => {
+        activeId = item.id;
+        paintActive();
+      }, { signal });
       row.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
+        // Enter 는 창 전체 처리(선택된 항목 복사)가 맡는다 — 두 번 복사하지 않게 여기서는 띄어쓰기만.
+        if (event.key === ' ') {
           event.preventDefault();
           copyItem(item);
         }
@@ -278,6 +287,49 @@ function mount(root, ctx) {
 
       listEl.append(row);
     });
+    // v1.20.0 — 선택이 사라졌으면 첫 줄을 고른 상태로 두어 ↑↓·Enter 가 바로 먹게 한다.
+    const rows = Array.from(listEl.querySelectorAll('.clip-item'));
+    if (rows.length && !rows.some((row) => row.dataset.id === activeId)) {
+      activeId = rows[0].dataset.id;
+    }
+    paintActive();
+  }
+
+  /** 선택 표시를 그리고, 고른 줄이 화면 밖이면 가장 가까운 곳으로 스크롤한다. */
+  function paintActive() {
+    const rows = Array.from(listEl.querySelectorAll('.clip-item'));
+    let hit = null;
+    rows.forEach((row) => {
+      const on = row.dataset.id === activeId;
+      row.classList.toggle('is-active', on);
+      if (on) {
+        row.setAttribute('aria-current', 'true');
+        hit = row;
+      } else {
+        row.removeAttribute('aria-current');
+      }
+    });
+    if (hit) hit.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** ↑↓ — 보이는 목록 안에서 선택을 한 칸 옮긴다. */
+  function moveActive(delta) {
+    const rows = Array.from(listEl.querySelectorAll('.clip-item'));
+    if (!rows.length) return false;
+    let index = rows.findIndex((row) => row.dataset.id === activeId);
+    if (index < 0) index = delta > 0 ? -1 : 0;
+    const next = Math.max(0, Math.min(rows.length - 1, index + delta));
+    activeId = rows[next].dataset.id;
+    paintActive();
+    return true;
+  }
+
+  /** Enter — 지금 고른 항목을 다시 복사한다. */
+  function copyActive() {
+    const item = items.find((entry) => entry.id === activeId);
+    if (!item) return false;
+    copyItem(item);
+    return true;
   }
 
   const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 5.5V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h.5"/></svg>';
@@ -374,14 +426,14 @@ function mount(root, ctx) {
       armedTimer = setTimeout(() => {
         armedClear = false;
         clearBtn.textContent = '전체 삭제';
-        hintEl.textContent = '고정한 항목은 지우기 전까지 남습니다.';
+        hintEl.textContent = HINT_TEXT;
       }, 4000);
       return;
     }
     clearTimeout(armedTimer);
     armedClear = false;
     clearBtn.textContent = '전체 삭제';
-    hintEl.textContent = '고정한 항목은 지우기 전까지 남습니다.';
+    hintEl.textContent = HINT_TEXT;
     if (TAURI) {
       try {
         await invoke('clipboard_clear');
@@ -499,6 +551,30 @@ function mount(root, ctx) {
   }, { signal });
 
   clearBtn.addEventListener('click', clearAll, { signal });
+
+  // v1.20.0 — ↑↓ 로 고르고 Enter 로 다시 복사. 글을 쓰는 칸(붙여넣기 상자)에서는 방향키를 뺏지 않는다.
+  window.addEventListener('keydown', (event) => {
+    if (!root.isConnected) return;
+    // 설정 시트·대화상자가 열려 있으면 방향키를 가로채지 않는다.
+    const focused = document.activeElement;
+    if (focused && focused.closest && focused.closest('.sheet, dialog, [role="dialog"], [role="alertdialog"]')) return;
+    const target = event.target;
+    const tag = (target && target.tagName) || '';
+    const typing = tag === 'TEXTAREA' || tag === 'INPUT' || (target && target.isContentEditable);
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      // 검색칸에서는 방향키로 목록을 고를 수 있게 그대로 쓴다(한 줄짜리 입력칸).
+      if (tag === 'TEXTAREA' || (target && target.isContentEditable)) return;
+      if (!listEl.querySelector('.clip-item')) return;
+      event.preventDefault();
+      moveActive(event.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    if (event.key === 'Enter' && !typing) {
+      if (!activeId) return;
+      event.preventDefault();
+      copyActive();
+    }
+  }, { signal });
 
   // 상대 시간은 1분마다 다시 그린다.
   const tick = setInterval(() => { if (!document.hidden) render(); }, 60000);

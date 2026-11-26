@@ -82,8 +82,9 @@ const PARCEL_H: f64 = 740.0;
 
 // 우편번호 창(v1.15.1) — 다음(카카오) 우편번호 서비스를 앱 본문과 다른 창에서 띄운다.
 // 일반 창이라 사용자가 닫을 수 있고, 창 라벨(postcode)은 capabilities 에 없어 IPC 권한이 없다.
-const POSTCODE_W: f64 = 520.0;
-const POSTCODE_H: f64 = 720.0;
+// v1.20.0 — 720px 높이에서는 카카오 UI 아래가 회게 비었다. UI 가 스스로 쓰는 500×460 에 맞춘다.
+const POSTCODE_W: f64 = 500.0;
+const POSTCODE_H: f64 = 460.0;
 /// 우편번호 창에서 Tauri 전역을 지우는 초기화 스크립트 — 카카오 스크립트가 IPC 를 찾지 못하게.
 /// (창 자체에 IPC 권한이 없지만, 창에 window.__TAURI__ 와 parent.__TAURI__ 를 둘 다 못 쓰게 한다.)
 const POSTCODE_HIDE_TAURI: &str = "try{delete window.__TAURI__;delete window.__TAURI_INTERNALS__;}catch(e){}";
@@ -1237,7 +1238,13 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
         // 이미 떠 있으면 그 창에서 모듈만 바꾼다(app.js 가 듣는다).
         let _ = win.set_title(&label);
         let _ = win.show();
-        let _ = win.set_focus();
+        // v1.20.0 — set_focus() 는 앱을 활성화해 다른 앱의 전체화면 Space 를 벗어난다.
+        // 창만 앞으로 세우고(orderFrontRegardless) 키 입력만 받게 한다.
+        if !notch::order_front_tool(&win) {
+            let _ = win.set_focus();
+        } else {
+            let _ = notch::make_key(&win);
+        }
         let _ = win.emit("tip://open-module", id);
         return Ok(());
     }
@@ -1255,10 +1262,18 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
     .build()
     .map_err(|error| error.to_string())?;
 
+    // v1.20.0 — 단축키로 여는 모듈 창을 NSPanel(NonactivatingPanel + 모든 Space·전체화면 위)로
+    // 바꿔, 다른 앱이 전체화면일 때도 Space 전환 없이 바로 뜨고 안에서 입력·조작할 수 있게 한다.
+    let pinned = notch::pin_tool(&win);
     place_under_tray(&app, &win, TOOL_W, TOOL_H, 6.0);
     attach_file_drop(&win);
     let _ = win.show();
-    let _ = win.set_focus();
+    if pinned {
+        let _ = notch::order_front_tool(&win);
+        let _ = notch::make_key(&win);
+    } else {
+        let _ = win.set_focus();
+    }
     Ok(())
 }
 
@@ -1334,7 +1349,7 @@ fn open_postcode_window(app: AppHandle) -> Result<(), String> {
     let win = WebviewWindowBuilder::new(&app, POSTCODE, WebviewUrl::App("postcode.html".into()))
         .title("우편번호 검색")
         .inner_size(POSTCODE_W, POSTCODE_H)
-        .min_inner_size(420.0, 520.0)
+        .min_inner_size(400.0, 430.0)
         .resizable(true)
         .visible(false)
         // v1.15.2 — 저장소를 메인 앱과 완전히 분리한다. 카카오 우편번호 스크립트가 쓰는

@@ -490,7 +490,8 @@ check('문의는 환경설정 안으로', !read('index.html').includes('inquiry-
 check('mailto 허용', /mailto:/.test(lib) && lib.includes('appfle.io@gmail.com'));
 check('주소 프레임 100% 크기', read('address-frame.html').includes('#addr-frame-embed {') && /width: 100%;\s*\n\s*height: 100%;/.test(read('address-frame.html')));
 check('우편번호 embed 100%', /postcode\.embed\(embedEl, \{ q: '' \}\)/.test(read('js/address-frame.js')) && /width: '100%'/.test(read('js/address-frame.js')));
-check('주소 iframe 480px', read('modules/address-search/module.js').includes("frame.style.height = '480px'"));
+// v1.20.0 — 고정 480px 대신 상자(addr-embed)를 100% 채운다(높이는 CSS 가 카카오 UI 에 맞춘다).
+check('주소 iframe 100%', read('modules/address-search/module.js').includes("frame.style.height = '100%'"));
 check('영문 주소 변환 모듈', exists('modules/address-search/romanize.js') && /export function romanizeAddress\(/.test(read('modules/address-search/romanize.js')));
 check('해외직구 항목 분리', /Address Line/.test(read('modules/address-search/module.js')) && read('modules/address-search/module.js').includes('State / Province') && /Zip Code/.test(read('modules/address-search/module.js')));
 
@@ -1306,7 +1307,7 @@ check('세 게임 모두 게임 묶음', gameSources.every((src) => /^  category
 check('세 게임 모두 기본 켜짐', gameSources.every((src) => /^  defaultEnabled: true,$/m.test(src)));
 check('세 게임 모두 공통 설정 화면', gameSources.every((src) => /setupScreen\(host/.test(src)));
 check('세 게임 모두 꽝을 가른다', gameSources.every((src) => /lose/.test(src))
-  && /loserSlots\(/.test(gameSources[0]) && /loserSlots\(/.test(gameSources[1]) && /race\.losers/.test(gameSources[2]));
+  && /loserSlots\(/.test(gameSources[0]) && /loserSlots\(/.test(gameSources[1]) && /race\.wins/.test(gameSources[2]));
 check('게임 분류가 registry 에 있음', /\{ id: 'game', label: '게임' \}/.test(registry));
 
 // 제비뽑기 — 3D 뒤집기 · 흔들림 · 한 장씩/모두 열기
@@ -1339,7 +1340,8 @@ check('골인 1x·2x 속도', /const SPEEDS = \[1, 2\];/.test(race) && /rc-speed
 check('골인 핀볼 충돌 물리', /gravity/.test(race) && /function simulatePinball/.test(race) && /Math\.hypot\(dx, dy\)/.test(race));
 check('골인 지그재그 레일', /function railX/.test(race) && /Math\.sin\(/.test(race));
 check('골인 실시간 순위·도착 알림', /function paintRanking/.test(race) && /등 \$\{racer\.name\} 도착/.test(race));
-check('골인 꽝은 늦게 들어온 사람', /const winCount = race\.n - race\.losers;/.test(race) && /index >= winCount/.test(race));
+check('골인 꽝 판정', /function isWinner/.test(race) && /rank <= race\.wins/.test(race)
+  && /rank > race\.n - race\.wins/.test(race));
 
 check('게임 길 색 8종(라이트·다크)', /--gm-path-8/.test(gameCss)
   && /:root\[data-theme='dark'\] \{[\s\S]{0,600}--gm-path-2/.test(gameCss));
@@ -1358,7 +1360,8 @@ check('settings-e2e 가 게임 3종을 실행한다', /v1\.18\.0 — 제비뽑�
    22. v1.19.0 — 게임 3종 고퀄 업그레이드
    ================================================================ */
 
-check('공통 키트 캐릭터 12종', (kit.match(/^  \{ id: '/gm) || []).length === 12);
+const characterBlock = (kit.match(/export const CHARACTERS = \[([\s\S]*?)\n\];/) || ['', ''])[1];
+check('공통 키트 캐릭터 12종', (characterBlock.match(/\{ id: '/g) || []).length === 12);
 check('캐릭터 표정 5종', /const EXPRESSIONS = \['idle', 'run', 'hit', 'win', 'lose'\];/.test(kit));
 check('캐릭터를 캔버스로 그린다', /export function drawCharacter/.test(kit) && /export function drawBadge/.test(kit)
   && /function drawFace/.test(kit) && /export function drawNameTag/.test(kit));
@@ -1390,8 +1393,8 @@ check('골인 질주 트랙 부스터·방해물·순풍', /boostAt/.test(race) 
   && /순풍/.test(race) && /역풍/.test(race) && /race\.tape/.test(race));
 check('골인 서킷 허들·게이트·가속 레인', /function simulateCircuit/.test(race) && /props\.hurdles/.test(race)
   && /gateOpen/.test(race) && /speedLane/.test(race));
-check('골인 핀볼 범퍼·회전 풍차·가이드', /kind: row\.spin \? 'spinner' : 'bumper'/.test(race)
-  && /peg\.angle \+= peg\.omega \* dt/.test(race) && /guides/.test(race));
+check('골인 핀볼 범퍼·회전 풍차·가이드', /peg\.kind === 'spinner'/.test(race)
+  && /peg\.angle \+= peg\.omega \* dt/.test(race) && /guides\.push/.test(race));
 check('골인 레일 왕복 발판·가속 슈트', /platform\.dir \* platform\.speed/.test(race) && /chutes/.test(race)
   && /function railX/.test(race));
 check('골인 캐릭터·이름표·궤적', /drawCharacter\(ctx2d, racer\.color/.test(race) && /drawNameTag/.test(race)
@@ -1408,6 +1411,78 @@ check('README v1.19.0', read('README.md').includes('| v1.19.0 |'));
 check('settings-e2e 가 v1.19.0 을 본다', /v1\.19\.0 — 캐릭터 아바타 12종/.test(settingsE2e)
   && /v1\.19\.0 — 사다리 균형 가로대/.test(settingsE2e) && /v1\.19\.0 — 소리 단추/.test(settingsE2e)
   && /v1\.19\.0 — 시상대/.test(settingsE2e));
+
+/* ================================================================
+   23. v1.20.0 — 선착순 골인 오리지널 긴 코스 · 끼임 제로 · 슬로우 모션
+   ================================================================ */
+
+// 끼임 제로 — 벽 반사 · 틈 없는 가이드 · 선분 전체 풍차 · 참가자 충돌 · 정체 탈출
+check('골인 벽 반사', /Math\.abs\(racer\.vx\) \* 0\.78/.test(race)
+  && /0\.78/.test(race) && /racer\.x = BOARD_W - racer\.rad/.test(race));
+check('골인 가이드는 벽까지', /x1: 0, y1:/.test(race) && /x1: BOARD_W, y1:/.test(race));
+check('골인 풍차는 선분 전체 충돌', /peg\.x - cos \* peg\.len/.test(race) && /peg\.x \+ cos \* peg\.len/.test(race)
+  && /function collideSegment/.test(race));
+check('골인 참가자끼리 탄성 충돌', /function collideRacers/.test(race) && /one\.rad \+ two\.rad/.test(race));
+check('골인 정체 탈출 안전장치', /STUCK_TIME = 0\.45/.test(race) && /function rescue/.test(race)
+  && /racer\.rescues >= 4/.test(race));
+check('골인 여닫는 문·가속/감속 존', /function collideDoor/.test(race) && /zones\.push\(/.test(race)
+  && /zone === 'boost'/.test(race) && /zone === 'mud'/.test(race));
+
+// 긴 코스 · 카메라 · 게이지 · 슬로우 모션 · 판정
+check('골인 긴 보드', /const PINBALL_H = 2000;/.test(race) && /const RAIL_H = 1980;/.test(race)
+  && /const TRACK_LEN = 2600;/.test(race));
+check('골인 카메라 추적', /function followCamera/.test(race) && /race\.cam\.y \+=/.test(race) && /race\.cam\.x \+=/.test(race));
+check('골인 진행 게이지', /id="rc-progress"/.test(race) && /rc-progress-dots/.test(race)
+  && /\.rc-progress \{/.test(gameCss) && /\.rc-progress-dots i \{/.test(gameCss));
+check('골인 결승선 슬로우 모션', /SLOW_RATE = 0\.35/.test(race) && /function updatePhoto/.test(race)
+  && /function photoOpen/.test(race) && /마지막 승부/.test(race));
+check('골인 판정 방식 3종', /VERDICT_MODES/.test(kit) && /mode === 'last'/.test(kit) && /mode === 'solo'/.test(kit)
+  && /function modeWins/.test(race) && /function isWinner/.test(race));
+check('골인 설정 화면 판정 고르기', /class="gm-mode/.test(kit) && /\.gm-modes \{/.test(gameCss)
+  && /function pickMode/.test(kit) && /data-mode=/.test(kit));
+check('골인 돌풍·스퍼트 이벤트', /function applyTwists/.test(race) && /스퍼트/.test(race) && /돌풍/.test(race));
+check('골인 진단 상태(dataset)', /root\.dataset\.stuck/.test(race) && /root\.dataset\.forced/.test(race)
+  && /root\.dataset\.cam/.test(race));
+check('선착순 골인 스트레스 도구', exists('tools/race-stress.mjs')
+  && /MAPS/.test(read('tools/race-stress.mjs')) && /peakStuck/.test(read('tools/race-stress.mjs')));
+check('README v1.20.0', read('README.md').includes('| v1.20.0 |'));
+check('settings-e2e 가 v1.20.0 을 본다', /v1\.20\.0 — 판정 방식 3종/.test(settingsE2e)
+  && /v1\.20\.0 — 결승선 앞 슬로우 모션/.test(settingsE2e) && /v1\.20\.0 — 핀볼 양옆 끼임 없음/.test(settingsE2e)
+  && /v1\.20\.0 — 레일 12명 전원 골인/.test(settingsE2e));
+
+// 단축키로 여는 모듈 창 — 전체화면 앱 위에서도 Space 전환 없이 (NSPanel)
+const notchSrc = read('mac/src-tauri/src/notch.rs');
+const libSrc = read('mac/src-tauri/src/lib.rs');
+check('모듈 창 패널 함수', /pub fn pin_tool/.test(notchSrc) && /pub fn order_front_tool/.test(notchSrc)
+  && /fn order_front_level/.test(notchSrc));
+check('모든 Space·전체화면 패널 동작', /CanJoinAllSpaces/.test(notchSrc)
+  && /FullScreenAuxiliary/.test(notchSrc) && /Stationary/.test(notchSrc));
+check('모듈 창은 제목줄을 살리고 비활성 패널만 더함', /panel\.styleMask\(\) \| NSWindowStyleMask::NonactivatingPanel/.test(notchSrc));
+check('open_tool 이 패널로 띄운다', /notch::pin_tool\(&win\)/.test(libSrc)
+  && /notch::order_front_tool\(&win\)/.test(libSrc) && /notch::make_key\(&win\)/.test(libSrc)
+  && /let pinned = notch::pin_tool\(&win\);/.test(libSrc));
+
+// 클립보드 — ↑↓ 로 골라 Enter 로 다시 복사
+const clipboard = read('modules/clipboard-history/module.js');
+check('클립보드 ↑↓ 이동', /'ArrowDown'/.test(clipboard) && /'ArrowUp'/.test(clipboard)
+  && /function moveActive/.test(clipboard));
+check('클립보드 Enter 다시 복사', /function copyActive/.test(clipboard) && /'Enter'/.test(clipboard)
+  && /copyItem\(item\)/.test(clipboard));
+check('클립보드 선택 표시·스크롤', /classList\.toggle\('is-active'/.test(clipboard)
+  && /scrollIntoView\(\{ block: 'nearest' \}\)/.test(clipboard)
+  && /aria-current/.test(clipboard) && /\.clip-item\.is-active \{/.test(gameCss));
+check('settings-e2e 가 클립보드 키를 본다', /v1\.20\.0 — ↓ 로 다음 항목/.test(settingsE2e)
+  && /v1\.20\.0 — Enter 로 선택 항목 다시 복사/.test(settingsE2e));
+
+// 주소 검색 창·모달 — 안쪽 카카오 UI 와 상자 크기를 맞춤
+check('주소 상자 높이를 UI 에 맞춤', /\.addr-embed \{[\s\S]{0,260}height: 452px/.test(gameCss)
+  && /@media \(max-width: 560px\) \{\s*\n  \.addr-embed \{ height: 462px; \}/.test(gameCss)
+  && /\.addr-embed \{ height: 474px; \}/.test(gameCss));
+check('주소 프레임이 상자를 100% 채움', /\.addr-embed \.addr-frame \{ width: 100% !important; height: 100% !important/.test(gameCss)
+  && /frame\.style\.height = '100%'/.test(read('modules/address-search/module.js')));
+check('우편번호 창 크기', /const POSTCODE_W: f64 = 500\.0;/.test(libSrc)
+  && /const POSTCODE_H: f64 = 460\.0;/.test(libSrc));
+
 
 /* ------------------------------ 결과 ------------------------------ */
 
