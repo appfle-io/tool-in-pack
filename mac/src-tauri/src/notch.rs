@@ -169,41 +169,33 @@ pub fn pin_search(win: &tauri::WebviewWindow) -> bool {
 /// 제목 표시줄·크기 조절은 그대로 두고 NonactivatingPanel 만 더해 패널로 바꾼다.
 #[cfg(target_os = "macos")]
 pub fn pin_tool(win: &tauri::WebviewWindow) -> bool {
-    use objc2::runtime::AnyObject;
-    use objc2_app_kit::{NSPanel, NSWindowStyleMask};
+    use objc2_app_kit::NSWindow;
 
     let Some(_mtm) = objc2::MainThreadMarker::new() else {
-        eprintln!("[TIP] 모듈 패널 설정은 메인 스레드에서만 할 수 있습니다");
+        eprintln!("[TIP] 모듈 창 설정은 메인 스레드에서만 할 수 있습니다");
         return false;
     };
     let Ok(ptr) = win.ns_window() else {
         eprintln!("[TIP] 모듈 창의 NSWindow 를 가져오지 못했습니다");
         return false;
     };
-    let Some(panel_class) = panel_class() else {
-        eprintln!("[TIP] 모듈 패널 클래스(NSPanel)를 준비하지 못했습니다");
-        return false;
-    };
 
-    // SAFETY: 메인 스레드에서 이 창의 NSWindow 포인터로 클래스·스타일·레벨만 바꾼다.
-    // TipNotchPanel 은 NSPanel 의 서브클래스이고 추가 ivar 가 없어 인스턴스 크기가 같다.
+    // SAFETY: 메인 스레드에서 이 창의 NSWindow 포인터로 레벨·동작만 바꾼다.
+    //
+    // v1.21.0 버그 수정 — 창 클래스를 NSPanel(TipNotchPanel)로 바꾸지 않는다.
+    // v1.20.0 까지는 AnyObject::set_class 로 WryWindow(NSWindow)를 NSPanel 서브클래스로 바꿔 치고
+    // setFloatingPanel·setBecomesKeyOnlyIfNeeded 같은 NSPanel 전용 메서드를 불렀다. 그런데
+    // 모듈 창은 CloseRequested 처리도 없이 실제로 닫히면 dealloc 되는데, 이때 NSWindow 와
+    // NSPanel 의 ivar/dealloc 이 어긋나 EXC_BAD_ACCESS 로 앱이 즉시 강제종료됐다.
+    // 이제 클래스는 그대로 두고 NSWindow 자체 메서드만 쓴다 — 전체화면 앱 위에 뜨고
+    // 포커스를 뺏지 않는 동작은 setLevel·setCollectionBehavior 로 충분하다.
     unsafe {
-        let object = &*(ptr as *const AnyObject);
-        AnyObject::set_class(object, panel_class);
-        let panel = &*(ptr as *const NSPanel);
-
-        // 모듈 창은 제목 표시줄·닫기·크기 조절을 그대로 두고 NonactivatingPanel 만 더한다.
-        // (스타일을 통째로 바꾸면 제목 표시줄이 사라진다.)
-        panel.setStyleMask(panel.styleMask() | NSWindowStyleMask::NonactivatingPanel);
-        panel.setFloatingPanel(true);
-        panel.setBecomesKeyOnlyIfNeeded(false);
-        panel.setHidesOnDeactivate(false);
-        panel.setReleasedWhenClosed(false);
-        panel.setAcceptsMouseMovedEvents(true);
-
-        // 스타일을 바꾼 뒤에 레벨·동작을 건다(순서가 바뀌면 AppKit 이 되돌린다).
-        panel.setLevel(TOOL_WINDOW_LEVEL);
-        panel.setCollectionBehavior(nonactivating_behavior());
+        let window = &*(ptr as *const NSWindow);
+        window.setLevel(TOOL_WINDOW_LEVEL);
+        window.setCollectionBehavior(nonactivating_behavior());
+        window.setHidesOnDeactivate(false);
+        window.setReleasedWhenClosed(false);
+        window.setAcceptsMouseMovedEvents(true);
     }
     true
 }

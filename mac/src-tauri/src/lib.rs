@@ -1262,8 +1262,21 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
     .build()
     .map_err(|error| error.to_string())?;
 
-    // v1.20.0 — 단축키로 여는 모듈 창을 NSPanel(NonactivatingPanel + 모든 Space·전체화면 위)로
-    // 바꿔, 다른 앱이 전체화면일 때도 Space 전환 없이 바로 뜨고 안에서 입력·조작할 수 있게 한다.
+    // v1.21.0 — 닫기(X·⌘W)는 숨기기로 처리한다. 창을 실제로 해제하면 v1.20.0 처럼 창 클래스를
+    // NSPanel 로 바꿔 둔 상태에서의 해제(dealloc)가 EXC_BAD_ACCESS 로 앱을 강제종료시켰다.
+    // 이제 클래스도 그대로 두고, 닫기는 api.prevent_close() + hide() 로 막아
+    // 다음 단축키에는 같은 창을 다시 show 해 쓴다(창 상태도 그대로 살아난다).
+    {
+        let handle = win.clone();
+        win.on_window_event(move |event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = handle.hide();
+            }
+        });
+    }
+
+    // v1.20.0 — 단축키로 여는 모듈 창을 모든 Space·전체화면 위에 띄운다(NSPanel 클래스는 쓰지 않는다).
     let pinned = notch::pin_tool(&win);
     place_under_tray(&app, &win, TOOL_W, TOOL_H, 6.0);
     attach_file_drop(&win);
