@@ -4100,7 +4100,14 @@ const module = {
         if (item.file) bytes = await item.file.arrayBuffer();
         else if (item.url) bytes = await (await fetch(item.url)).arrayBuffer();
         else throw new Error('파일을 읽을 수 없습니다');
-        const buffer = await context.decodeAudioData(bytes.slice(0));
+        let buffer;
+        try {
+          buffer = await context.decodeAudioData(bytes.slice(0));
+        } catch {
+          await context.close().catch(() => {});
+          audioBuffers.delete(item.id);
+          throw new Error('이 파일의 소리를 읽지 못했습니다. WAV·MP3 파일로 바꾸거나 Mac 앱에서 해 보세요');
+        }
         await context.close();
         audioBuffers.set(item.id, buffer);
         return buffer;
