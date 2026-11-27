@@ -59,6 +59,8 @@ import voiceRecorder from './voice-recorder/module.js';
 import drawLots from './draw-lots/module.js';
 import ladderGame from './ladder-game/module.js';
 import raceGame from './race-game/module.js';
+// v1.27.0 — 택시 미터기(지역 요금표 · 심야/시계외 할증 · 1/N 정산)
+import taxiMeter from './taxi-meter/module.js';
 
 /**
  * 홈 화면 섹션 순서. 여기에 적은 순서대로 홈이 그려진다.
@@ -145,6 +147,8 @@ export const registry = [
   drawLots,
   ladderGame,
   raceGame,
+  // v1.27.0
+  taxiMeter,
 ];
 
 const TAURI = typeof window !== 'undefined' && !!(window.__TAURI__ && window.__TAURI__.core);

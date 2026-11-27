@@ -1,6 +1,6 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.26.0';
+const CACHE_VERSION = 'tip-v1.27.0';
 const APP_SHELL = [
   './',
   './index.html',
@@ -99,6 +99,11 @@ const APP_SHELL = [
   './modules/draw-lots/module.js',
   './modules/ladder-game/module.js',
   './modules/race-game/module.js',
+  // v1.27.0 — 택시 미터기(요금 계산·시계외 감지·전광판)
+  './modules/taxi-meter/module.js',
+  './modules/taxi-meter/fare.js',
+  './modules/taxi-meter/geofence.js',
+  './modules/taxi-meter/panel.js',
   './vendor/heic2any.min.js',
   './vendor/pdfjs/pdf.min.js',
   './vendor/pdfjs/pdf.worker.min.js',

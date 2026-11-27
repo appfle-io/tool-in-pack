@@ -416,7 +416,7 @@ await page.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
 
-check('홈이 그려짐(모듈 35)', await page.locator('.module-card').count() === 35, String(await page.locator('.module-card').count()));
+check('홈이 그려짐(모듈 36)', await page.locator('.module-card').count() === 36, String(await page.locator('.module-card').count()));
 check('Mac 환경에서 설정 버튼 있음', await page.locator('#settings-btn').count() === 1);
 
 await openSettings();
@@ -680,7 +680,7 @@ check('모듈 — 공통 조합 기본값 Control+Shift', (await prefixSelect.in
 const prefixOptions = await prefixSelect.locator('option').allTextContents();
 check('모듈 — 공통 조합 6가지', prefixOptions.length === 6, String(prefixOptions.length));
 const moduleRows = await page.locator('.sheet-module-row').count();
-check('모듈 — 모듈 목록 35개', moduleRows === 35, String(moduleRows));
+check('모듈 — 모듈 목록 36개', moduleRows === 36, String(moduleRows));
 // v1.15.1 — 탭을 바꿔도 시트 높이가 튀지 않는다.
 const sheetHeightModules = (await page.locator('.sheet').boundingBox())?.height || 0;
 check('모듈 — 탭을 바꿔도 시트 높이 고정', Math.abs(sheetHeightGeneral - sheetHeightModules) < 2, `${Math.round(sheetHeightGeneral)} → ${Math.round(sheetHeightModules)}`);
@@ -1312,7 +1312,7 @@ const homeRest = await mobile.evaluate(() => ({
   handles: document.querySelectorAll('.drag-handle').length,
   editVisible: !!document.getElementById('edit-btn')?.offsetParent,
 }));
-check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 35 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
+check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 36 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
 check('v1.15.3 — 편집 버튼은 홈에만', homeRest.editVisible);
 
 await mobile.click('#edit-btn');
@@ -1623,7 +1623,7 @@ await webPage.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
 await webPage.evaluate(() => localStorage.clear());
 await webPage.reload({ waitUntil: 'networkidle' });
 const webSections = await webPage.locator('.home-section').evaluateAll((nodes) => nodes.map((node) => node.dataset.section));
-check('v1.16.0 — 웹 모듈 30개(Mac 5종 제외)', await webPage.locator('.module-card').count() === 30,
+check('v1.16.0 — 웹 모듈 31개(Mac 5종 제외)', await webPage.locator('.module-card').count() === 31,
   String(await webPage.locator('.module-card').count()));
 check('v1.16.0 — 웹에 Mac 화면 도구 섹션 없음', !webSections.includes('mac'), webSections.join(','));
 check('v1.18.0 — 게임 묶음이 개발·디자인 다음', webSections.filter((id) => id !== 'pinned').join(',') === 'docs,media,file,calc,dev,game',
@@ -2764,10 +2764,10 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 await page.evaluate(() => { location.hash = '#/'; });
 await page.waitForTimeout(350);
-check('v1.18.0 — 홈에 게임 묶음 3개', (await page.locator('.home-section[data-section="game"] .module-card').count()) === 3,
+check('v1.27.0 — 홈에 게임 묶음 4개', (await page.locator('.home-section[data-section="game"] .module-card').count()) === 4,
   String(await page.locator('.home-section[data-section="game"] .module-card').count()));
 const gameTitles = await page.locator('.home-section[data-section="game"] .module-card .module-title h2').allTextContents();
-check('v1.18.0 — 게임 이름', gameTitles.join(',') === '제비뽑기,사다리타기,선착순 골인', gameTitles.join(','));
+check('v1.18.0 — 게임 이름', gameTitles.join(',') === '제비뽑기,사다리타기,선착순 골인,택시 미터기', gameTitles.join(','));
 
 /* ① 제비뽑기 — 사람 수·이름·꽝 → 한 장씩 → 모두 열기 → 다시하기 → 새로 설정하기 */
 await page.evaluate(() => { location.hash = '#/draw-lots'; });
@@ -3954,6 +3954,45 @@ check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes
     && await subBlocks() >= 1, `${await ve.locator('.ve-clip').count()} clips`);
 
   await veContext.close();
+}
+
+/* ------------------------------ v1.27.0 택시 미터기 ------------------------------ */
+
+{
+  await page.goto(`${BASE}/index.html#/taxi-meter`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('.txm', { timeout: 8000 });
+  await page.waitForTimeout(250);
+
+  const taxiTotal = async () => Number((await page.locator('#txm-digits').getAttribute('aria-label')).replace(/[^0-9]/g, ''));
+  check('v1.27.0 — 택시 미터기 화면이 열린다', await page.locator('.txm').count() === 1);
+  check('v1.27.0 — 요금판·도트 말 캔버스', await page.locator('#txm-digits').count() === 1 && await page.locator('#txm-horse').count() === 1);
+  check('v1.27.0 — 기본요금 4,800원', (await taxiTotal()) >= 4800, String(await taxiTotal()));
+  check('v1.27.0 — 지역 5곳', await page.locator('#txm-region option').count() === 5);
+
+  const nightBefore = await taxiTotal();
+  await page.click('.txm-night button[data-night="40"]');
+  await page.waitForTimeout(120);
+  check('v1.27.0 — 야간 40% 단추가 요금에 반영', (await taxiTotal()) > nightBefore, `${nightBefore} → ${await taxiTotal()}`);
+  await page.click('.txm-night button[data-night="0"]');
+  await page.waitForTimeout(120);
+
+  await page.click('#txm-toll');
+  await page.waitForTimeout(120);
+  check('v1.27.0 — 통행료 상자를 연다', await page.locator('#txm-toll-box').isVisible());
+
+  await page.fill('#txm-range', '120');
+  await page.dispatchEvent('#txm-range', 'input');
+  await page.click('#txm-go');
+  await page.waitForTimeout(1200);
+  check('v1.27.0 — 주행 시작(LIVE)', (await page.locator('.txm-live').innerText()).includes('LIVE'));
+  await page.click('#txm-pay');
+  await page.waitForTimeout(250);
+  check('v1.27.0 — 1/N 정산 영수증', await page.locator('.txm-per-value').count() === 1);
+  await page.click('#txm-pay');
+  await page.waitForTimeout(120);
+  await page.click('#txm-clear');
+  await page.waitForTimeout(150);
+  check('v1.27.0 — 빈 차 초기화', (await page.locator('.txm-live').innerText()).includes('빈 차'));
 }
 
 /* ------------------------------ 결과 ------------------------------ */

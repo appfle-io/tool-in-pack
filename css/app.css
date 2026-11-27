@@ -6797,3 +6797,272 @@ mark.dr-hit.is-current { background: #ffa94d; box-shadow: 0 0 0 1px #b26a00; }
 .dr-paper th, .dr-paper td { border: 1px solid #b9c2cd; padding: 5px 8px; text-align: left; vertical-align: top; }
 .dr-paper th { background: #f2f6f4; font-weight: 700; }
 .dr-toc-item { justify-content: flex-start; }
+
+/* ======================================================================
+   택시 미터기 (v1.27.0) — 7세그먼트 전광판 · 도트 말 · 할증 튜너
+   · 전광판은 라이트/다크 모두 어두운 판으로 둔다(실제 기기처럼 숫자가 빛나 보이게).
+   · 나머지 카드·단추·글자는 앱의 공통 토큰을 그대로 써서 두 테마에 맞춘다.
+   ====================================================================== */
+
+:root {
+  --txm-panel: #0F1114;
+  --txm-panel-line: #23272D;
+  --txm-panel-ink: #F2F3F5;
+  --txm-panel-muted: #A9AEB6;
+  --txm-led-green: #6FDA9F;
+  --txm-amber: #FFB020;
+  --txm-track: #E4E5EA;
+  --txm-hold-bg: #FDF1DC;
+  --txm-hold-ink: #74470A;
+  --txm-hold-line: #E0B26A;
+  --txm-pay-bg: #1E63C8;
+  --txm-pay-ink: #FFFFFF;
+}
+:root[data-theme='dark'] {
+  --txm-track: #2C2F35;
+  --txm-hold-bg: #3A2A10;
+  --txm-hold-ink: #FFC46B;
+  --txm-hold-line: #6B4A16;
+  --txm-pay-bg: #24508F;
+  --txm-pay-ink: #FFFFFF;
+}
+
+.txm-root { width: 100%; max-width: 860px; margin: 0 auto; min-width: 0; }
+.txm { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.txm [hidden] { display: none !important; }
+
+/* ---------- 상단: 화면 꺼짐 방지 · 지역 ---------- */
+
+.txm-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.txm-wake {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 11px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+  color: var(--muted); font-size: 12.5px; font-weight: 600;
+}
+.txm-wake svg { width: 15px; height: 15px; flex: none; }
+.txm-wake[data-state='on'] { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft); }
+.txm-wake[data-state='none'] { color: var(--muted-2); }
+
+.txm-region {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 8px 0 11px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+  font-size: 12px; color: var(--muted); min-width: 0;
+}
+.txm-select {
+  border: 0; background: transparent; color: var(--text); font: inherit;
+  font-size: 13px; font-weight: 700; padding: 2px; max-width: 168px; min-width: 0;
+}
+.txm-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+/* ---------- 전광판 ---------- */
+
+.txm-board {
+  position: relative; display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 12px 10px; border-radius: 16px; border: 1px solid var(--txm-panel-line);
+  background: var(--txm-panel); color: var(--txm-panel-ink);
+}
+.txm-board-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.txm-board-label { font-size: 12px; letter-spacing: 0.1em; color: var(--txm-panel-muted); }
+.txm-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.txm-live {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 6px;
+  border: 1px solid var(--txm-panel-line); color: var(--txm-panel-muted);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+}
+.txm-live i { width: 6px; height: 6px; border-radius: 50%; background: #8B9099; }
+.txm-live[data-state='driving'] { color: #FF7C6E; border-color: #4A2320; }
+.txm-live[data-state='driving'] i { background: #FF4B3A; box-shadow: 0 0 8px #FF4B3A; animation: txm-pulse 1.4s ease-in-out infinite; }
+.txm-live[data-state='paused'] { color: var(--txm-amber); border-color: #4A3A16; }
+.txm-live[data-state='paused'] i { background: var(--txm-amber); }
+.txm-live[data-state='settled'] { color: #8FB7FF; border-color: #26364F; }
+.txm-live[data-state='settled'] i { background: #8FB7FF; }
+
+.txm-surcharge { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; color: #8A9099; }
+.txm-surcharge b { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.txm-surcharge[data-on='1'] b { color: var(--txm-amber); }
+.txm-surcharge[data-on='1'] span { color: #E8C98A; }
+
+.txm-digits { height: 92px; }
+.txm-digits canvas { display: block; width: 100%; height: 100%; }
+.txm-horse { height: 132px; }
+.txm-horse canvas { display: block; width: 100%; height: 100%; }
+
+.txm-metrics { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--txm-panel-line); padding-top: 8px; }
+.txm-metric { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding: 0 10px; border-left: 1px solid var(--txm-panel-line); min-width: 0; }
+.txm-metric:first-child { border-left: 0; padding-left: 2px; }
+.txm-metric svg { width: 15px; height: 15px; color: var(--txm-led-green); flex: none; }
+.txm-metric span { font-size: 12px; color: var(--txm-panel-muted); }
+.txm-metric b { width: 100%; font-size: 16px; color: var(--txm-led-green); font-variant-numeric: tabular-nums; }
+.txm-metric em { font-style: normal; }
+
+@keyframes txm-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ---------- 주행 방식 ---------- */
+
+.txm-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.txm-mode {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; justify-content: center;
+  min-height: 54px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card); color: var(--text); font: inherit; text-align: left;
+}
+.txm-mode b { font-size: 13.5px; }
+.txm-mode span { font-size: 12px; color: var(--muted); }
+.txm-mode[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); }
+.txm-mode[aria-pressed='true'] b { color: var(--accent-ink); }
+.txm-mode:disabled { opacity: 0.5; }
+
+.txm-gps { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.txm-gps[data-tone='warn'] { color: var(--warn); }
+
+/* ---------- 시뮬레이션 ---------- */
+
+.txm-sim {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--card);
+}
+.txm-sim-head { display: flex; align-items: baseline; justify-content: space-between; font-size: 12.5px; color: var(--muted); }
+.txm-sim-head b { font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; }
+.txm-sim-head em { font-style: normal; }
+.txm-range { width: 100%; height: 30px; accent-color: var(--accent); }
+.txm-presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.txm-presets button, .txm-cross {
+  min-height: 44px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--card-2); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 600;
+}
+.txm-presets button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.txm-cross { width: 100%; }
+.txm-cross[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+
+/* ---------- 할증 튜너 ---------- */
+
+.txm-tuner { border: 1px solid var(--line); border-radius: 14px; background: var(--card); overflow: hidden; }
+.txm-tuner-head { display: flex; align-items: center; gap: 9px; padding: 12px 13px 9px; }
+.txm-tuner-head > svg { width: 18px; height: 18px; color: var(--muted); flex: none; }
+.txm-tuner-head b { font-size: 14px; }
+.txm-tuner-head p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.txm-tune { padding: 9px 13px 11px; border-top: 1px solid var(--line); }
+.txm-tune-head, .txm-tune-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.txm-tune-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.txm-tune-title > svg { width: 17px; height: 17px; color: var(--accent-ink); flex: none; }
+.txm-title-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.txm-title-text em { font-style: normal; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.txm-night-now { font-size: 12px; color: var(--accent-ink); font-weight: 700; white-space: nowrap; }
+.txm-night { display: grid; grid-template-columns: 1.2fr repeat(4, 1fr); gap: 6px; margin-top: 9px; }
+.txm-night button {
+  min-height: 44px; border: 1px solid var(--line); border-radius: 9px; background: var(--card-2);
+  color: var(--text); font: inherit; font-size: 12.5px; font-weight: 600;
+}
+.txm-night button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.txm-night-rule { margin: 7px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+
+.txm-ctl { display: flex; align-items: center; gap: 7px; flex: none; }
+.txm-switch {
+  position: relative; width: 48px; height: 44px; padding: 0; flex: none;
+  border: 0; background: transparent;
+}
+.txm-switch::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 7px; height: 30px;
+  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--txm-track);
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+.txm-switch span {
+  position: absolute; top: 12px; left: 5px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--muted-2); transition: transform 0.16s ease, background 0.16s ease;
+}
+.txm-switch[aria-pressed='true']::before { background: var(--accent); border-color: var(--accent); }
+.txm-switch[aria-pressed='true'] span { transform: translateX(18px); background: #fff; }
+.txm-fixed { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.txm-detect { margin: 7px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.txm-detect[data-tone='warn'] { color: var(--warn); }
+
+.txm-money { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
+.txm-plus {
+  min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--card-2); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 600; flex: none;
+}
+.txm-input {
+  display: inline-flex; align-items: center; gap: 4px; flex: 1; min-width: 0; height: 44px;
+  padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--card);
+}
+.txm-input input {
+  width: 100%; min-width: 0; border: 0; background: transparent; color: var(--text);
+  font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; text-align: right;
+}
+.txm-input span { font-size: 12px; color: var(--muted); }
+
+/* ---------- 조작 4종 ---------- */
+
+.txm-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.txm-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  min-height: 68px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card-2); color: var(--text); font: inherit;
+}
+.txm-btn svg { width: 19px; height: 19px; }
+.txm-btn b { font-size: 12.5px; font-weight: 700; }
+.txm-btn em { font-style: normal; font-size: 12px; opacity: 0.85; }
+.txm-btn:disabled { opacity: 0.45; }
+.txm-go { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.txm-go:disabled { opacity: 0.45; }
+.txm-hold { background: var(--txm-hold-bg); border-color: var(--txm-hold-line); color: var(--txm-hold-ink); }
+.txm-pay { background: var(--txm-pay-bg); border-color: var(--txm-pay-bg); color: var(--txm-pay-ink); }
+
+/* ---------- 정산 영수증 ---------- */
+
+.txm-receipt {
+  display: flex; flex-direction: column; gap: 10px; padding: 13px;
+  border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+}
+.txm-slip-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px; }
+.txm-slip-head b { font-size: 14px; }
+.txm-slip-head span { font-size: 12px; color: var(--muted); }
+.txm-slip { margin: 0; display: flex; flex-direction: column; }
+.txm-slip > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.txm-slip dt { font-size: 12.5px; color: var(--muted); }
+.txm-slip dd { margin: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+.txm-slip .txm-slip-total { border-bottom: 0; padding-top: 9px; }
+.txm-slip .txm-slip-total dt { color: var(--text); font-weight: 700; font-size: 13px; }
+.txm-slip .txm-slip-total dd { font-size: 19px; font-weight: 800; }
+.txm-split { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.txm-split-label { font-size: 12.5px; color: var(--muted); }
+.txm-stepper { display: flex; align-items: center; gap: 8px; }
+.txm-stepper button {
+  width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--card-2); color: var(--text); font: inherit; font-size: 17px; font-weight: 600;
+}
+.txm-stepper button:disabled { opacity: 0.4; }
+.txm-stepper b { min-width: 54px; text-align: center; font-size: 14px; font-variant-numeric: tabular-nums; }
+.txm-stepper em { font-style: normal; }
+.txm-per { display: flex; align-items: baseline; justify-content: space-between; padding: 9px 11px; border-radius: 10px; background: var(--accent-soft); }
+.txm-per span { font-size: 12.5px; color: var(--muted); }
+.txm-per b { font-size: 19px; color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+.txm-per em { font-style: normal; }
+.txm-slip-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.txm-copy, .txm-again {
+  min-height: 44px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card-2); color: var(--text); font: inherit; font-size: 13px; font-weight: 600;
+}
+.txm-copy { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+
+.txm-note { margin: 2px 0 0; font-size: 12px; color: var(--muted-2); line-height: 1.5; }
+
+/* ---------- 포커스 · 넓은 화면 ---------- */
+
+.txm button:focus-visible, .txm-cross:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.txm-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+@media (min-width: 700px) {
+  .txm-digits { height: 118px; }
+  .txm-horse { height: 168px; }
+  .txm-btn { min-height: 76px; }
+  .txm-btn b { font-size: 13px; }
+  .txm-board { padding: 14px 16px 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .txm-live[data-state='driving'] i { animation: none; }
+  .txm-switch span { transition: none; }
+}
