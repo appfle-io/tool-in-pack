@@ -1,12 +1,13 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.22.0';
+const CACHE_VERSION = 'tip-v1.23.0';
 const APP_SHELL = [
   './',
   './index.html',
   './notch.html',
   './recorder.html',
   './search.html',
+  './clipboard.html',
   './sticky.html',
   './address-frame.html',
   './postcode.html',
@@ -15,6 +16,7 @@ const APP_SHELL = [
   './css/app.css',
   './css/notch.css',
   './css/search.css',
+  './css/clipboard.css',
   './css/sticky.css',
   './vendor/fonts/PretendardVariable.woff2',
   './js/app.js',
@@ -24,6 +26,7 @@ const APP_SHELL = [
   './js/dial.js',
   './js/notch.js',
   './js/search.js',
+  './js/clipboard-panel.js',
   './js/sticky.js',
   './js/calc.js',
   './js/chosung.js',
@@ -65,6 +68,8 @@ const APP_SHELL = [
   './modules/ocr-reader/module.js',
   './modules/file-compress/module.js',
   './modules/video-mosaic/module.js',
+  './modules/video-editor/module.js',
+  './modules/video-editor/model.js',
   './modules/md-editor/module.js',
   './modules/unit-converter/module.js',
   './modules/currency-calc/module.js',

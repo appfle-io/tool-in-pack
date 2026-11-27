@@ -805,6 +805,9 @@ function deliverHandoff(mod, root) {
 /* -------------------------------- router ------------------------------- */
 
 function route() {
+  // v1.23.0 — 화면을 옮기면 설정 시트를 먼저 닫는다. 단축키로 모듈 창을 다시 열었을 때
+  // 420×680 창 위에 낡은 설정 화면이 덮여 있던 버그의 화면 쪽 수정이다.
+  closeSheet();
   const raw = (location.hash || '#/').replace(/^#\/?/, '').replace(/\/+$/, '');
   if (!raw) {
     renderHome();
@@ -1073,7 +1076,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.22.0';
+const APP_VERSION = '1.23.0';
 
 let updateBusy = false;
 
@@ -3025,10 +3028,15 @@ if (TAURI && window.__TAURI__.event) {
     const id = event.payload;
     const mod = getModule(id);
     if (!mod) return;
+    // v1.23.0 — 모듈을 열 때 설정 시트가 남아 있으면 먼저 닫는다.
+    closeSheet();
     if (moduleState(mod).enabled) location.hash = `#/${id}`;
     else toast(`${mod.name}이(가) 사용 중지되어 있습니다. 스위치로 켠 뒤 실행하세요.`);
   });
-  window.__TAURI__.event.listen('tip://open-home', () => { location.hash = '#/'; });
+  window.__TAURI__.event.listen('tip://open-home', () => { closeSheet(); location.hash = '#/'; });
+
+  // v1.23.0 — 창을 숨기기 직전에 Rust 가 보내는 신호. 다시 열 때 설정 화면이 남지 않게 닫는다.
+  window.__TAURI__.event.listen('tip://close-settings', () => closeSheet());
 
   // 반원 퀵바의 ⚙ 버튼 — 창이 이미 떠 있어도 설정 시트를 앞으로 꺼낸다.
   window.__TAURI__.event.listen('tip://open-settings', () => openSheet());

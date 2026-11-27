@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TIP · 클립보드 히스토리</title>
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex">
+
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('tip.theme');
+        var dark = saved ? saved === 'dark'
+          : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        var accent = localStorage.getItem('tip.accent');
+        document.documentElement.setAttribute('data-accent',
+          ['green', 'blue', 'purple', 'orange', 'rose', 'slate'].indexOf(accent) >= 0 ? accent : 'green');
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+
+  <link rel="stylesheet" href="./css/app.css">
+  <link rel="stylesheet" href="./css/clipboard.css">
+  <script type="module" src="./js/clipboard-panel.js"></script>
+</head>
+<body class="clip-body">
+  <main class="clip-panel" role="dialog" aria-label="TIP 클립보드 히스토리">
+    <div class="clip-field">
+      <span class="clip-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4.5" width="12" height="16.5" rx="2.2"/><path d="M9 4.5V3.6A1.6 1.6 0 0 1 10.6 2h2.8A1.6 1.6 0 0 1 15 3.6v.9"/><path d="M9.2 10.5h5.6M9.2 14h5.6M9.2 17.4h3.4"/></svg>
+      </span>
+      <input id="clip-search" type="text" placeholder="복사한 내용 찾기. ↑↓ 로 고르고 Enter 로 다시 복사" autocomplete="off" spellcheck="false" aria-label="클립보드 기록 찾기">
+      <kbd class="clip-esc">Esc</kbd>
+    </div>
+    <ul class="clip-list" id="clip-list" role="listbox" aria-label="클립보드 기록"></ul>
+    <p class="clip-empty" id="clip-empty" hidden>아직 기록이 없습니다.<br>무엇이든 복사하면 여기에 쌓입니다.</p>
+    <p class="clip-status" id="clip-status" role="status" aria-live="polite"></p>
+    <footer class="clip-foot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> 이동</span>
+      <span><kbd>↵</kbd> 복사</span>
+      <span><kbd>⌫</kbd> 지우기</span>
+      <span><kbd>P</kbd> 고정</span>
+      <span class="clip-count" id="clip-count"></span>
+      <span class="clip-brand">TIP</span>
+    </footer>
+  </main>
+</body>
+</html>

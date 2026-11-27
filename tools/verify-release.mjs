@@ -194,7 +194,7 @@ check('categoryOf 옛 이름 호환', /CATEGORY_ALIASES = \{[\s\S]{0,160}documen
 
 const EXPECTED = {
   docs: ['doc-reader', 'pdf-tools', 'md-editor', 'text-diff', 'ocr-reader', 'text-counter', 'typing-converter'],
-  media: ['img-converter', 'photo-privacy', 'video-gif', 'video-mosaic', 'icon-gen', 'qr-gen', 'voice-recorder'],
+  media: ['img-converter', 'photo-privacy', 'video-gif', 'video-mosaic', 'video-editor', 'icon-gen', 'qr-gen', 'voice-recorder'],
   file: ['file-compress', 'bulk-rename'],
   calc: ['unit-converter', 'currency-calc', 'address-search', 'parcel-tracker', 'timer', 'date-calc'],
   dev: ['dev-tools', 'regex-tester', 'color-tools', 'snippets'],
@@ -205,8 +205,8 @@ const EXPECTED = {
 // registry 목록에 적힌 모듈만 센다(파일 시스템 탐색에 기대지 않는다).
 const listed = [...registry.matchAll(/^import\s+(\w+)\s+from\s+'\.\/([^/]+)\/module\.js';/gm)].map((m) => m[2]);
 const total = Object.values(EXPECTED).flat();
-check('registry 모듈 34개', listed.length === 34 && total.length === 34, `${listed.length}/${total.length}`);
-check('registry 가 34개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
+check('registry 모듈 35개', listed.length === 35 && total.length === 35, `${listed.length}/${total.length}`);
+check('registry 가 35개 모듈을 모두 담음', total.every((id) => listed.includes(id)));
 check('모든 모듈이 정확히 한 분류', new Set(total).size === total.length && listed.every((id) => total.filter((entry) => entry === id).length === 1));
 check('registry 에 drag-ocr 없음(OCR 하나로 합침)', !listed.includes('drag-ocr') && !exists('modules/drag-ocr/module.js'));
 
@@ -685,8 +685,8 @@ check('capabilities allow- 권한 수가 커맨드 수와 같다', capabilityPer
   `${capabilityPerms.filter((p) => p.startsWith('allow-')).length}/${manifestCommands.length}`);
 check('capabilities 에 deny- 권한 없음', !capabilityPerms.some((permission) => permission.startsWith('deny-')));
 // v1.17.0 — quickbar 창이 빠져 앱 창은 5종.
-check('capabilities 창 목록 그대로(앱 창만)', ['"main"', '"tool"', '"notch"', '"search"', '"sticky-*"', '"recorder"']
-  .every((window) => capability.includes(window)) && capabilityJson.windows.length === 6, String(capabilityJson.windows.length));
+check('capabilities 창 목록 그대로(앱 창만)', ['"main"', '"tool"', '"notch"', '"search"', '"clip"', '"sticky-*"', '"recorder"']
+  .every((window) => capability.includes(window)) && capabilityJson.windows.length === 7, String(capabilityJson.windows.length));
 check('postcode·parcel 창은 어떤 권한도 없다', !capabilityJson.windows.includes('postcode') && !capabilityJson.windows.includes('parcel'));
 
 // 2. 우편번호 창 저장소 분리 — incognito + localStorage 미사용
@@ -1488,10 +1488,11 @@ check('모듈 창은 NSWindow 메서드만으로 띄운다',
   && /window\.setCollectionBehavior\(nonactivating_behavior\(\)\)/.test(toolCode)
   && /window\.setHidesOnDeactivate\(false\)/.test(toolCode)
   && /window\.setReleasedWhenClosed\(false\)/.test(toolCode));
+// v1.23.0 — open_tool 본문 안에서 확인한다(클립 패널에도 같은 CloseRequested 처리가 생겨 위치 비교가 흐려졌다).
+const openToolBody = libSrc.slice(libSrc.indexOf('fn open_tool'), libSrc.indexOf('fn open_parcel_webview'));
 check('모듈 창 닫기는 숨기기로(다시 열면 재사용)',
-  /WindowEvent::CloseRequested \{ api, \.\. \}/.test(libSrc) && /\.prevent_close\(\);/.test(libSrc)
-  && /let _ = handle\.hide\(\);/.test(libSrc)
-  && libSrc.indexOf('prevent_close') > libSrc.indexOf('fn open_tool'));
+  /WindowEvent::CloseRequested \{ api, \.\. \}/.test(openToolBody) && /api\.prevent_close\(\);/.test(openToolBody)
+  && /let _ = handle\.hide\(\);/.test(openToolBody));
 check('open_tool 이 패널로 띄운다', /notch::pin_tool\(&win\)/.test(libSrc)
   && /notch::order_front_tool\(&win\)/.test(libSrc) && /notch::make_key\(&win\)/.test(libSrc)
   && /let pinned = notch::pin_tool\(&win\);/.test(libSrc));
@@ -1631,6 +1632,120 @@ check('settings-e2e 가 노치 녹음 표시를 본다', /v1\.22\.0 — 알약�
 check('settings-e2e 가 권한 탭을 본다', /권한 — 마이크 권한 요청 호출/.test(settingsE2e)
   && /권한 — 마이크 시스템 설정 열기/.test(settingsE2e));
 
+
+/* ==================================================================
+   v1.23.0 — 영상 편집 · 클립보드 Spotlight 패널 · 창 다시 열기 버그
+   ================================================================== */
+
+const veModule = read('modules/video-editor/module.js');
+const veModel = read('modules/video-editor/model.js');
+const videoRs = read('mac/src-tauri/src/video.rs');
+const clipboardPanel = read('js/clipboard-panel.js');
+const clipboardHtml = read('clipboard.html');
+const tauriConf = JSON.parse(read('mac/src-tauri/tauri.conf.json'));
+
+// ① 영상 편집 — 등록·3단 작업실·타임라인
+check('video-editor 를 registry 에 등록', read('modules/registry.js').includes("import videoEditor from './video-editor/module.js';")
+  && /^\s{2}videoEditor,$/m.test(read('modules/registry.js')));
+check('video-editor 카테고리 media', /id: 'video-editor',[\s\S]{0,160}category: 'media',/.test(veModule));
+check('영상 편집 5탭', ['미디어', '전환', '자막', '오디오', '필터']
+  .every((label) => veModule.includes(`label: '${label}'`)) && /TAB_LABELS/.test(veModule));
+check('멀티 트랙 타임라인(비디오·자막·오디오)', /\['video', 'subtitle', 'audio'\]/.test(veModule)
+  && /ve-track-subtitle/.test(read('css/app.css')) && /ve-track-audio/.test(read('css/app.css')));
+check('클립 나누기·트림·순서 이동·삭제·되돌리기', /function splitAtPlayhead/.test(veModule)
+  && /data-trim/.test(veModule) && /function deleteSelected/.test(veModule)
+  && /undoStack/.test(veModule) && /redoStack/.test(veModule) && /project\.clips\.splice\(target, 0/.test(veModule));
+check('키보드 Space·S·⌫·⌘Z', /event\.code === 'Space'/.test(veModule) && /splitAtPlayhead\(\)/.test(veModule)
+  && /event\.key === 'Delete' \|\| event\.key === 'Backspace'/.test(veModule)
+  && /meta && event\.key\.toLowerCase\(\) === 'z'/.test(veModule));
+check('전환 30종(id 가 xfade 이름)', (() => {
+  const start = veModel.indexOf('export const TRANSITIONS');
+  const blockText = veModel.slice(start, veModel.indexOf('];', start));
+  return (blockText.match(/\{ id: '/g) || []).length === 30;
+})());
+check('전환 없는 경계도 짧은 겹침(0.04초)', /export const CUT = 0\.04;/.test(veModel) && /boundaryDuration/.test(veModel));
+check('해상도 HD·FHD·2K·4K(2K·4K 는 Mac 전용)', /id: '2k'[\s\S]{0,80}macOnly: true/.test(veModel)
+  && /id: '4k'[\s\S]{0,80}macOnly: true/.test(veModel) && /id: 'hd'[\s\S]{0,60}macOnly: false/.test(veModel));
+check('프레임 24·30·60', /FPS_OPTIONS = \[24, 30, 60\]/.test(veModel));
+check('자막 글꼴 Pretendard + 시스템 글꼴 + ttf 업로드', /id: 'pretendard'/.test(veModel)
+  && /System\/Library\/Fonts\/Supplemental\/AppleGothic\.ttf/.test(veModel) && /video_pick_font/.test(veModule));
+check('자막 미리보기에서 끌어 옮기기', /subDrag/.test(veModule) && /subtitle\.x = Math\.min\(1, Math\.max\(0/.test(veModule));
+check('웹 내보내기 canvas + MediaRecorder(최대 FHD)', /captureStream/.test(veModule) && /new MediaRecorder/.test(veModule)
+  && /if \(res\.macOnly\) return;/.test(veModule));
+check('미리보기 캔버스에 필터(밝기·대비·채도)', /context\.filter = fillFilter/.test(veModule) && /FILTER_PRESETS/.test(veModel));
+
+// ② 온디맨드 ffmpeg 엔진
+check('엔진 탐색 순서 — 앱 폴더 → Homebrew', /BIN_DIR: &str = "bin"/.test(videoRs)
+  && /"\/opt\/homebrew\/bin\/ffmpeg"/.test(videoRs) && /"\/usr\/local\/bin\/ffmpeg"/.test(videoRs));
+check('정적 빌드 출처(ffmpeg-static b6.0)', /ENGINE_TAG: &str = "b6\.0"/.test(videoRs)
+  && /github\.com\/eugeneware\/ffmpeg-static\/releases\/download/.test(videoRs));
+check('내려받는 자산 4종의 SHA-256 64자리', ['FFMPEG_ARM64', 'FFMPEG_X64', 'FFPROBE_ARM64', 'FFPROBE_X64']
+  .every((name) => {
+    const at = videoRs.indexOf(name);
+    return at > 0 && /"[0-9a-f]{64}"/.test(videoRs.slice(at, at + 400));
+  }));
+check('해시가 다르면 저장하지 않는다', /crate::sha256_file\(&temp\)/.test(videoRs)
+  && /eq_ignore_ascii_case\(expected\)/.test(videoRs) && /안전을 위해 저장하지 않았습니다/.test(videoRs));
+check('실행 권한 0755', /from_mode\(0o755\)/.test(videoRs));
+check('다운로드 진행률 이벤트', /tip:\/\/video-engine-progress/.test(videoRs));
+check('인코더 videotoolbox → libx264', /h264_videotoolbox/.test(videoRs) && /libx264/.test(videoRs)
+  && /attempts\.push\(/.test(videoRs));
+check('xfade·acrossfade·drawtext·amix', /xfade=transition=/.test(videoRs) && /acrossfade=d=/.test(videoRs)
+  && /drawtext=/.test(videoRs) && /amix=inputs=/.test(videoRs));
+check('배속·페이드·색감 필터', /atempo/.test(videoRs) && /afade=t=in/.test(videoRs) && /eq=brightness=/.test(videoRs));
+check('진행률·완료 이벤트', /tip:\/\/video-export-progress/.test(videoRs) && /tip:\/\/video-export-done/.test(videoRs));
+check('고른 파일만 읽는다(허용 목록)', /static PICKED: Mutex<Option<HashSet<PathBuf>>>/.test(videoRs)
+  && /fn check_allowed/.test(videoRs) && /이번 작업에서 고른 파일이 아닙니다/.test(videoRs));
+check('오디오 분리(m4a)', /video_extract_audio/.test(videoRs) && /clip-audio-/.test(videoRs));
+check('Pretendard OTF 를 앱에 담아 자막에 쓴다', /include_bytes!\("\.\.\/assets\/Pretendard-Regular\.otf"\)/.test(videoRs)
+  && exists('mac/src-tauri/assets/Pretendard-Regular.otf') && exists('mac/src-tauri/assets/Pretendard-OFL.txt'));
+
+// ③ 클립보드 히스토리 Spotlight 패널
+check('클립 패널 창 640×520·화면 위 120px', /const CLIP_W: f64 = 640\.0;/.test(lib) && /const CLIP_H: f64 = 520\.0;/.test(lib)
+  && /place_top_center\(app, &win, CLIP_W, CLIP_H, 120\.0\)/.test(lib));
+check('클립 패널은 NSPanel 로 띄운다(pin_search)', /fn show_clipboard\(app: &AppHandle\)[\s\S]{0,400}notch::pin_search\(&win\)/.test(lib)
+  && /notch::order_front\(&win\)/.test(lib) && /notch::make_key\(&win\)/.test(lib));
+check('클립 패널은 닫지 않고 숨긴다', /fn clipboard_window\(app: &AppHandle\)[\s\S]{0,1400}api\.prevent_close\(\)[\s\S]{0,200}hide\(\)/.test(lib)
+  && /WindowEvent::Focused\(false\)/.test(lib));
+check('단축키가 클립 패널을 토글', /"clipboard-history" => toggle_clipboard\(app\)/.test(lib)
+  && /fn toggle_clipboard/.test(lib));
+check('클립 패널 화면 — ↑↓·Enter·Esc·P·⌫', clipboardHtml.includes('js/clipboard-panel.js')
+  && /ArrowDown/.test(clipboardPanel) && /ArrowUp/.test(clipboardPanel) && /clipboard_copy/.test(clipboardPanel)
+  && /hide_clipboard/.test(clipboardPanel) && /(event\.key|key) === 'Escape'/.test(clipboardPanel)
+  && /(event\.key|key) === 'Backspace' \|\| (event\.key|key) === 'Delete'/.test(clipboardPanel)
+  && /togglePin/.test(clipboardPanel));
+check('클립 패널 새로고침 이벤트', /tip:\/\/clipboard-refresh/.test(lib) && /tip:\/\/clipboard-refresh/.test(clipboardPanel));
+check('clip 창 권한·CSS·SW 등록', read('mac/src-tauri/capabilities/default.json').includes('"clip"')
+  && exists('css/clipboard.css') && read('sw.js').includes("'./clipboard.html'")
+  && read('sw.js').includes("'./js/clipboard-panel.js'") && read('sw.js').includes("'./css/clipboard.css'"));
+check('Mac 앱 웹 자산에 clipboard.html', read('mac/scripts/collect-web.sh').includes('clipboard.html'));
+
+// ④ 다시 열 때 설정 시트가 덮이던 버그
+check('창을 숨기기 전에 설정을 닫는다(main·tool)', /fn emit_close_settings/.test(lib)
+  && (lib.match(/emit_close_settings\(&/g) || []).length >= 2 && /tip:\/\/close-settings/.test(lib));
+check('app.js 가 신호를 듣고 closeSheet', /listen\('tip:\/\/close-settings', \(\) => closeSheet\(\)\)/.test(read('js/app.js')));
+check('route() 진입 시 closeSheet', /function route\(\) \{[\s\S]{0,300}closeSheet\(\);/.test(read('js/app.js')));
+check('open-module·open-home 도 closeSheet', /listen\('tip:\/\/open-module'[\s\S]{0,400}closeSheet\(\);/.test(read('js/app.js'))
+  && /listen\('tip:\/\/open-home', \(\) => \{ closeSheet\(\);/.test(read('js/app.js')));
+
+// ⑤ 단축키 모듈 창 — 전체화면 Space·영상 편집 크기
+check('모듈 창을 focused(false) 로 만든다', /\.inner_size\(width, height\)[\s\S]{0,400}\.focused\(false\)/.test(lib));
+check('영상 편집은 1180×780(최소 900×620)', /VIDEO_TOOL_W: f64 = 1180\.0/.test(lib) && /VIDEO_TOOL_H: f64 = 780\.0/.test(lib)
+  && /VIDEO_TOOL_MIN_W: f64 = 900\.0/.test(lib) && /VIDEO_TOOL_MIN_H: f64 = 620\.0/.test(lib)
+  && /fn tool_size_for/.test(lib) && /win\.set_size\(Size::Logical\(LogicalSize::new\(width, height\)\)\)/.test(lib));
+check('order_front_tool + make_key 로 연다', /if !notch::order_front_tool\(&win\)/.test(lib) && /notch::make_key\(&win\)/.test(lib));
+
+// ⑥ 미리보기용 asset 프로토콜(읽기 전용)
+check('asset 프로토콜 켜고 protocol-asset 기능', tauriConf.app.security.assetProtocol && tauriConf.app.security.assetProtocol.enable === true
+  && /"protocol-asset"/.test(read('mac/src-tauri/Cargo.toml')));
+check('CSP 가 asset 주소를 허용(media·img)', /media-src [^;]*asset:/.test(tauriConf.app.security.csp)
+  && /img-src [^;]*asset:/.test(tauriConf.app.security.csp));
+
+// ⑦ 문서
+check('README 영상 편집 안내', read('README.md').includes('### 35) 영상 편집') && read('README.md').includes('| v1.23.0 |'));
+check('README 편집 엔진 출처·해시 안내', read('README.md').includes('ffmpeg-static') && read('README.md').includes('SHA-256'));
+check('sw.js 프리캐시(영상 편집)', read('sw.js').includes("'./modules/video-editor/module.js'")
+  && read('sw.js').includes("'./modules/video-editor/model.js'"));
 
 /* ------------------------------ 결과 ------------------------------ */
 

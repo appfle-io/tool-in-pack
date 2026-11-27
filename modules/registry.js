@@ -30,6 +30,8 @@ import pdfTools from './pdf-tools/module.js';
 import photoPrivacy from './photo-privacy/module.js';
 import qrGen from './qr-gen/module.js';
 import videoGif from './video-gif/module.js';
+// v1.23.0 — 캡컷 스타일 영상 편집(타임라인·전환·자막·오디오·내보내기)
+import videoEditor from './video-editor/module.js';
 import videoMosaic from './video-mosaic/module.js';
 import mdEditor from './md-editor/module.js';
 import fileCompress from './file-compress/module.js';
@@ -114,6 +116,7 @@ export const registry = [
   qrGen,
   videoGif,
   videoMosaic,
+  videoEditor,
   devTools,
   textDiff,
   regexTester,

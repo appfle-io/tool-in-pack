@@ -33,6 +33,7 @@ mod dialogs;
 mod files;
 mod media;
 mod notch;
+mod video;
 mod sticky;
 mod system;
 mod voice;
@@ -41,6 +42,8 @@ const TOOL: &str = "tool";
 const NOTCH: &str = "notch";
 const SEARCH: &str = "search";
 const PARCEL: &str = "parcel";
+/// v1.23.0 — 클립보드 히스토리 전용 패널 창(Spotlight형). 예전에는 모듈 창을 420×680 으로 열었다.
+const CLIP: &str = "clip";
 /// 우편번호 검색 전용 창(v1.15.1) — capabilities/default.json 의 windows 목록에 없으므로
 /// Tauri IPC 권한이 전혀 없다.
 const POSTCODE: &str = "postcode";
@@ -48,6 +51,17 @@ const POSTCODE: &str = "postcode";
 // v1.17.0 — 반원 퀵바 창(quickbar, 580×206)은 없앴다. 반원은 노치 창 안의 '간단히 보기'다.
 const TOOL_W: f64 = 420.0;
 const TOOL_H: f64 = 680.0;
+
+// v1.23.0 — 영상 편집(video-editor)은 3단 작업실이라 넓게 연다. 모듈 창 하나를 재사용하므로
+// 모듈을 바꿀 때마다 크기·최소 크기를 함께 맞춘다(tool_size_for).
+const VIDEO_TOOL_W: f64 = 1180.0;
+const VIDEO_TOOL_H: f64 = 780.0;
+const VIDEO_TOOL_MIN_W: f64 = 900.0;
+const VIDEO_TOOL_MIN_H: f64 = 620.0;
+
+// v1.23.0 — 클립보드 히스토리 패널 — 빠른 실행 검색과 같은 크기·자리(화면 위쪽 가운데 120px).
+const CLIP_W: f64 = 640.0;
+const CLIP_H: f64 = 520.0;
 
 // 노치 아일랜드 — 화면 최상단 중앙(y=0, 노치 자리). 접힌 알약과 펼친 패널의 크기만 다르다.
 // v1.12.2 — 알약 높이를 46 → 28 로 줄여 화면 최상단에 밀착한다(노치 화면에서는 노치 높이).
@@ -780,6 +794,8 @@ fn shortcut_pressed(app: &AppHandle, shortcut: &tauri_plugin_global_shortcut::Sh
 
     match key.as_str() {
         SEARCH_KEY => toggle_search(app),
+        // v1.23.0 — 클립보드 히스토리는 Spotlight형 패널로 열고 닫는다(모듈 창이 아니라).
+        "clipboard-history" => toggle_clipboard(app),
         // v1.17.2 — 노치 숨기기/보이기(환경설정 → 노치 → 노치 숨기기 단축키, 기본 ⌃⇧H).
         NOTCH_TOGGLE_KEY => toggle_notch_enabled(app),
         // v1.22.0 — 녹음 단축키: 한 번 누르면 바로 녹음, 다시 누르면 중지·저장.
@@ -922,6 +938,21 @@ fn toggle_notch_enabled(app: &AppHandle) {
 
 /* --------------------------- 빠른 실행 검색 창 (v1.12.0) --------------------------- */
 
+/// v1.23.0 — 설정 시트를 닫으라고 그 창에 알린다. 창을 숨기기 직전에 부르면, 다시 열 때
+/// 낡은 설정 화면이 남아 있지 않다(모듈 창 420×680 위에 설정 시트가 겹쳐 보이던 버그).
+fn emit_close_settings(win: &WebviewWindow) {
+    let _ = win.emit("tip://close-settings", ());
+}
+
+/// v1.23.0 — 모듈 id 에 따라 컴팩트 창의 크기와 최소 크기를 고른다.
+fn tool_size_for(id: &str) -> (f64, f64, f64, f64) {
+    if id == "video-editor" {
+        (VIDEO_TOOL_W, VIDEO_TOOL_H, VIDEO_TOOL_MIN_W, VIDEO_TOOL_MIN_H)
+    } else {
+        (TOOL_W, TOOL_H, 360.0, 520.0)
+    }
+}
+
 fn search_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     if let Some(win) = app.get_webview_window(SEARCH) {
         return Ok(win);
@@ -992,6 +1023,90 @@ fn open_search(app: AppHandle) {
 #[tauri::command]
 fn hide_search(app: AppHandle) {
     if let Some(win) = app.get_webview_window(SEARCH) {
+        let _ = win.hide();
+    }
+}
+
+/* --------------------- 클립보드 히스토리 패널 (v1.23.0) --------------------- */
+//
+// 420×680 모듈 창으로 열던 클립보드를 Spotlight 처럼 화면 위쪽 가운데의 작은 패널로 바꿨다.
+// 빠른 실행 검색(search)과 같은 구조다 — NSPanel + orderFrontRegardless + makeKeyWindow 라서
+// 다른 앱의 전체화면 Space 에서도 화면 전환 없이 바로 뜬다.
+// 창은 닫지 않고 숨기기만 한다(CloseRequested → prevent_close + hide, Focused(false) → hide).
+// v1.20.0 의 EXC_BAD_ACCESS 는 실제로 닫혀 dealloc 될 때 생겼으므로, hide 만 쓰면 재발하지 않는다.
+
+fn clipboard_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    if let Some(win) = app.get_webview_window(CLIP) {
+        return Ok(win);
+    }
+
+    let win = WebviewWindowBuilder::new(app, CLIP, WebviewUrl::App("clipboard.html".into()))
+        .title("TIP 클립보드 히스토리")
+        .inner_size(CLIP_W, CLIP_H)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(false)
+        .build()?;
+
+    let handle = win.clone();
+    win.on_window_event(move |event| match event {
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            emit_close_settings(&handle);
+            let _ = handle.hide();
+        }
+        // 바깥을 누르면 즉시 숨긴다(빠른 실행 검색과 같다).
+        WindowEvent::Focused(false) => {
+            let _ = handle.hide();
+        }
+        _ => {}
+    });
+
+    Ok(win)
+}
+
+fn show_clipboard(app: &AppHandle) {
+    let win = match clipboard_window(app) {
+        Ok(win) => win,
+        Err(error) => {
+            eprintln!("[TIP] 클립보드 창을 만들지 못했습니다: {error}");
+            return;
+        }
+    };
+    let _ = notch::pin_search(&win);
+    place_top_center(app, &win, CLIP_W, CLIP_H, 120.0);
+    let _ = win.show();
+    let _ = notch::order_front(&win);
+    let _ = notch::make_key(&win);
+    // 목록은 늘 최신으로 — 단축키를 누를 때마다 화면이 다시 읽는다.
+    let _ = win.emit("tip://clipboard-refresh", ());
+}
+
+fn toggle_clipboard(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(CLIP) {
+        if win.is_visible().unwrap_or(false) {
+            let _ = win.hide();
+            return;
+        }
+    }
+    show_clipboard(app);
+}
+
+#[tauri::command]
+fn open_clipboard(app: AppHandle) {
+    show_clipboard(&app);
+}
+
+#[tauri::command]
+fn hide_clipboard(app: AppHandle) {
+    if let Some(win) = app.get_webview_window(CLIP) {
         let _ = win.hide();
     }
 }
@@ -1251,11 +1366,17 @@ fn attach_file_drop(win: &WebviewWindow) {
 #[tauri::command]
 fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), String> {
     let label = title.unwrap_or_else(|| "TIP".to_string());
+    let (width, height, min_w, min_h) = tool_size_for(&id);
 
     if let Some(win) = app.get_webview_window(TOOL) {
         // 이미 떠 있으면 그 창에서 모듈만 바꾼다(app.js 가 듣는다).
         let _ = win.set_title(&label);
+        // v1.23.0 — 모듈마다 창 크기가 다르다(영상 편집은 3단 작업실). 최소 크기를 먼저 낮춰야
+        // 작은 쪽에서 큰 쪽으로 바꿀 때 걸리지 않는다.
+        let _ = win.set_min_size(Some(Size::Logical(LogicalSize::new(min_w, min_h))));
+        let _ = win.set_size(Size::Logical(LogicalSize::new(width, height)));
         let _ = win.show();
+        place_under_tray(&app, &win, width, height, 6.0);
         // v1.20.0 — set_focus() 는 앱을 활성화해 다른 앱의 전체화면 Space 를 벗어난다.
         // 창만 앞으로 세우고(orderFrontRegardless) 키 입력만 받게 한다.
         if !notch::order_front_tool(&win) {
@@ -1273,10 +1394,13 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
         WebviewUrl::App(format!("index.html?module={id}").into()),
     )
     .title(label.clone())
-    .inner_size(TOOL_W, TOOL_H)
-    .min_inner_size(360.0, 520.0)
+    .inner_size(width, height)
+    .min_inner_size(min_w, min_h)
     .resizable(true)
     .visible(false)
+    // v1.23.0 — 만들 때 초점을 요구하지 않는다. 초점은 아래에서 orderFrontRegardless + makeKeyWindow
+    // 로만 준다(앱을 활성화하면 다른 앱의 전체화면 Space 를 벗어난다).
+    .focused(false)
     .build()
     .map_err(|error| error.to_string())?;
 
@@ -1289,6 +1413,9 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
         win.on_window_event(move |event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                // v1.23.0 — 창을 닫기 전에 설정 시트를 닫아 둔다. 다시 단축키로 열었을 때
+                // 낡은 설정 화면이 모듈 화면을 덮고 있지 않게 한다.
+                emit_close_settings(&handle);
                 let _ = handle.hide();
             }
         });
@@ -1296,7 +1423,7 @@ fn open_tool(app: AppHandle, id: String, title: Option<String>) -> Result<(), St
 
     // v1.20.0 — 단축키로 여는 모듈 창을 모든 Space·전체화면 위에 띄운다(NSPanel 클래스는 쓰지 않는다).
     let pinned = notch::pin_tool(&win);
-    place_under_tray(&app, &win, TOOL_W, TOOL_H, 6.0);
+    place_under_tray(&app, &win, width, height, 6.0);
     attach_file_drop(&win);
     let _ = win.show();
     if pinned {
@@ -1708,7 +1835,7 @@ fn replace_bundle(target: &Path, new_app: &Path, work: &Path) -> Result<(), Stri
 }
 
 /// 파일의 SHA-256 — 설치 파일이 릴리스의 해시 목록과 같은지 대조한다(v1.12.4).
-fn sha256_file(path: &Path) -> Result<String, String> {
+pub(crate) fn sha256_file(path: &Path) -> Result<String, String> {
     use sha2::{Digest, Sha256};
 
     let mut file = fs::File::open(path).map_err(|error| format!("파일을 열지 못했습니다: {error}"))?;
@@ -1947,6 +2074,8 @@ pub fn run() {
             set_notch_enabled,
             open_search,
             hide_search,
+            open_clipboard,
+            hide_clipboard,
             set_search_shortcut,
             get_search_shortcut,
             set_module_shortcuts,
@@ -1979,6 +2108,17 @@ pub fn run() {
             sticky::sticky_restore,
             dialogs::save_backup_file,
             dialogs::open_backup_file,
+            // v1.23.0 — 영상 편집: 온디맨드 ffmpeg 엔진·파일 고르기·내보내기
+            video::video_engine_status,
+            video::video_engine_download,
+            video::video_pick_media,
+            video::video_pick_font,
+            video::video_save_path,
+            video::video_reveal,
+            video::video_probe,
+            video::video_extract_audio,
+            video::video_export,
+            video::video_cancel_export,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -2006,6 +2146,8 @@ pub fn run() {
                 main.on_window_event(move |event| {
                     if let WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
+                        // v1.23.0 — 숨기기 전에 설정 시트를 닫는다(다시 열 때 남아 있지 않게).
+                        emit_close_settings(&main_handle);
                         let _ = main_handle.hide();
                     }
                 });

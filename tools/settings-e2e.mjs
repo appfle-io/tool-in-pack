@@ -100,11 +100,41 @@ const browser = await chromium.launch({
     ...(process.env.TIP_CHROME_ARGS || '').split(' ').filter(Boolean)],
 });
 
+// v1.23.0 — 메모리가 빠듯한 상자(2GB)에서 20개 넘는 컨텍스트가 쌓여 브라우저가 죽지 않게,
+// TIP_MAX_CONTEXTS 를 주면 오래된 컨텍스트를 닫아 가며 돈다. 기본은 꺼짐(맥 CI 는 그대로).
+const MAX_CONTEXTS = Number(process.env.TIP_MAX_CONTEXTS || 0);
+if (MAX_CONTEXTS > 0) {
+  const live = [];
+  let first = true;
+  const nativeNewContext = browser.newContext.bind(browser);
+  browser.newContext = async (...args) => {
+    if (!first) {
+      while (live.length >= MAX_CONTEXTS) {
+        const oldest = live.shift();
+        try { await oldest.close(); } catch { /* 이미 닫힘 */ }
+      }
+    } else {
+      first = false;
+    }
+    const context = await nativeNewContext(...args);
+    live.push(context);
+    return context;
+  };
+}
+
 const consoleErrors = [];
 const MOCK = `
 (() => {
   const calls = [];
   window.__TIP_CALLS__ = calls;
+  // v1.23.0 — 시험에서는 서비스 워커를 끈다. 화면을 열고 새로 고칠 때마다 워커 캐시가 겹치면
+  // 메모리가 빠듯한 상자(2GB)에서 브라우저가 죽는 일이 있어, 앱 셸과 상관없는 부분만 끈다.
+  try {
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { register: () => Promise.reject(new Error('test: no sw')), ready: Promise.reject(new Error('test: no sw')), controller: null, addEventListener() {}, removeEventListener() {} },
+      configurable: true,
+    });
+  } catch { /* 못 바꾸면 그냥 둔다 */ }
   const answers = {
     get_autostart: false,
     set_autostart: null,
@@ -182,6 +212,21 @@ const MOCK = `
     },
     sticky_restore: 1,
     clipboard_restore: 1,
+    // v1.23.0 — 영상 편집(엔진 없음 → 다운로드 안내) · 파일 고르기 · 내보내기
+    video_engine_status: {
+      available: false, path: null, source: null, version: null, arch: 'arm64',
+      ffprobe: null, binaryDir: '/tmp/tip/bin', downloadSize: 96468992, message: '편집 엔진이 없습니다',
+    },
+    video_pick_media: [{ path: '/tmp/tip-sample.mp4', name: 'tip-sample.mp4', kind: 'video', size: 1048576 }],
+    video_pick_font: { path: '/tmp/MyFont.otf', name: 'MyFont.otf', kind: 'font', size: 2048 },
+    video_probe: { duration: 12, width: 1920, height: 1080, hasAudio: true, hasVideo: true },
+    video_save_path: '/tmp/TIP-편집-20261127-0900.mp4',
+    video_export: { path: '/tmp/TIP-편집-20261127-0900.mp4', seconds: 2.4, encoder: 'libx264' },
+    video_reveal: null,
+    video_extract_audio: '/tmp/clip-audio-1.m4a',
+    video_cancel_export: null,
+    open_clipboard: null,
+    hide_clipboard: null,
   };
   // v1.22.0 — 녹음 시뮬레이터 — 실제 Rust(voice.rs) 대신 상태만 흉내 낸다.
   const voice = { status: 'idle', acc: 0, started: 0, name: null, error: null };
@@ -287,6 +332,8 @@ page.on('console', (message) => { if (message.type() === 'error') consoleErrors.
 page.on('pageerror', (error) => consoleErrors.push(`pageerror: ${String(error)}`));
 
 async function resetSettings() {
+  // 아직 화면이 없으면(about:blank) 먼저 연다 — 나눠 돌리는 시험 상자에서도 같은 함수를 쓴다.
+  if (!page.url().startsWith(BASE)) await page.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
   await page.evaluate(() => {
     const keep = {};
     localStorage.clear();
@@ -325,7 +372,7 @@ await page.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
 
-check('홈이 그려짐(모듈 34)', await page.locator('.module-card').count() === 34, String(await page.locator('.module-card').count()));
+check('홈이 그려짐(모듈 35)', await page.locator('.module-card').count() === 35, String(await page.locator('.module-card').count()));
 check('Mac 환경에서 설정 버튼 있음', await page.locator('#settings-btn').count() === 1);
 
 await openSettings();
@@ -589,7 +636,7 @@ check('모듈 — 공통 조합 기본값 Control+Shift', (await prefixSelect.in
 const prefixOptions = await prefixSelect.locator('option').allTextContents();
 check('모듈 — 공통 조합 6가지', prefixOptions.length === 6, String(prefixOptions.length));
 const moduleRows = await page.locator('.sheet-module-row').count();
-check('모듈 — 모듈 목록 34개', moduleRows === 34, String(moduleRows));
+check('모듈 — 모듈 목록 35개', moduleRows === 35, String(moduleRows));
 // v1.15.1 — 탭을 바꿔도 시트 높이가 튀지 않는다.
 const sheetHeightModules = (await page.locator('.sheet').boundingBox())?.height || 0;
 check('모듈 — 탭을 바꿔도 시트 높이 고정', Math.abs(sheetHeightGeneral - sheetHeightModules) < 2, `${Math.round(sheetHeightGeneral)} → ${Math.round(sheetHeightModules)}`);
@@ -1125,8 +1172,13 @@ const arrowStart = await emptyPage.evaluate(async () => {
   row.scrollLeft = 0;
   await new Promise((resolve) => setTimeout(resolve, 60));
   document.querySelector('[data-launcher="next"]').click();
-  await new Promise((resolve) => setTimeout(resolve, 90));
-  const mid = row.scrollLeft;
+  // v1.23.0 — 느린 시험 상자(소프트웨어 렌더링)에서는 90ms 안에 애니메이션이 시작되지 않을 수 있다.
+  // 값이 0 과 끝 사이에 걸리는 순간을 최대 500ms 동안 찾아 '부드럽게 넘어가는지'를 본다.
+  let mid = 0;
+  for (let i = 0; i < 10; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (row.scrollLeft > 0) { mid = row.scrollLeft; break; }
+  }
   await new Promise((resolve) => setTimeout(resolve, 600));
   return { mid, end: row.scrollLeft, pos: document.getElementById('launcher-pos').textContent };
 });
@@ -1216,7 +1268,7 @@ const homeRest = await mobile.evaluate(() => ({
   handles: document.querySelectorAll('.drag-handle').length,
   editVisible: !!document.getElementById('edit-btn')?.offsetParent,
 }));
-check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 34 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
+check('v1.15.3 — 홈 편집 모드: 기본은 실행만', homeRest.cards === 35 && homeRest.switches === 0 && homeRest.pins === 0 && homeRest.handles === 0, JSON.stringify(homeRest));
 check('v1.15.3 — 편집 버튼은 홈에만', homeRest.editVisible);
 
 await mobile.click('#edit-btn');
@@ -1527,7 +1579,7 @@ await webPage.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
 await webPage.evaluate(() => localStorage.clear());
 await webPage.reload({ waitUntil: 'networkidle' });
 const webSections = await webPage.locator('.home-section').evaluateAll((nodes) => nodes.map((node) => node.dataset.section));
-check('v1.16.0 — 웹 모듈 29개(Mac 5종 제외)', await webPage.locator('.module-card').count() === 29,
+check('v1.16.0 — 웹 모듈 30개(Mac 5종 제외)', await webPage.locator('.module-card').count() === 30,
   String(await webPage.locator('.module-card').count()));
 check('v1.16.0 — 웹에 Mac 화면 도구 섹션 없음', !webSections.includes('mac'), webSections.join(','));
 check('v1.18.0 — 게임 묶음이 개발·디자인 다음', webSections.filter((id) => id !== 'pinned').join(',') === 'docs,media,file,calc,dev,game',
@@ -3345,6 +3397,205 @@ const sw = readFileSync(join(ROOT, 'sw.js'), 'utf8');
 check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes('radial') && sw.includes("'./js/dial.js'"));
 }
 
+/* ================================================================
+   v1.23.0 — 영상 편집 · 클립보드 Spotlight 패널 · 다시 열 때 설정 시트
+   ================================================================ */
+
+{
+  /* ① 창을 다시 열 때 설정 시트가 덮이던 버그 */
+  await page.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { location.hash = '#/'; });
+  await page.waitForTimeout(250);
+  await page.click('#settings-btn');
+  await page.waitForTimeout(300);
+  check('v1.23.0 — 설정 시트 열림', await page.locator('.sheet').count() === 1);
+
+  await page.evaluate(() => { window.__TIP_LISTENERS__['tip://open-module']({ payload: 'timer' }); });
+  await page.waitForTimeout(500);
+  check('v1.23.0 — 모듈을 열면 설정 시트가 닫힌다', await page.locator('.sheet').count() === 0,
+    String(await page.locator('.sheet').count()));
+  check('v1.23.0 — 모듈 화면이 그대로 보인다', (await page.locator('.screen-title h1').textContent().catch(() => '')) === '타이머',
+    await page.locator('.screen-title h1').textContent().catch(() => ''));
+
+  await page.evaluate(() => { location.hash = '#/'; });
+  await page.waitForTimeout(250);
+  await page.click('#settings-btn');
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { window.__TIP_LISTENERS__['tip://close-settings']({ payload: null }); });
+  await page.waitForTimeout(450);
+  check('v1.23.0 — close-settings 신호로 시트가 닫힌다', await page.locator('.sheet').count() === 0);
+
+  await page.evaluate(() => { location.hash = '#/timer'; });
+  await page.waitForTimeout(300);
+  await page.click('#settings-btn');
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { location.hash = '#/'; });
+  await page.waitForTimeout(450);
+  check('v1.23.0 — 화면을 옮기면(route) 시트가 닫힌다', await page.locator('.sheet').count() === 0,
+    String(await page.locator('.sheet').count()));
+
+  /* ② 클립보드 히스토리 — Spotlight형 패널 */
+  const clipContext = await browser.newContext({ viewport: { width: 640, height: 520 }, locale: 'ko-KR', colorScheme: 'dark' });
+  await clipContext.addInitScript(MOCK);
+  const clipPage = await clipContext.newPage();
+  clipPage.on('pageerror', (error) => consoleErrors.push(`v1230 clip panel: ${String(error)}`));
+  await clipPage.goto(`${BASE}/clipboard.html`, { waitUntil: 'networkidle' });
+  await clipPage.waitForTimeout(300);
+
+  check('v1.23.0 — 클립 패널 640×520 판', await clipPage.locator('.clip-panel').count() === 1);
+  check('v1.23.0 — 클립 패널이 기록 3개를 그린다', await clipPage.locator('.clip-row').count() === 3,
+    String(await clipPage.locator('.clip-row').count()));
+  check('v1.23.0 — 첫 줄이 활성', (await clipPage.locator('.clip-row.is-active .clip-text').textContent()) === '가장 최근에 복사한 글');
+  check('v1.23.0 — 안내 줄에 조작법', (await clipPage.locator('.clip-foot').textContent()).includes('복사'));
+
+  await clipPage.keyboard.press('ArrowDown');
+  await clipPage.waitForTimeout(120);
+  check('v1.23.0 — ↓ 로 다음 항목', (await clipPage.locator('.clip-row.is-active .clip-text').textContent()) === '두 번째로 복사한 글');
+  await clipPage.keyboard.press('ArrowUp');
+  await clipPage.waitForTimeout(120);
+  check('v1.23.0 — ↑ 로 위 항목', (await clipPage.locator('.clip-row.is-active .clip-text').textContent()) === '가장 최근에 복사한 글');
+
+  await clipPage.keyboard.press('ArrowDown');
+  await clipPage.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+  await clipPage.keyboard.press('Enter');
+  await clipPage.waitForTimeout(250);
+  const copied = await clipPage.evaluate(() => window.__TIP_CALLS__.find((call) => call.command === 'clipboard_copy'));
+  check('v1.23.0 — Enter 로 고른 항목 복사', !!copied && copied.args.id === 'clip-2', JSON.stringify(copied && copied.args));
+  check('v1.23.0 — 복사하면 패널을 숨긴다', await clipPage.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'hide_clipboard')));
+
+  await clipPage.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+  await clipPage.keyboard.press('p');
+  await clipPage.waitForTimeout(200);
+  const pinned = await clipPage.evaluate(() => window.__TIP_CALLS__.find((call) => call.command === 'clipboard_pin'));
+  check('v1.23.0 — P 로 고정', !!pinned && pinned.args.pinned === true, JSON.stringify(pinned && pinned.args));
+
+  await clipPage.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+  await clipPage.keyboard.press('Backspace');
+  await clipPage.waitForTimeout(250);
+  const removed = await clipPage.evaluate(() => window.__TIP_CALLS__.find((call) => call.command === 'clipboard_delete'));
+  check('v1.23.0 — ⌫ 로 지우기', !!removed, JSON.stringify(removed && removed.args));
+
+  await clipPage.fill('#clip-search', '세 번째');
+  await clipPage.waitForTimeout(200);
+  check('v1.23.0 — 찾기로 거르기', await clipPage.locator('.clip-row').count() === 1,
+    String(await clipPage.locator('.clip-row').count()));
+  await clipPage.keyboard.press('Escape');
+  await clipPage.waitForTimeout(200);
+  check('v1.23.0 — Esc 는 먼저 찾기만 지운다', await clipPage.locator('.clip-row').count() === 3
+    && await clipPage.evaluate(() => window.__TIP_CALLS__.filter((call) => call.command === 'hide_clipboard').length) <= 1);
+  await clipPage.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+  await clipPage.keyboard.press('Escape');
+  await clipPage.waitForTimeout(200);
+  check('v1.23.0 — 빈 찾기에서 Esc 는 패널을 숨긴다', await clipPage.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'hide_clipboard')));
+  await clipContext.close();
+
+  /* ③ 영상 편집 — 3단 작업실 · 클립 · 분할 · 자막 · 전환 · 내보내기 */
+  const veContext = await browser.newContext({ viewport: { width: 1180, height: 800 }, locale: 'ko-KR' });
+  await veContext.addInitScript(MOCK);
+  const ve = await veContext.newPage();
+  ve.on('pageerror', (error) => consoleErrors.push(`v1230 video editor: ${String(error)}`));
+  await ve.goto(`${BASE}/index.html#/video-editor`, { waitUntil: 'networkidle' });
+  await ve.waitForTimeout(700);
+
+  check('v1.23.0 — 영상 편집 화면', await ve.locator('.ve').count() === 1);
+  check('v1.23.0 — 다섯 도구 탭', await ve.locator('.ve-tab').count() === 5,
+    String(await ve.locator('.ve-tab').count()));
+  check('v1.23.0 — 세 단(왼쪽·가운데·오른쪽)', await ve.locator('.ve-left').count() === 1
+    && await ve.locator('.ve-center').count() === 1 && await ve.locator('.ve-right').count() === 1);
+  check('v1.23.0 — 타임라인 세 트랙', await ve.locator('.ve-track-video').count() === 1
+    && await ve.locator('.ve-track-subtitle').count() === 1 && await ve.locator('.ve-track-audio').count() === 1);
+  check('v1.23.0 — 엔진이 없으면 다운로드 안내', (await ve.locator('.ve-notice').textContent()).includes('ffmpeg'));
+
+  await ve.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+  await ve.click('.ve-notice .ve-btn');
+  await ve.waitForTimeout(300);
+  check('v1.23.0 — 엔진 다운로드 호출', await ve.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'video_engine_download')));
+
+  await ve.click('.ve-tab-body .ve-btn-primary');
+  await ve.waitForTimeout(400);
+  check('v1.23.0 — 파일 고르기 호출', await ve.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'video_pick_media')));
+  check('v1.23.0 — 클립이 타임라인에 들어간다', await ve.locator('.ve-clip').count() === 1,
+    String(await ve.locator('.ve-clip').count()));
+  check('v1.23.0 — 클립 길이는 ffprobe 값(12초)', (await ve.locator('.ve-time-total').textContent()) === '00:12.0',
+    await ve.locator('.ve-time-total').textContent());
+
+  await ve.click('.ve-tab-body .ve-btn-primary');
+  await ve.waitForTimeout(400);
+  check('v1.23.0 — 두 번째 클립', await ve.locator('.ve-clip').count() === 2,
+    String(await ve.locator('.ve-clip').count()));
+
+  await ve.click('.ve-tab:nth-child(2)');
+  await ve.waitForTimeout(200);
+  check('v1.23.0 — 전환 30종', await ve.locator('.ve-transition').count() === 30,
+    String(await ve.locator('.ve-transition').count()));
+  await ve.click('.ve-transition:nth-child(4)');
+  await ve.waitForTimeout(250);
+  check('v1.23.0 — 전환을 놓으면 경계에 표시', await ve.locator('.ve-clip-transition').count() >= 1,
+    String(await ve.locator('.ve-clip-transition').count()));
+
+  await ve.click('.ve-tab:nth-child(3)');
+  await ve.waitForTimeout(200);
+  await ve.fill('.ve-tab-body .ve-textarea', '첫 자막입니다');
+  await ve.click('.ve-tab-body .ve-btn-primary');
+  await ve.waitForTimeout(300);
+  check('v1.23.0 — 자막 블록 생성', await ve.locator('.ve-sub-block').count() === 1,
+    String(await ve.locator('.ve-sub-block').count()));
+  check('v1.23.0 — 자막 속성(글꼴·크기·색)', (await ve.locator('.ve-props-body').textContent()).includes('글꼴')
+    && (await ve.locator('.ve-props-body').textContent()).includes('외곽선'));
+
+  // 플레이헤드를 두 번째 클립 안쪽으로 옮기고 나누기
+  const trackBox = await ve.locator('.ve-track-video').boundingBox();
+  await ve.mouse.click(trackBox.x + 220, trackBox.y + 30);
+  await ve.waitForTimeout(200);
+  const beforeSplit = await ve.locator('.ve-clip').count();
+  await ve.click('.ve-icon-btn[aria-label="클립 나누기 (S)"]');
+  await ve.waitForTimeout(300);
+  check('v1.23.0 — S 로 클립 나누기', await ve.locator('.ve-clip').count() === beforeSplit + 1,
+    `${beforeSplit} → ${await ve.locator('.ve-clip').count()}`);
+
+  await ve.click('.ve-clip');
+  await ve.keyboard.press('Backspace');
+  await ve.waitForTimeout(250);
+  const afterDelete = await ve.locator('.ve-clip').count();
+  check('v1.23.0 — ⌫ 로 클립 지우기', afterDelete === beforeSplit, `${afterDelete}`);
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(250);
+  check('v1.23.0 — ⌘Z 로 되돌리기', await ve.locator('.ve-clip').count() === beforeSplit + 1,
+    String(await ve.locator('.ve-clip').count()));
+
+  await ve.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+  await ve.click('.ve-export-btn');
+  await ve.waitForTimeout(300);
+  check('v1.23.0 — 내보내기 창', await ve.locator('.ve-modal').count() === 1);
+  check('v1.23.0 — 해상도 HD·FHD·2K·4K', await ve.locator('.ve-modal select').first().locator('option').count() === 4,
+    String(await ve.locator('.ve-modal select').first().locator('option').count()));
+  check('v1.23.0 — 프레임 3종', await ve.locator('.ve-modal select').nth(1).locator('option').count() === 3);
+  check('v1.23.0 — 내보내기 요약에 크기', (await ve.locator('.ve-modal .ve-hint').first().textContent()).includes('1920×1080'),
+    await ve.locator('.ve-modal .ve-hint').first().textContent());
+
+  await ve.click('.ve-modal-actions .ve-btn-primary');
+  await ve.waitForTimeout(900);
+  const exportCall = await ve.evaluate(() => window.__TIP_CALLS__.find((call) => call.command === 'video_export'));
+  check('v1.23.0 — 내보내기 호출', !!exportCall, JSON.stringify(exportCall && exportCall.args && exportCall.args.spec && exportCall.args.spec.width));
+  if (exportCall) {
+    const spec = exportCall.args.spec;
+    check('v1.23.0 — spec 해상도·프레임', spec.width === 1920 && spec.height === 1080 && spec.fps === 30,
+      `${spec.width}x${spec.height}@${spec.fps}`);
+    check('v1.23.0 — spec 클립 경로·자르기', Array.isArray(spec.clips) && spec.clips.length === beforeSplit + 1
+      && spec.clips[0].path === '/tmp/tip-sample.mp4' && spec.clips[0].trimEnd > 1 && spec.clips[0].trimEnd < 6,
+      JSON.stringify(spec.clips[0]));
+    check('v1.23.0 — spec 자막·전환', spec.subtitles.length === 1 && spec.subtitles[0].text === '첫 자막입니다'
+      && spec.clips.some((clip) => clip.transition && clip.transition.duration > 0),
+      JSON.stringify(spec.subtitles.length));
+  }
+  check('v1.23.0 — 저장했으면 진행률 100%', (await ve.locator('.ve-modal .ve-progress span').evaluate((node) => node.style.width)) === '100%');
+  await ve.keyboard.press('Escape');
+  await ve.waitForTimeout(200);
+  check('v1.23.0 — Esc 로 내보내기 창 닫기', await ve.locator('.ve-modal').count() === 0);
+  await veContext.close();
+}
+
 /* ------------------------------ 결과 ------------------------------ */
 
 const errors = consoleErrors.filter((line) => !/favicon|service worker|ERR_FILE/i.test(line));
@@ -3354,7 +3605,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.22.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.23.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);

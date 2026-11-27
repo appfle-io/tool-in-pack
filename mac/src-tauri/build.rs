@@ -116,6 +116,20 @@ const APP_COMMANDS: &[&str] = &[
     // 백업 파일 저장·열기 대화상자 (v1.16.0)
     "save_backup_file",
     "open_backup_file",
+    // 클립보드 Spotlight 패널 (v1.23.0)
+    "open_clipboard",
+    "hide_clipboard",
+    // 영상 편집 — 온디맨드 엔진·파일 고르기·내보내기 (v1.23.0)
+    "video_engine_status",
+    "video_engine_download",
+    "video_pick_media",
+    "video_pick_font",
+    "video_save_path",
+    "video_reveal",
+    "video_probe",
+    "video_extract_audio",
+    "video_export",
+    "video_cancel_export",
 ];
 
 fn main() {

@@ -9,7 +9,7 @@
 
 use std::sync::mpsc;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// 백업 파일 최대 크기 — 실수로 고른 거대한 파일을 읽지 않는다.
 const MAX_BACKUP_BYTES: usize = 12 * 1024 * 1024;

@@ -1,6 +1,6 @@
 [package]
 name = "tip"
-version = "1.22.0"
+version = "1.23.0"
 description = "TIP (TOOL-IN-PACK) macOS 앱"
 authors = ["유동규 <appfle.io@gmail.com>"]
 edition = "2021"
@@ -14,7 +14,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+# v1.23.0 — 영상 편집 미리보기: 고른 로컬 파일을 asset 주소로 읽는다(읽기 전용).
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api", "protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 앱 업데이트 확인·다운로드 (GitHub Releases) — 공개 릴리스 정보만 읽는다.
