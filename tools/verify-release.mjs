@@ -1992,6 +1992,8 @@ check('v1.25.0 — 새 커맨드(video_silence·video_save_png) 등록', [
   && capJson.permissions.includes(`allow-${name.replace(/_/g, '-')}`)));
 check('v1.25.0 — silencedetect 파싱', /silencedetect=noise=\{noise:\.0\}dB:d=\{minimum:\.2\}/.test(videoRs)
   && /silence_start: /.test(videoRs) && /silence_end: /.test(videoRs));
+check('v1.25.0 — 무음 찾기는 화면을 막지 않는다(spawn_blocking)', /pub async fn video_silence/.test(videoRs)
+  && /spawn_blocking\(move \|\| run_silence/.test(videoRs));
 check('v1.25.0 — 스틸컷 PNG 저장(저장 창·임시 파일)', /fn video_save_png/.test(videoRs)
   && /fn save_png_panel/.test(videoRs) && /fn decode_png/.test(graphRs));
 

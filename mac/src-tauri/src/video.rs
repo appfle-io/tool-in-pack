@@ -531,7 +531,7 @@ pub struct SilenceResult {
 }
 
 #[tauri::command]
-pub fn video_silence(
+pub async fn video_silence(
     app: AppHandle,
     path: String,
     start: f64,
@@ -539,9 +539,24 @@ pub fn video_silence(
     threshold: f64,
     min_silence: f64,
 ) -> Result<SilenceResult, String> {
-    let (ffmpeg, _) = find_engine(&app);
+    // ffmpeg 를 기다리는 동안 화면이 멈추지 않게 별도 스레드에서 돈다(긴 영상에서 몇 초 걸린다).
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || run_silence(&handle, &path, start, end, threshold, min_silence))
+        .await
+        .map_err(|error| format!("무음을 찾지 못했습니다: {error}"))?
+}
+
+fn run_silence(
+    app: &AppHandle,
+    path: &str,
+    start: f64,
+    end: f64,
+    threshold: f64,
+    min_silence: f64,
+) -> Result<SilenceResult, String> {
+    let (ffmpeg, _) = find_engine(app);
     let ffmpeg = ffmpeg.ok_or_else(|| "편집 엔진이 없습니다".to_string())?;
-    check_allowed(Path::new(&path))?;
+    check_allowed(Path::new(path))?;
     let from = start.max(0.0);
     let span = (end - from).max(0.1);
     let noise = threshold.clamp(-80.0, -5.0);
@@ -555,7 +570,7 @@ pub fn video_silence(
             "-t",
             &format!("{span:.3}"),
             "-i",
-            &path,
+            path,
             "-af",
             &format!("silencedetect=noise={noise:.0}dB:d={minimum:.2}"),
             "-f",
