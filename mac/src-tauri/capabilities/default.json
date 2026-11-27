@@ -90,6 +90,7 @@
     "allow-video-project-media",
     "allow-video-silence",
     "allow-video-save-png",
+    "allow-doc-convert-html",
     "allow-set-search-shortcut",
     "allow-get-search-shortcut",
     "allow-set-module-shortcuts",

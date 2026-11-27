@@ -34,7 +34,7 @@ const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map(({ id, label }) => [id,
 
 /** 검색어 보강 — 모듈 이름에 없는 흔한 말로도 찾히게. */
 const KEYWORDS = {
-  'doc-reader': 'pdf hwp hwpx 문서 뷰어 열기 읽기',
+  'doc-reader': 'pdf hwp hwpx xlsx xls docx pptx epub csv 문서 뷰어 엑셀 워드 파워포인트 전자책 열기 읽기',
   'clipboard-history': '클립보드 복사 히스토리 클립 이미지 텍스트',
   'address-search': '주소 우편번호 도로명 영문 해외 검색 변환',
   'parcel-tracker': '배송 택배 송장 운송장 조회 추적 배달',

@@ -16,6 +16,7 @@
  *   · 저장소를 로컬 HTTP 로 띄우고, Tauri(Mac 앱) 환경을 흉내 내는 window.__TAURI__ 를
  *     페이지 스크립트보다 먼저 넣는다. invoke 는 커맨드별 가짜 값을 돌려주고 호출을 기록한다.
  *   · 일반 · 노치 · 검색 · 권한 · 모듈 다섯 탭의 버튼·토글·슬라이더·선택·모달·하위 화면을 모두 누른다.
+ *   · 문서 리더의 형식별 전수 점검은 tools/doc-reader-e2e.mjs 로 나눠 두었다(메모리가 빠듯할 때 그 파일만).
  *   · v1.14.0 제보 버그(단축키 '변경' 직후 '취소'가 먹지 않음)의 회귀 테스트를 포함한다.
  *   · 모듈(타이머) 화면과 접힌 노치 알약(음악·타이머)도 같은 방식으로 확인한다.
  *
@@ -99,6 +100,28 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
     ...(process.env.TIP_CHROME_ARGS || '').split(' ').filter(Boolean)],
 });
+
+// v1.26.0 — 시험 상자(한 번에 300초까지만 도는 환경)에서도 전수 점검이 끝나도록,
+// 기다리는 시간만 배속한다. 기본은 1(그대로) — CI·맥에서는 아무것도 바뀌지 않는다.
+//   TIP_E2E_SPEED=3 node tools/settings-e2e.mjs
+const E2E_SPEED = Number(process.env.TIP_E2E_SPEED || 1);
+function speedUpPage(target) {
+  if (!(E2E_SPEED > 0) || E2E_SPEED === 1) return target;
+  const native = target.waitForTimeout.bind(target);
+  target.waitForTimeout = (ms) => native(Math.max(30, Math.round(ms / E2E_SPEED)));
+  return target;
+}
+{
+  const nativeNewContext = browser.newContext.bind(browser);
+  browser.newContext = async (...args) => {
+    const context = await nativeNewContext(...args);
+    const nativeNewPage = context.newPage.bind(context);
+    context.newPage = async (...pageArgs) => speedUpPage(await nativeNewPage(...pageArgs));
+    return context;
+  };
+  const nativeBrowserNewPage = browser.newPage.bind(browser);
+  browser.newPage = async (...args) => speedUpPage(await nativeBrowserNewPage(...args));
+}
 
 // v1.23.0 — 메모리가 빠듯한 상자(2GB)에서 20개 넘는 컨텍스트가 쌓여 브라우저가 죽지 않게,
 // TIP_MAX_CONTEXTS 를 주면 오래된 컨텍스트를 닫아 가며 돈다. 기본은 꺼짐(맥 CI 는 그대로).
@@ -1753,6 +1776,37 @@ const preloaded = await tauriPage.evaluate(() => ({
   names: [...document.querySelectorAll('#pt-m-files .f-name')].map((node) => node.textContent),
 }));
 check('v1.16.0 — 고른 모듈이 파일을 얹고 열림', preloaded.hash === '#/pdf-tools' && preloaded.names.includes('a.pdf'), JSON.stringify(preloaded));
+
+/* ---------- 문서 리더 — 새 확장자 (v1.26.0) ----------
+ * 문서 리더 전체 점검(형식별 렌더링·보안·390px)은 tools/doc-reader-e2e.mjs 가 맡는다.
+ * 여기서는 홈 드롭 추천과 실제 열림만 짧게 확인한다(메모리가 빠듯한 상자에서 이 구간을 떼어 내도 된다). */
+await tauriPage.evaluate(() => {
+  document.querySelectorAll('.drop-panel, .drop-overlay').forEach((node) => node.remove());
+  location.hash = '#/';
+});
+await tauriPage.waitForTimeout(200);
+await tauriPage.evaluate(async () => {
+  const response = await fetch('/samples/doc-reader/sheet-basic.xlsx');
+  const buffer = await response.arrayBuffer();
+  const dt = new DataTransfer();
+  dt.items.add(new File([buffer], 'sheet-basic.xlsx', { type: '' }));
+  document.querySelector('#view').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+});
+await tauriPage.waitForTimeout(300);
+const xlsxNames = await tauriPage.locator('.drop-panel .drop-item b').allTextContents();
+check('v1.26.0 — xlsx 추천에 문서 리더가 먼저', xlsxNames[0] === '문서 리더', xlsxNames.join(','));
+await tauriPage.locator('.drop-panel .drop-item', { hasText: '문서 리더' }).first().click({ force: true });
+await tauriPage.waitForTimeout(2600);
+const sheetView = await tauriPage.evaluate(() => ({
+  hash: location.hash,
+  tabs: [...document.querySelectorAll('.dr-sheet-tab')].map((node) => node.textContent.trim()),
+  text: document.querySelector('.doc-stage')?.innerText || '',
+}));
+check('v1.26.0 — 문서 리더가 xlsx 를 연다', sheetView.hash === '#/doc-reader'
+  && sheetView.tabs.join(',') === '매출,재고,메모', JSON.stringify({ hash: sheetView.hash, tabs: sheetView.tabs }));
+check('v1.26.0 — 시트 값이 보인다', sheetView.text.includes('2026년 4분기 매출 보고서'));
+await tauriPage.evaluate(() => { location.hash = '#/'; });
+await tauriPage.waitForTimeout(200);
 
 await tauriPage.evaluate(() => {
   const settings = JSON.parse(localStorage.getItem('tip.settings.v1') || '{}');

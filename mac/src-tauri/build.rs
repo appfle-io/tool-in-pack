@@ -139,6 +139,8 @@ const APP_COMMANDS: &[&str] = &[
     // v1.25.0 — 무음 구간 찾기 · 스틸컷/프리즈 프레임 PNG
     "video_silence",
     "video_save_png",
+    // v1.26.0 — 문서 리더: 구형 .doc(textutil) 변환
+    "doc_convert_html",
 ];
 
 fn main() {

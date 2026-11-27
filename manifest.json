@@ -1,11 +1,11 @@
 {
   "name": "TIP - TOOL-IN-PACK",
   "short_name": "TIP",
-  "description": "작은 도구들을 한곳에 모은 모듈형 유틸리티. 첫 모듈은 PDF · HWP · HWPX 문서 리더.",
+  "description": "작은 도구들을 한곳에 모은 모듈형 유틸리티. PDF, 한글, 엑셀, 워드, 파워포인트, EPUB 문서를 읽는 문서 리더부터.",
   "lang": "ko",
   "dir": "ltr",
   "id": "/tool-in-pack/",
-  "version": "1.25.0",
+  "version": "1.26.0",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -2007,6 +2007,120 @@ check('v1.25.0 — settings-e2e 가 새 기능을 본다', /v1\.25\.0 — 모자
 check('v1.25.0 — 필터 그래프 검증 도구', exists('tools/video-graph-test.mjs') && exists('tools/ve-graph-test/Cargo.toml')
   && read('tools/video-graph-test.mjs').includes('video_graph.rs'));
 
+/* --------------------- v1.26.0 — 문서 리더 확장자 대폭 확장 --------------------- */
+
+const docReader = read('modules/doc-reader/module.js');
+const DOC_EXTS = ['pdf', 'hwp', 'hwpx', 'xlsx', 'xls', 'xlsm', 'csv', 'tsv', 'ods',
+  'docx', 'doc', 'odt', 'rtf', 'epub', 'pptx', 'txt', 'md', 'json', 'yaml', 'yml', 'xml', 'log'];
+check('v1.26.0 — 문서 리더가 22개 확장자를 받는다',
+  DOC_EXTS.every((extension) => docReader.includes(`'${extension}'`)), DOC_EXTS.join(','));
+check('v1.26.0 — 모듈 설명·부제 갱신', /subtitle: 'PDF, HWP, Excel, Word, PPT, EPUB'/.test(docReader)
+  && docReader.includes('엑셀·워드·파워포인트'));
+check('v1.26.0 — 웹에서는 .doc 을 Mac 앱 안내로', docReader.includes('Mac 앱에서 .doc 열람 가능'));
+
+const DOC_FILES = ['spreadsheet.js', 'docx.js', 'odt.js', 'rtf.js', 'epub.js', 'pptx.js',
+  'textdoc.js', 'findbar.js', 'ooxml.js', 'sanitize.js', 'legacy-doc.js'];
+DOC_FILES.forEach((file) => {
+  check(`v1.26.0 — modules/doc-reader/${file}`, exists(`modules/doc-reader/${file}`)
+    && read('sw.js').includes(`'./modules/doc-reader/${file}'`));
+});
+
+// 라이브러리는 레포 안에만 — CDN·외부 호출 금지
+check('v1.26.0 — SheetJS 로컬 번들(Apache-2.0)', exists('vendor/xlsx/xlsx.mjs') && exists('vendor/xlsx/LICENSE')
+  && read('vendor/xlsx/LICENSE').includes('Apache License')
+  && read('sw.js').includes("'./vendor/xlsx/xlsx.mjs'"));
+check('v1.26.0 — 새 파서가 외부 CDN 을 부르지 않는다',
+  [...DOC_FILES, 'module.js'].every((file) => {
+    const source = read(`modules/doc-reader/${file}`);
+    return !/from\s+['"]https?:/.test(source) && !/fetch\(\s*['"]https?:/.test(source)
+      && !/cdn\./.test(source);
+  }));
+check('v1.26.0 — SheetJS 를 처음 열 때만 불러온다', /await import\('\.\.\/\.\.\/vendor\/xlsx\/xlsx\.mjs'\)/.test(read('modules/doc-reader/spreadsheet.js')));
+
+// 새니타이즈 — script·onerror·javascript: 차단
+const sanitizer = read('modules/doc-reader/sanitize.js');
+check('v1.26.0 — DOMPurify 새니타이즈', sanitizer.includes('window.DOMPurify')
+  && sanitizer.includes("'script'") && sanitizer.includes("'iframe'"));
+check('v1.26.0 — 허용 URL 은 blob·상대·https 만', sanitizer.includes('ALLOWED_URI_REGEXP')
+  && /blob\|\(\?:\(\?:f\|ht\)tps\?/.test(sanitizer));
+check('v1.26.0 — docx·odt·rtf·epub·md·doc 모두 새니타이즈 경유',
+  ['docx.js:sanitizeBody', 'odt.js:sanitizeBody', 'rtf.js:sanitizeBody', 'epub.js:sanitizeChapter',
+    'textdoc.js:sanitizeBody', 'legacy-doc.js:sanitizeConverted']
+    .every((entry) => {
+      const [file, fn] = entry.split(':');
+      return read(`modules/doc-reader/${file}`).includes(fn);
+    }));
+
+// 스프레드시트 — 시트 탭·병합·고정 머리글·쪽 나눔·찾기
+const sheet = read('modules/doc-reader/spreadsheet.js');
+check('v1.26.0 — 200행씩 나눠 그린다', /ROWS_PER_PAGE = 200/.test(sheet));
+check('v1.26.0 — 시트 탭·병합 셀', /dr-sheet-tab/.test(sheet) && /colspan/.test(sheet) && /rowspan/.test(sheet));
+check('v1.26.0 — 시트 안 찾기(셀 강조·쪽 이동)', /is-current/.test(sheet) && /goToMatch/.test(sheet)
+  && /computeMatches/.test(sheet));
+check('v1.26.0 — 열 너비 반영', /'!cols'/.test(sheet) || /!cols/.test(sheet));
+check('v1.26.0 — 고정 머리글 CSS', /\.dr-sheet thead th \{[\s\S]{0,120}position: sticky/.test(read('css/app.css')));
+
+// 문서·전자책·프레젠테이션
+check('v1.26.0 — docx 제목·목록(스타일 numPr)·표 병합·그림',
+  /outlineLvl/.test(read('modules/doc-reader/docx.js')) && /numpr/.test(read('modules/doc-reader/docx.js'))
+  && /gridspan/.test(read('modules/doc-reader/docx.js')) && /bllip|blip/i.test(read('modules/doc-reader/docx.js')));
+const epub = read('modules/doc-reader/epub.js');
+check('v1.26.0 — epub 목차(EPUB3 nav · EPUB2 NCX)', epub.includes('nav[epub') && epub.includes('navpoint'));
+check('v1.26.0 — epub 장 이동·그림', /dr-epub-prev/.test(epub) && /dr-epub-next/.test(epub) && /blobUrl/.test(epub));
+const pptx = read('modules/doc-reader/pptx.js');
+check('v1.26.0 — pptx 슬라이드·표·그림·노트', /sldsz/.test(pptx) && /dr-pptx-table/.test(pptx)
+  && /notesSlide/.test(pptx) && /dr-slide-jump/.test(pptx));
+check('v1.26.0 — pptx 자리표시자를 마스터까지 물려받는다', /slideMaster/.test(pptx) && /placeholderMap\(layoutDoc, masterMap\)/.test(pptx));
+
+// 텍스트·개발 포맷
+const textdoc = read('modules/doc-reader/textdoc.js');
+check('v1.26.0 — md 는 marked + 새니타이즈', /from '\.\.\/\.\.\/vendor\/marked\/marked\.esm\.js'/.test(textdoc)
+  && /sanitizeBody\(raw\)/.test(textdoc));
+check('v1.26.0 — json 트리·유효성·원문 전환', /jsonTree/.test(textdoc) && /올바른 JSON/.test(textdoc)
+  && /원문 보기/.test(textdoc));
+check('v1.26.0 — 줄 번호 코드 뷰·로그 색', /dr-ln/.test(textdoc) && /is-error/.test(textdoc));
+check('v1.26.0 — 찾기 막대(이전/다음·개수)', /dr-find-count/.test(read('modules/doc-reader/findbar.js'))
+  && /dr-hit/.test(read('modules/doc-reader/findbar.js')));
+
+// Mac .doc — textutil IPC
+check('v1.26.0 — Rust doc.rs(textutil)', exists('mac/src-tauri/src/doc.rs')
+  && read('mac/src-tauri/src/doc.rs').includes('/usr/bin/textutil')
+  && /"-convert", "html", "-stdout"/.test(read('mac/src-tauri/src/doc.rs')));
+check('v1.26.0 — doc 변환 확장자 허용 목록·크기 제한·시간 제한',
+  /const ALLOWED: &\[&str\] = &\["doc"/.test(read('mac/src-tauri/src/doc.rs'))
+  && /MAX_BYTES: usize = 24 \* 1024 \* 1024/.test(read('mac/src-tauri/src/doc.rs'))
+  && /TIMEOUT: Duration = Duration::from_secs\(15\)/.test(read('mac/src-tauri/src/doc.rs')));
+check('v1.26.0 — doc_convert_html 등록(build.rs·capabilities·invoke)',
+  read('mac/src-tauri/build.rs').includes('"doc_convert_html"')
+  && read('mac/src-tauri/capabilities/default.json').includes('"allow-doc-convert-html"')
+  && read('mac/src-tauri/src/lib.rs').includes('doc::doc_convert_html')
+  && read('mac/src-tauri/src/lib.rs').includes('mod doc;'));
+
+// 샘플·검사 도구
+const SAMPLE_FILES = ['sheet-basic.xlsx', 'legacy-excel.xls', 'sheet-macro.xlsm', 'table.csv', 'table.tsv',
+  'budget.ods', 'report.docx', 'unsafe.docx', 'notes.odt', 'letter.rtf', 'book.epub', 'deck.pptx',
+  'readme.md', 'config.json', 'broken.json', 'settings.yaml', 'feed.xml', 'app.log', 'notes.txt'];
+check('v1.26.0 — 실제 샘플 문서 19종', SAMPLE_FILES.every((file) => exists(`samples/doc-reader/${file}`)),
+  SAMPLE_FILES.filter((file) => !exists(`samples/doc-reader/${file}`)).join(','));
+check('v1.26.0 — 샘플 생성 스크립트', exists('tools/make-doc-samples.py'));
+check('v1.26.0 — 문서 리더 E2E 도구', exists('tools/doc-reader-e2e.mjs')
+  && read('tools/doc-reader-e2e.mjs').includes("'samples', 'doc-reader'")
+  && read('tools/doc-reader-e2e.mjs').includes('390px'));
+check('v1.26.0 — settings-e2e 가 문서 리더 구간을 본다', /v1\.26\.0 — 문서 리더가 xlsx 를 연다/.test(read('tools/settings-e2e.mjs')));
+
+// 홈 드롭 추천
+const docAppJs = read('js/app.js');
+check('v1.26.0 — 끌어다 놓기 확장자 매핑', /xlsx: 'application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet'/.test(appJs)
+  && /docx: 'application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document'/.test(docAppJs)
+  && /pptx: 'application\/vnd\.openxmlformats-officedocument\.presentationml\.presentation'/.test(docAppJs)
+  && /epub: 'application\/epub\+zip'/.test(docAppJs));
+check('v1.26.0 — 찾기 검색어에 새 형식', /doc-reader': 'pdf hwp hwpx xlsx/.test(read('js/search.js')));
+
+// README
+check('v1.26.0 — README 기능·버전', read('README.md').includes('| v1.26.0 |')
+  && read('README.md').includes('스프레드시트') && read('README.md').includes('EPUB')
+  && read('README.md').includes('.pptx'));
+
 /* ------------------------------ 결과 ------------------------------ */
 
 const width = String(passes.length + fails.length).length;

@@ -104,6 +104,22 @@ const EXT_TYPES = {
   gif: 'image/gif', heic: 'image/heic', heif: 'image/heif', bmp: 'image/bmp', svg: 'image/svg+xml',
   mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', avi: 'video/x-msvideo',
   zip: 'application/zip',
+  // v1.26.0 — 문서 리더가 여는 형식(파인더에서 끌어다 놓으면 MIME 이 비어 있을 때가 많다)
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+  xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+  ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  tsv: 'text/tab-separated-values',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
+  odt: 'application/vnd.oasis.opendocument.text',
+  rtf: 'application/rtf',
+  epub: 'application/epub+zip',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  yaml: 'text/yaml',
+  yml: 'text/yaml',
+  xml: 'application/xml',
+  log: 'text/plain',
 };
 
 function fileTypeOf(file) {
@@ -1076,7 +1092,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.25.0';
+const APP_VERSION = '1.26.0';
 
 let updateBusy = false;
 

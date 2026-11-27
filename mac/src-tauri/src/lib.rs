@@ -30,6 +30,7 @@ mod autostart;
 mod capture;
 mod clip;
 mod dialogs;
+mod doc;
 mod files;
 mod media;
 mod notch;
@@ -2128,6 +2129,8 @@ pub fn run() {
             video::video_project_media,
             video::video_silence,
             video::video_save_png,
+            // v1.26.0 — 문서 리더: 구형 .doc 을 macOS textutil 로 HTML 로 바꾼다
+            doc::doc_convert_html,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

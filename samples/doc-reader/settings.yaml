@@ -1,0 +1,14 @@
+# TIP 설정 예시
+app:
+  name: TIP
+  version: 1.26.0
+  modules:
+    - doc-reader
+    - pdf-tools
+  limits:
+    rows: 5000
+    sizeMb: 40
+features:
+  darkMode: true
+  accent: green
+  note: "따옴표 안의 값: 콜론도 됩니다"

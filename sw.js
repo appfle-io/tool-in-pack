@@ -1,6 +1,6 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.25.0';
+const CACHE_VERSION = 'tip-v1.26.0';
 const APP_SHELL = [
   './',
   './index.html',
@@ -53,6 +53,18 @@ const APP_SHELL = [
   './modules/doc-reader/pdf-viewer.js',
   './modules/doc-reader/hwp.js',
   './modules/doc-reader/hwpx.js',
+  // v1.26.0 — 문서 리더 확장: 스프레드시트·Word·ODT·RTF·EPUB·PPTX·텍스트
+  './modules/doc-reader/sanitize.js',
+  './modules/doc-reader/ooxml.js',
+  './modules/doc-reader/findbar.js',
+  './modules/doc-reader/textdoc.js',
+  './modules/doc-reader/spreadsheet.js',
+  './modules/doc-reader/docx.js',
+  './modules/doc-reader/odt.js',
+  './modules/doc-reader/rtf.js',
+  './modules/doc-reader/epub.js',
+  './modules/doc-reader/pptx.js',
+  './modules/doc-reader/legacy-doc.js',
   './modules/img-converter/module.js',
   './modules/img-converter/encoders.js',
   './modules/pdf-tools/module.js',
@@ -91,6 +103,7 @@ const APP_SHELL = [
   './vendor/pdfjs/pdf.min.js',
   './vendor/pdfjs/pdf.worker.min.js',
   './vendor/jszip/jszip.min.js',
+  './vendor/xlsx/xlsx.mjs',
   './vendor/hwpjs/hwp.esm.js',
   './vendor/pdf-lib/pdf-lib.min.js',
   './vendor/qrcode/qrcode.mjs',

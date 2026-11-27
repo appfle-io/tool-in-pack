@@ -6382,3 +6382,418 @@ body.is-file-drag::after {
 @media (prefers-reduced-motion: reduce) {
   .ve-progress span { transition: none; }
 }
+
+/* ---------- doc reader · 새 형식 (v1.26.0) ---------- */
+
+/* 공통 toolbar — 찾기 상자가 들어가면 줄을 바꿔 쓴다 */
+.doc-toolbar.dr-toolbar { flex-wrap: wrap; row-gap: 4px; overflow: visible; }
+
+.dr-find {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1 1 170px;
+  min-width: 0;
+}
+.dr-find-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+}
+.dr-find-input:focus { outline: none; border-color: var(--accent); }
+.dr-find-count {
+  flex: none;
+  min-width: 34px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+.dr-wrap-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.dr-wrap-toggle input { width: 14px; height: 14px; accent-color: var(--accent); }
+
+mark.dr-hit { background: #ffe066; color: #14181f; border-radius: 2px; padding: 0 1px; }
+mark.dr-hit.is-current { background: #ffa94d; box-shadow: 0 0 0 1px #b26a00; }
+
+/* 스프레드시트 */
+.dr-sheet-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 2px 0 2px;
+  scrollbar-width: thin;
+}
+.dr-sheet-tab {
+  flex: none;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dr-sheet-tab.is-on { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); font-weight: 650; }
+
+.doc-stage.dr-sheet-stage { padding: 0; background: var(--bg); }
+.dr-sheet { border-collapse: separate; border-spacing: 0; font-size: 12.5px; color: #14181f; background: #fff; }
+.dr-sheet th, .dr-sheet td {
+  border-right: 1px solid #dde2e9;
+  border-bottom: 1px solid #dde2e9;
+  padding: 5px 8px;
+  vertical-align: top;
+  background: #fff;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.dr-sheet thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #eef2f0;
+  font-weight: 700;
+  text-align: left;
+}
+.dr-sheet .dr-rowno {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 42px;
+  background: #f4f6f8;
+  color: #6a7480;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dr-sheet thead .dr-corner { z-index: 3; }
+.dr-sheet td.num, .dr-sheet th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dr-sheet td.is-hit { background: #fff3bf; }
+.dr-sheet td.is-current { background: #ffd43b; outline: 2px solid #b26a00; outline-offset: -2px; }
+.dr-empty-cell { text-align: center; color: #8a94a0; padding: 24px; }
+.dr-sheet-info { padding: 6px 4px 2px; font-size: 12px; color: var(--muted-2); }
+
+/* 코드·텍스트 */
+.doc-stage.dr-text-stage { padding: 0; background: #fff; }
+.dr-scope { min-height: 100%; }
+.dr-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.62;
+  color: #14181f;
+  background: #fff;
+  padding: 8px 0;
+  font-variant-ligatures: none;
+}
+.dr-line { display: flex; gap: 10px; padding: 0 10px 0 0; }
+.dr-line:hover { background: #f6f8fa; }
+.dr-ln {
+  flex: none;
+  width: 46px;
+  padding-right: 8px;
+  text-align: right;
+  color: #9aa3ae;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.dr-tx { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+.dr-code.nowrap .dr-tx { white-space: pre; word-break: normal; }
+.dr-line.is-error .dr-tx { color: #b42318; font-weight: 600; }
+.dr-line.is-warn .dr-tx { color: #9a6700; }
+.dr-line.is-dim .dr-tx { color: #8a94a0; }
+.dr-code-cut { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--muted); background: #f7f8fa; }
+
+/* JSON */
+.dr-json-tree { padding: 12px 14px; font-size: 13px; line-height: 1.65; color: #14181f; background: #fff; }
+.jt-node { margin: 1px 0; }
+.jt-node > summary {
+  cursor: pointer;
+  list-style: none;
+  white-space: pre-wrap;
+  border-radius: 4px;
+}
+.jt-node > summary::-webkit-details-marker { display: none; }
+.jt-node > summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 14px;
+  color: #7b8794;
+  font-size: 12px;
+}
+.jt-node[open] > summary::before { content: '▾'; }
+.jt-node > summary:hover { background: #f4f6f8; }
+.jt-children { margin-left: 14px; border-left: 1px solid #e3e8ee; padding-left: 10px; }
+.jt-row { white-space: pre-wrap; padding: 1px 0; }
+.jt-key { color: #0b4f6c; font-weight: 600; }
+.jt-colon { color: #6a7480; }
+.jt-str { color: #1a7f37; }
+.jt-num { color: #0550ae; }
+.jt-bool { color: #8250df; }
+.jt-null { color: #8a94a0; }
+.jt-brace { color: #6a7480; }
+.jt-count {
+  display: inline-block;
+  margin: 0 5px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #eef2f0;
+  color: #4a5560;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.dr-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.dr-badge.is-ok { border-color: #2f855a; color: #1e6b45; background: #e6f4ec; }
+.dr-badge.is-bad { border-color: #b42318; color: #b42318; background: #fdeceb; }
+.dr-json-error {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 10px;
+  padding: 10px 12px;
+  border: 1px solid #b42318;
+  border-radius: 8px;
+  background: #fdeceb;
+  color: #14181f;
+  font-size: 12.5px;
+}
+.dr-json-error b { color: #b42318; }
+
+/* 문서(Word·ODT·RTF·EPUB) 공통 서식 */
+.dr-paper h1, .dr-paper h2, .dr-paper h3, .dr-paper h4, .dr-paper h5, .dr-paper h6 {
+  margin: 1.1em 0 0.45em;
+  line-height: 1.35;
+  font-weight: 700;
+}
+.dr-paper h1 { font-size: 1.55em; }
+.dr-paper h2 { font-size: 1.3em; }
+.dr-paper h3 { font-size: 1.14em; }
+.dr-paper h4, .dr-paper h5, .dr-paper h6 { font-size: 1.02em; }
+.dr-paper > :first-child { margin-top: 0; }
+.dr-paper ul, .dr-paper ol { margin: 0.4em 0 0.7em; padding-left: 1.35em; }
+.dr-paper li { margin: 0.15em 0; }
+.dr-paper ul.dr-list, .dr-paper ol.dr-list { list-style: none; padding-left: 0; }
+.dr-paper .dr-list li { padding-left: calc(var(--lvl, 0) * 1.25em); position: relative; }
+.dr-paper ul.dr-list li::before {
+  content: '•';
+  position: absolute;
+  left: calc(var(--lvl, 0) * 1.25em - 0.85em);
+  color: var(--muted);
+}
+.dr-paper ol.dr-list { counter-reset: dr-item; }
+.dr-paper ol.dr-list li { counter-increment: dr-item; }
+.dr-paper ol.dr-list li::before {
+  content: counter(dr-item) '.';
+  position: absolute;
+  left: calc(var(--lvl, 0) * 1.25em - 1.2em);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.dr-paper blockquote {
+  margin: 0.7em 0;
+  padding: 0.3em 0 0.3em 12px;
+  border-left: 3px solid #cbd5df;
+  color: #4a5560;
+}
+.dr-paper code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  background: #f1f3f6;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.dr-paper pre {
+  margin: 0.7em 0;
+  padding: 10px 12px;
+  background: #f6f8fa;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.dr-paper pre code { background: none; padding: 0; }
+.dr-paper a { color: #0b5cad; text-decoration: underline; }
+.dr-paper a.dr-link-off { color: inherit; text-decoration: none; }
+.dr-paper .dr-blank { min-height: 0.9em; margin: 0; }
+.dr-paper .dr-tab { display: inline-block; width: 2em; }
+.dr-paper .dr-strike { text-decoration: line-through; }
+.dr-paper .dr-sup { vertical-align: super; font-size: 0.78em; }
+.dr-paper .dr-sub { vertical-align: sub; font-size: 0.78em; }
+.dr-paper .dr-note-ref { color: var(--accent-ink); }
+.dr-paper .dr-img-note {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #f1f3f6;
+  color: #6a7480;
+  font-size: 0.88em;
+}
+.dr-paper .dr-docx-img, .dr-paper .dr-odt-img { display: block; max-width: 100%; height: auto; margin: 0.5em 0; }
+.dr-paper .dr-docx-table, .dr-paper .dr-odt-table, .dr-paper .dr-rtf-table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  font-size: 0.95em;
+  max-width: 100%;
+}
+.dr-paper .dr-docx-table td, .dr-paper .dr-docx-table th,
+.dr-paper .dr-odt-table td, .dr-paper .dr-odt-table th,
+.dr-paper .dr-rtf-table td, .dr-paper .dr-rtf-table th {
+  border: 1px solid #b9c2cd;
+  padding: 5px 8px;
+  vertical-align: top;
+}
+.dr-paper .dr-docx-table p, .dr-paper .dr-odt-table p, .dr-paper .dr-rtf-table td { margin: 0; }
+
+/* EPUB */
+.doc-stage.dr-epub { padding: 22px 20px; }
+.dr-epub-toc {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 8px;
+  margin-bottom: 8px;
+  max-height: 46dvh;
+  overflow: auto;
+}
+.dr-toc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 6px; }
+.dr-toc-head b { font-size: 13px; }
+.dr-toc-list { display: flex; flex-direction: column; gap: 2px; }
+.dr-toc-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dr-toc-item:hover { background: var(--card-2); }
+.dr-toc-item.is-current { background: var(--accent-soft); color: var(--accent-ink); font-weight: 650; }
+.dr-toc-num { flex: none; min-width: 20px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+.dr-toc-title { min-width: 0; }
+.dr-toc-more { margin: 6px 4px 2px; font-size: 12px; color: var(--muted-2); }
+.dr-chapter-count { min-width: 52px; }
+.dr-epub h1:first-child { margin-top: 0; }
+
+/* 슬라이드 */
+.doc-stage.dr-slide-stage { padding: 10px; background: var(--bg); display: flex; flex-direction: column; align-items: center; }
+.dr-slide-fit { position: relative; width: 100%; max-width: 1280px; overflow: hidden; }
+.dr-slide-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  background: #fff;
+  color: #14181f;
+  overflow: hidden;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+.dr-shape { position: absolute; overflow: hidden; }
+.dr-shape-in {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 6px 8px;
+  font-size: 18px;
+  line-height: 1.26;
+  overflow: hidden;
+}
+.dr-shape-in p { margin: 0 0 0.18em; white-space: pre-wrap; }
+.dr-pic { position: absolute; overflow: hidden; }
+.dr-pic img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.dr-frame { position: absolute; overflow: hidden; }
+.dr-pptx-table { border-collapse: collapse; width: 100%; font-size: 12.5px; background: #fff; }
+.dr-pptx-table td { border: 1px solid #b9c2cd; padding: 4px 7px; vertical-align: top; }
+.dr-pptx-table p { margin: 0; }
+.dr-notes {
+  width: 100%;
+  max-width: 1280px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.dr-notes b { display: block; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
+.dr-notes-empty { color: var(--muted-2); }
+.dr-slide-list {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 8px;
+  margin-bottom: 8px;
+}
+.dr-slide-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 6px; }
+.dr-slide-jump {
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.dr-slide-jump.is-current { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); font-weight: 700; }
+.dr-slide-count { min-width: 46px; }
+.tool-btn.is-on { background: var(--accent-soft); color: var(--accent-ink); }
+
+/* 문서(Word·ODT·RTF·EPUB·MD) — 스크롤 상자 자체가 종이처럼 보이게 */
+.doc-stage.dr-paper {
+  background: #fff;
+  color: #14181f;
+  padding: 24px clamp(14px, 4vw, 44px);
+  font-size: 14.5px;
+  line-height: 1.72;
+  word-break: break-word;
+}
+.doc-stage.dr-paper > :where(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table) {
+  max-width: 860px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.dr-blank-line { display: inline-block; height: 0.9em; }
+
+/* 표 — 마크다운·EPUB·일반 본문 표 */
+.dr-paper table { border-collapse: collapse; margin: 0.8em auto; font-size: 0.94em; }
+.dr-paper th, .dr-paper td { border: 1px solid #b9c2cd; padding: 5px 8px; text-align: left; vertical-align: top; }
+.dr-paper th { background: #f2f6f4; font-weight: 700; }
+.dr-toc-item { justify-content: flex-start; }
