@@ -5707,8 +5707,11 @@ body.is-file-drag::after {
 
 .ve-tabs::-webkit-scrollbar { display: none; }
 
+/* v1.25.0 — 도구 탭 7개(모자이크·스티커 추가)는 두 줄로 접어 보여 준다. */
+.ve-tabs { flex-wrap: wrap; overflow: visible; }
+
 .ve-tab {
-  flex: 1;
+  flex: 1 1 21%;
   min-width: 0;
   padding: 8px 2px;
   border: 0;
@@ -6043,8 +6046,8 @@ body.is-file-drag::after {
 .ve-timeline {
   display: flex;
   flex-direction: column;
-  height: 228px;
-  min-height: 176px;
+  height: 272px;
+  min-height: 200px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--card);
@@ -6099,9 +6102,9 @@ body.is-file-drag::after {
 
 .ve-tracks { position: relative; }
 
-.ve-track { position: relative; height: 64px; border-bottom: 1px solid var(--line); }
-.ve-track-subtitle { height: 34px; background: var(--card-2); }
-.ve-track-audio { height: 38px; background: var(--card-2); }
+.ve-track { position: relative; height: 56px; border-bottom: 1px solid var(--line); }
+.ve-track-subtitle { height: 30px; background: var(--card-2); }
+.ve-track-audio { height: 32px; background: var(--card-2); }
 .ve-track:last-child { border-bottom: 0; }
 .ve-track-empty { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); margin: 0; font-size: 12px; color: var(--muted-2); pointer-events: none; }
 
@@ -6203,7 +6206,7 @@ body.is-file-drag::after {
 .ve-audio-block.is-on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* v1.24.0 — 오버레이(PIP) 트랙 · 자석 스냅 가이드 · 자동 저장 표시 */
-.ve-track-overlay { height: 40px; background: var(--card-2); }
+.ve-track-overlay { height: 34px; background: var(--card-2); }
 
 .ve-overlay-block {
   position: absolute;
@@ -6316,6 +6319,55 @@ body.is-file-drag::after {
 .ve-modal-head h2 { margin: 0; font-size: 15px; }
 .ve-modal-body { display: flex; flex-direction: column; gap: 10px; }
 .ve-modal-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* v1.25.0 — 모자이크 · 스티커 트랙, 이모지 고르기, 켜짐 표시 */
+.ve-track-mask,
+.ve-track-shape { height: 26px; background: var(--card-2); }
+
+.ve-mask-block {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bad) 14%, var(--card));
+  color: var(--text);
+  overflow: hidden;
+  cursor: grab;
+  min-width: 16px;
+}
+
+.ve-shape-block {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--card));
+  color: var(--text);
+  overflow: hidden;
+  cursor: grab;
+  min-width: 16px;
+}
+
+.ve-mask-block.is-on,
+.ve-shape-block.is-on { border-style: solid; border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+.ve-btn.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+
+.ve-emoji-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+
+.ve-emoji {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ve-emoji.is-on { border-color: var(--accent); background: var(--accent-soft); }
 
 @media (max-width: 980px) {
   .ve { height: auto; min-height: 0; }

@@ -23,13 +23,17 @@ import { el, icons, formatBytes } from '../../js/ui.js';
 import {
   ASPECTS, RESOLUTIONS, FPS_OPTIONS, TRANSITIONS, FILTER_PRESETS, FONTS,
   SUBTITLE_PRESETS, SUBTITLE_ANIMATIONS, MOTIONS,
-  SPEED_MIN, SPEED_MAX, CUT, FRAME_STEP, SNAP_PIXELS,
-  createProject, createSubtitle, createOverlay, createMotion, newId,
+  SPEED_MIN, SPEED_MAX, CUT, FRAME_STEP, SNAP_PIXELS, CENTER_SNAP_PIXELS, SAFE_AREA,
+  FIT_MODES, fitById, COLOR_DEFAULTS, ROTATIONS, ROTATE_FREE_MIN, ROTATE_FREE_MAX,
+  DENOISE_LEVELS, denoiseById, VOICE_PRESETS, voiceById,
+  MASK_KINDS, MASK_SHAPES, SHAPE_KINDS, SHAPE_EMOJIS,
+  createProject, createSubtitle, createOverlay, createMotion, newId, createClipLook,
   clipDuration, layout, totalDuration, frameAt, indexAt, outputSize, timecode, friendlyDuration,
   transitionById, fontById, subtitlePresetById, matchSubtitlePreset, applySubtitlePreset,
   subtitleStyle, applySubtitleStyle, animationAt, clipFormat, applyClipFormat, applyMotionPreset,
-  motionById, motionAt, cloneSubtitle, cloneClip, cloneAudio, cloneOverlay,
+  motionById, motionAt, cloneSubtitle, cloneClip, cloneAudio, cloneOverlay, cloneMask, cloneShape,
   snapTargets, snapTime, snapRange, freeSpan,
+  createMask, createShape, mapSilence, cutSilence, localTimeOf,
 } from './model.js';
 
 const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2.6"/><path d="M7 10.2v3.6M10.5 10.2v3.6"/><path d="M14 9.4l4 2.6-4 2.6z"/></svg>';
@@ -49,6 +53,8 @@ const TAB_LABELS = [
   { id: 'subtitle', label: '자막' },
   { id: 'audio', label: '오디오' },
   { id: 'filter', label: '필터' },
+  { id: 'mask', label: '모자이크' },
+  { id: 'shape', label: '스티커' },
 ];
 
 const MEDIA_ACCEPT = 'video/*,image/*';
@@ -62,6 +68,11 @@ const ICON_UNDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const ICON_REDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7h4V3"/><path d="M18.5 6.5a8 8 0 1 0 1.2 8"/></svg>';
 const ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M4 18.5v1a1.5 1.5 0 0 0 1.5 1.5h13a1.5 1.5 0 0 0 1.5-1.5v-1"/></svg>';
 const ICON_SNAP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v9a4 4 0 0 0 8 0V4"/><path d="M6 8h4M14 8h4"/><path d="M3 20h18"/></svg>';
+const ICON_TRIM_START = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4v16"/><path d="M9 7v10M13 7v10M17 7v10M21 7v10"/></svg>';
+const ICON_TRIM_END = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M19 4v16"/><path d="M3 7v10M7 7v10M11 7v10M15 7v10"/></svg>';
+const ICON_MUTE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18V6L7.5 9.5z"/><path d="m16 9.5 5 5M21 9.5l-5 5"/></svg>';
+const ICON_SAFE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.8" width="10" height="18.4" rx="2"/><path d="M9.5 6.2h5M9.5 18h5"/></svg>';
+const ICON_CAMERA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.4-2h7.2L17 8.5h3v10H4z"/><circle cx="12" cy="13.2" r="3.2"/></svg>';
 
 const module = {
   id: 'video-editor',
@@ -96,7 +107,10 @@ const module = {
       webFonts: new Map(),            // 업로드한 폰트 이름 → FontFace
       clipboard: null,                // { kind, data } — ⌘C 로 담은 것
       snap: true,                     // 자석 스냅
+      safeArea: false,                // 쇼츠/릴스 안전영역 오버레이
+      guides: null,                   // { x, y } — 드래그 중 가운데 보조선
       defaultPreset: 'basic',         // 새 자막에 쓸 프리셋
+      silenceBusy: false,             // 무음 구간 찾는 중
       whisper: null,                  // { available, model, modelSize, binary, downloadSize }
       whisperBusy: false,
       lastSavedAt: 0,
@@ -104,9 +118,17 @@ const module = {
     };
     const undoStack = [];
     const redoStack = [];
+    const audioBuffers = new Map();   // mediaId → AudioBuffer (무음 찾기)
     let activeCtx = null;             // 미리보기 캔버스(아래에서 연결)
     let subBoxes = [];                // 자막 드래그 판정용
     let overlayBoxes = [];            // 오버레이 드래그 판정용
+    let maskBoxes = [];               // 모자이크/블러 드래그 판정용
+    let shapeBoxes = [];              // 도형/스티커 드래그 판정용
+    let sharpenReady = false;
+    let sharpenSvg = null;
+    let sharpenKernel = -1;
+    const scratch = document.createElement('canvas');
+    const scratchCtx = scratch.getContext('2d');
     let rafId = 0;
     let lastTick = 0;
     let audioCtx = null;
@@ -129,6 +151,8 @@ const module = {
     const subtitleOf = (id) => project.subtitles.find((item) => item.id === id) || null;
     const audioOf = (id) => project.audios.find((item) => item.id === id) || null;
     const overlayOf = (id) => project.overlays.find((item) => item.id === id) || null;
+    const maskOf = (id) => (project.masks || []).find((item) => item.id === id) || null;
+    const shapeOf = (id) => (project.shapes || []).find((item) => item.id === id) || null;
 
     function snapshot() {
       return JSON.stringify({
@@ -137,6 +161,8 @@ const module = {
         subtitles: project.subtitles,
         audios: project.audios,
         overlays: project.overlays,
+        masks: project.masks || [],
+        shapes: project.shapes || [],
       });
     }
 
@@ -147,12 +173,16 @@ const module = {
       project.subtitles = parsed.subtitles;
       project.audios = parsed.audios;
       project.overlays = parsed.overlays || [];
+      project.masks = parsed.masks || [];
+      project.shapes = parsed.shapes || [];
       if (state.selected) {
         const still = {
           clip: clipOf,
           subtitle: subtitleOf,
           audio: audioOf,
           overlay: overlayOf,
+          mask: maskOf,
+          shape: shapeOf,
         }[state.selected.kind];
         if (!still || !still(state.selected.id)) state.selected = null;
       }
@@ -257,6 +287,8 @@ const module = {
           subtitles: project.subtitles,
           audios: project.audios,
           overlays: project.overlays,
+          masks: project.masks || [],
+          shapes: project.shapes || [],
         },
         media: mediaManifest(),
       };
@@ -264,7 +296,7 @@ const module = {
 
     function projectItemCount(data) {
       const source = data || {};
-      return ['clips', 'subtitles', 'audios', 'overlays']
+      return ['clips', 'subtitles', 'audios', 'overlays', 'masks', 'shapes']
         .reduce((sum, key) => sum + (Array.isArray(source[key]) ? source[key].length : 0), 0);
     }
 
@@ -337,6 +369,8 @@ const module = {
       project.subtitles = Array.isArray(data.subtitles) ? data.subtitles : [];
       project.audios = Array.isArray(data.audios) ? data.audios : [];
       project.overlays = Array.isArray(data.overlays) ? data.overlays : [];
+      project.masks = Array.isArray(data.masks) ? data.masks : [];
+      project.shapes = Array.isArray(data.shapes) ? data.shapes : [];
       clearMedia();
       restoreMedia(payload && payload.media);
       ensureMediaStubs();
@@ -545,6 +579,20 @@ const module = {
 
     const canvas = el('canvas', { class: 've-canvas', 'aria-label': '미리보기' });
     activeCtx = canvas.getContext('2d');
+
+    // 선명도용 SVG 필터 — Canvas 2D 의 filter 에서 url(#ve-sharpen) 로 쓴다.
+    sharpenSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    sharpenSvg.setAttribute('width', '0');
+    sharpenSvg.setAttribute('height', '0');
+    sharpenSvg.setAttribute('aria-hidden', 'true');
+    sharpenSvg.style.position = 'absolute';
+    sharpenSvg.innerHTML = '<filter id="ve-sharpen"><feConvolveMatrix id="ve-sharpen-matrix" order="3" preserveAlpha="true" kernelMatrix="0 -0.25 0 -0.25 2 -0.25 0 -0.25 0"/></filter>';
+    document.body.append(sharpenSvg);
+    try {
+      const probe = document.createElement('canvas').getContext('2d');
+      probe.filter = 'url(#ve-sharpen)';
+      sharpenReady = probe.filter.includes('ve-sharpen');
+    } catch { sharpenReady = false; }
     const stage = el('div', { class: 've-stage' }, [canvas]);
     const timeNow = el('span', { class: 've-time', text: '00:00.0' });
     const timeTotal = el('span', { class: 've-time-total', text: '00:00.0' });
@@ -768,6 +816,7 @@ const module = {
         filter: { brightness: 1, contrast: 1, saturation: 1 },
         transition: { kind: 'fade', duration: project.clips.length ? 0.5 : 0 },
         motion: createMotion(),
+        ...createClipLook(),
         sourceDuration: isImage ? 0 : (Number(item.duration) || span),
         hasAudio: !!item.hasAudio && !isImage,
       };
@@ -821,12 +870,14 @@ const module = {
 
     /* ------------------------------ 복사·붙여넣기·복제 ------------------------------ */
 
-    const KIND_LABEL = { clip: '클립', subtitle: '자막', audio: '오디오', overlay: '오버레이' };
+    const KIND_LABEL = { clip: '클립', subtitle: '자막', audio: '오디오', overlay: '오버레이', mask: '모자이크', shape: '스티커' };
     const itemOf = (kind, id) => ({
       clip: clipOf,
       subtitle: subtitleOf,
       audio: audioOf,
       overlay: overlayOf,
+      mask: maskOf,
+      shape: shapeOf,
     }[kind] || (() => null))(id);
 
     function copySelected() {
@@ -839,12 +890,14 @@ const module = {
       return true;
     }
 
-    /** 붙여넣을 자리 — 자막·오버레이·오디오는 플레이헤드에서, 이미 겹치면 그 뒤로. */
+    /** 붙여넣을 자리 — 자막·오버레이·모자이크·오디오는 플레이헤드에서, 이미 겹치면 그 뒤로. */
     function pasteAt(kind, span) {
       const items = kind === 'subtitle' ? project.subtitles
         : kind === 'overlay' ? project.overlays
-          : kind === 'audio' ? project.audios.map((item) => ({ start: item.start, end: item.start + Number(item.duration || 0), id: item.id }))
-            : [];
+          : kind === 'mask' ? (project.masks || [])
+            : kind === 'shape' ? (project.shapes || [])
+              : kind === 'audio' ? project.audios.map((item) => ({ start: item.start, end: item.start + Number(item.duration || 0), id: item.id }))
+                : [];
       return freeSpan(items, Math.max(0, state.playhead), Math.max(0.2, span), 0);
     }
 
@@ -894,6 +947,22 @@ const module = {
         state.selected = { kind: 'overlay', id: overlay.id };
         refreshAll();
         say('오버레이를 붙여넣었습니다');
+      } else if (board.kind === 'mask') {
+        commit();
+        const span = Math.max(0.2, Number(data.end) - Number(data.start));
+        const mask = cloneMask(data, pasteAt('mask', span));
+        project.masks.push(mask);
+        state.selected = { kind: 'mask', id: mask.id };
+        refreshAll();
+        say('모자이크 영역을 붙여넣었습니다');
+      } else if (board.kind === 'shape') {
+        commit();
+        const span = Math.max(0.2, Number(data.end) - Number(data.start));
+        const shape = cloneShape(data, pasteAt('shape', span));
+        project.shapes.push(shape);
+        state.selected = { kind: 'shape', id: shape.id };
+        refreshAll();
+        say('스티커를 붙여넣었습니다');
       }
     }
 
@@ -925,6 +994,16 @@ const module = {
         const copy = cloneOverlay(item, freeSpan(project.overlays.filter((ov) => ov.id !== item.id), item.end, span, 0));
         project.overlays.push(copy);
         state.selected = { kind: 'overlay', id: copy.id };
+      } else if (selected.kind === 'mask') {
+        const span = Math.max(0.2, Number(item.end) - Number(item.start));
+        const copy = cloneMask(item, freeSpan(project.masks.filter((ov) => ov.id !== item.id), item.end, span, 0));
+        project.masks.push(copy);
+        state.selected = { kind: 'mask', id: copy.id };
+      } else if (selected.kind === 'shape') {
+        const span = Math.max(0.2, Number(item.end) - Number(item.start));
+        const copy = cloneShape(item, freeSpan(project.shapes.filter((ov) => ov.id !== item.id), item.end, span, 0));
+        project.shapes.push(copy);
+        state.selected = { kind: 'shape', id: copy.id };
       }
       refreshAll();
       say(`${KIND_LABEL[selected.kind]}을(를) 복제했습니다`);
@@ -1113,6 +1192,49 @@ const module = {
       say('클립을 나눴습니다');
     }
 
+    /**
+     * Q / W 한 방 컷 — 플레이헤드를 기준으로 앞(Q) 또는 뒤(W)를 잘라 낸다.
+     * 역재생 클립은 화면에서의 앞/뒤가 원본의 뒤/앞이므로 그것까지 맞춰 자른다.
+     */
+    function trimAtPlayhead(side) {
+      const index = indexAt(project.clips, state.playhead);
+      const clip = project.clips[index];
+      if (!clip) { say('플레이헤드를 클립 위에 두세요'); return; }
+      const item = layout(project.clips)[index];
+      const offset = state.playhead - item.start;
+      if (offset < 0.08 || offset > item.duration - 0.08) { say('클립 안쪽에 플레이헤드를 두세요'); return; }
+      const speed = clip.kind === 'image' ? 1 : (Number(clip.speed) || 1);
+      const trimStart = Number(clip.trimStart) || 0;
+      const trimEnd = Number(clip.trimEnd) || trimStart;
+      const sourceOffset = offset * speed;
+      commit();
+      if (side === 'start') {
+        if (clip.reverse && clip.kind !== 'image') clip.trimEnd = Math.max(trimStart + 0.1, trimEnd - sourceOffset);
+        else clip.trimStart = Math.min(trimEnd - 0.1, trimStart + sourceOffset);
+        say('앞부분을 잘라 냈습니다');
+      } else {
+        if (clip.reverse && clip.kind !== 'image') clip.trimStart = Math.min(trimEnd - 0.1, trimStart + sourceOffset);
+        else clip.trimEnd = Math.max(trimStart + 0.1, trimStart + sourceOffset);
+        say('뒷부분을 잘라 냈습니다');
+      }
+      state.selected = { kind: 'clip', id: clip.id };
+      state.playhead = Math.min(state.playhead, totalDuration(project.clips));
+      refreshAll();
+    }
+
+    /** 원클릭 음소거 — 고른 클립(또는 플레이헤드 클립)의 소리를 끈다. */
+    function toggleMute(clip) {
+      const target = clip || (state.selected && state.selected.kind === 'clip' ? clipOf(state.selected.id) : null)
+        || project.clips[Math.max(0, indexAt(project.clips, state.playhead))];
+      if (!target) { say('음소거할 클립을 고르세요'); return; }
+      if (target.kind === 'image') { say('이미지 클립에는 소리가 없습니다'); return; }
+      target.muted = !target.muted;
+      state.selected = { kind: 'clip', id: target.id };
+      refreshAll();
+      drawPreview();
+      say(target.muted ? '음소거했습니다' : '소리를 켰습니다');
+    }
+
     function deleteSelected() {
       const selected = state.selected;
       if (!selected) { say('지울 항목을 고르세요'); return; }
@@ -1136,6 +1258,16 @@ const module = {
         if (index < 0) return;
         commit();
         project.overlays.splice(index, 1);
+      } else if (selected.kind === 'mask') {
+        const index = project.masks.findIndex((item) => item.id === selected.id);
+        if (index < 0) return;
+        commit();
+        project.masks.splice(index, 1);
+      } else if (selected.kind === 'shape') {
+        const index = project.shapes.findIndex((item) => item.id === selected.id);
+        if (index < 0) return;
+        commit();
+        project.shapes.splice(index, 1);
       }
       state.selected = null;
       state.playhead = Math.min(state.playhead, totalDuration(project.clips));
@@ -1202,49 +1334,25 @@ const module = {
       return `brightness(${brightness}) contrast(${contrast}) saturate(${sat})`;
     }
 
-    /** 한 장면을 그린다 — 비율 유지(cover)로 캔버스를 채우고, 줌/팬은 그 위에 배율로 얹는다. */
-    function drawMedia(context, width, height, item, sourceTime, filter, motion, progress) {
+    /**
+     * 한 장면을 그린다 — 맞춤(fit)·채움(fill)·블러 배경, 회전·반전·색감(밝기·대비·채도·색온도·
+     * 선명도·비네트)과 줌/팬을 모두 반영한다. 내보내기의 ffmpeg 필터 순서와 같은 값을 쓴다.
+     */
+    function drawMedia(context, width, height, item, sourceTime, clip, progress) {
       const entry = elementFor(item);
       const node = entry && entry.node;
+      const filter = (clip && clip.filter) || {};
+      const color = { ...COLOR_DEFAULTS, ...((clip && clip.color) || {}) };
+      const motion = clip ? clip.motion : null;
+      const fit = (clip && clip.fit) || 'fit';
+      const angle = Number(clip && clip.rotate) || 0;
+      const flipH = !!(clip && clip.flipH);
+      const flipV = !!(clip && clip.flipV);
+
       context.save();
-      context.filter = fillFilter(filter);
-      const targetRatio = width / height;
-      let drawWidth = width;
-      let drawHeight = height;
-      let natural = 0;
-      if (node && (node instanceof HTMLVideoElement || node instanceof Image)) {
-        natural = node instanceof HTMLVideoElement ? node.videoWidth : node.naturalWidth;
-        const naturalHeight = node instanceof HTMLVideoElement ? node.videoHeight : node.naturalHeight;
-        if (node instanceof HTMLVideoElement && node.readyState < 2) {
-          context.restore();
-          return;
-        }
-        if (natural && naturalHeight) {
-          const sourceRatio = natural / naturalHeight;
-          if (sourceRatio > targetRatio) {
-            drawHeight = height;
-            drawWidth = height * sourceRatio;
-          } else {
-            drawWidth = width;
-            drawHeight = width / sourceRatio;
-          }
-        }
-      }
-      // 줌/팬 — 중심점을 기준으로 배율만큼 당겨 그린다(내보내기의 zoompan 과 같은 뜻).
-      if (motion && motion.kind && motion.kind !== 'none') {
-        const moved = motionAt(motion, progress);
-        context.translate(width * moved.cx, height * moved.cy);
-        context.scale(moved.scale, moved.scale);
-        context.translate(-width * moved.cx, -height * moved.cy);
-      }
-      const x = (width - drawWidth) / 2;
-      const y = (height - drawHeight) / 2;
-      if (node) {
-        try {
-          context.drawImage(node, x, y, drawWidth, drawHeight);
-        } catch { /* 아직 디코드되지 않은 프레임 */ }
-      } else {
-        // 화면에 그릴 수 없는 파일 — 빈 칸에 이름만 남긴다(내보내기 결과에는 들어간다).
+
+      // 화면에 그릴 수 없는 파일 — 빈 칸에 이름만 남긴다(내보내기 결과에는 들어간다).
+      if (!node) {
         context.fillStyle = '#1b1d1c';
         context.fillRect(0, 0, width, height);
         context.fillStyle = '#7C8288';
@@ -1252,9 +1360,371 @@ const module = {
         context.textAlign = 'center';
         context.fillText('Mac 내보내기로 합쳐집니다', width / 2, height / 2);
         context.textAlign = 'start';
+        context.restore();
+        return;
       }
+
+      const naturalW = node instanceof HTMLVideoElement ? node.videoWidth : (node.naturalWidth || 0);
+      const naturalH = node instanceof HTMLVideoElement ? node.videoHeight : (node.naturalHeight || 0);
+      if (!naturalW || !naturalH || (node instanceof HTMLVideoElement && node.readyState < 2)) {
+        context.restore();
+        return;
+      }
+
+      // 줌/팬 — 중심점을 기준으로 배율만큼 당겨 그린다(내보내기의 zoompan 과 같은 뜻).
+      if (motion && motion.kind && motion.kind !== 'none') {
+        const moved = motionAt(motion, progress);
+        context.translate(width * moved.cx, height * moved.cy);
+        context.scale(moved.scale, moved.scale);
+        context.translate(-width * moved.cx, -height * moved.cy);
+      }
+
+      const rad = (angle * Math.PI) / 180;
+      const cos = Math.abs(Math.cos(rad));
+      const sin = Math.abs(Math.sin(rad));
+      const ratio = naturalW / naturalH;
+      // 회전까지 넣은 그림자가 차지하는 비율 — fit/fill 의 배율을 정한다.
+      const boxW = ratio * cos + sin;
+      const boxH = ratio * sin + cos;
+      const cover = fit === 'fill' || fit === 'blur';
+      const scale = cover
+        ? Math.max(width / boxW, height / boxH)
+        : Math.min(width / boxW, height / boxH);
+      const drawW = scale * ratio;
+      const drawH = scale;
+
+      // 밝기·대비·채도는 CSS 필터, 선명도는 SVG 필터(느리면 브라우저가 알아서 무시한다).
+      updateSharpenKernel(color.sharpen);
+      const css = `${fillFilter(filter)}${Number(color.sharpen) > 0.01 && sharpenReady ? ' url(#ve-sharpen)' : ''}`;
+
+      if (fit === 'blur') {
+        // 배경 — 같은 그림을 가득 채워 그리고 흐리게(내보내기의 boxblur 배경과 같은 모양).
+        drawRotated(context, node, width / 2, height / 2, drawW, drawH, rad, flipH, flipV,
+          `${css} blur(${Math.max(6, Math.round(height * 0.045))}px)`, 1);
+        context.save();
+        context.fillStyle = 'rgba(0, 0, 0, 0.42)';
+        context.fillRect(0, 0, width, height);
+        context.restore();
+        const innerScale = Math.min(width / boxW, height / boxH);
+        context.save();
+        context.filter = css;
+        drawRotated(context, node, width / 2, height / 2, innerScale * ratio, innerScale, rad, flipH, flipV, '', 1);
+        context.restore();
+      } else {
+        drawRotated(context, node, width / 2, height / 2, drawW, drawH, rad, flipH, flipV, css, 1);
+      }
+
+      // 색온도 — 따뜻하면 주황, 차가우면 파랑을 겹쳐 올린다(내보내기의 colorbalance 와 같은 결).
+      const temperature = Math.max(-1, Math.min(1, Number(color.temperature) || 0));
+      if (Math.abs(temperature) > 0.01) {
+        context.save();
+        context.globalCompositeOperation = 'overlay';
+        context.globalAlpha = Math.min(0.5, Math.abs(temperature) * 0.45);
+        context.fillStyle = temperature > 0 ? '#FF9A3C' : '#4A8CFF';
+        context.fillRect(0, 0, width, height);
+        context.restore();
+      }
+
+      // 비네트 — 가장자리를 어둡게(내보내기의 vignette).
+      const vignette = Math.max(0, Math.min(1, Number(color.vignette) || 0));
+      if (vignette > 0.01) {
+        context.save();
+        const gradient = context.createRadialGradient(
+          width / 2, height / 2, Math.min(width, height) * (0.52 - 0.24 * vignette),
+          width / 2, height / 2, Math.hypot(width, height) * 0.62,
+        );
+        gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        gradient.addColorStop(1, `rgba(0, 0, 0, ${(0.35 + 0.5 * vignette).toFixed(3)})`);
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, width, height);
+        context.restore();
+      }
+
       context.restore();
-      void natural;
+    }
+
+    /** 회전·반전을 입혀 그린다 — fit/fill/blur 가 같은 경로를 쓰게. */
+    function drawRotated(context, node, cx, cy, width, height, rad, flipH, flipV, filter, alpha) {
+      context.save();
+      context.translate(cx, cy);
+      if (rad) context.rotate(rad);
+      if (flipH || flipV) context.scale(flipH ? -1 : 1, flipV ? -1 : 1);
+      if (filter) context.filter = filter;
+      context.globalAlpha = alpha;
+      try {
+        context.drawImage(node, -width / 2, -height / 2, width, height);
+      } catch { /* 아직 디코드되지 않은 프레임 */ }
+      context.restore();
+    }
+
+    /** 선명도 슬라이더 → SVG 컨볼루션 커널. 값이 바뀔 때만 다시 쓴다. */
+    function updateSharpenKernel(amount) {
+      const value = Math.max(0, Math.min(2, Number(amount) || 0));
+      if (!sharpenSvg || Math.abs(value - sharpenKernel) < 0.001) return;
+      sharpenKernel = value;
+      const edge = document.getElementById('ve-sharpen-matrix');
+      if (!edge) return;
+      const a = 0.5 * value;
+      edge.setAttribute('kernelMatrix', `0 ${-a} ${0} ${-a} ${1 + 4 * a} ${-a} 0 ${-a} 0`);
+    }
+
+    /* ------------------------------ 부분 모자이크 · 블러 ------------------------------ */
+
+    /** 모자이크/블러 영역의 화면 좌표(px). */
+    function maskBox(mask, width, height) {
+      const w = Math.max(8, Number(mask.w) * width);
+      const h = Math.max(8, Number(mask.h) * height);
+      return {
+        x: Number(mask.x) * width - w / 2,
+        y: Number(mask.y) * height - h / 2,
+        width: w,
+        height: h,
+      };
+    }
+
+    /** 모자이크·블러를 얹는다 — 잘라 낸 영역을 픽셀/블러 처리해 같은 자리에 다시 그린다. */
+    function drawMasks(context, width, height, time) {
+      maskBoxes = [];
+      (project.masks || []).forEach((mask) => {
+        if (time + 0.001 < Number(mask.start) || time >= Number(mask.end)) return;
+        const box = maskBox(mask, width, height);
+        const strength = Math.max(0.05, Math.min(1, Number(mask.strength) || 0.5));
+        context.save();
+        context.beginPath();
+        if (mask.shape === 'ellipse') {
+          context.ellipse(box.x + box.width / 2, box.y + box.height / 2, box.width / 2, box.height / 2, 0, 0, Math.PI * 2);
+        } else {
+          context.rect(box.x, box.y, box.width, box.height);
+        }
+        context.clip();
+
+        if (mask.kind === 'blur') {
+          scratch.width = Math.max(1, Math.round(box.width));
+          scratch.height = Math.max(1, Math.round(box.height));
+          scratchCtx.clearRect(0, 0, scratch.width, scratch.height);
+          scratchCtx.drawImage(context.canvas, box.x, box.y, box.width, box.height, 0, 0, scratch.width, scratch.height);
+          context.filter = `blur(${Math.max(2, Math.round(Math.min(box.width, box.height) * 0.12 * strength))}px)`;
+          context.drawImage(scratch, 0, 0, scratch.width, scratch.height, box.x, box.y, box.width, box.height);
+          context.filter = 'none';
+        } else {
+          // 모자이크 — 작게 줄였다가 픽셀 그대로 다시 키운다(내보내기의 pixelize 와 같은 결).
+          const blocks = Math.max(3, Math.round(4 + strength * 20));
+          const pixel = Math.max(2, Math.round(Math.min(box.width, box.height) / blocks));
+          const tw = Math.max(1, Math.round(box.width / pixel));
+          const th = Math.max(1, Math.round(box.height / pixel));
+          scratch.width = tw;
+          scratch.height = th;
+          scratchCtx.imageSmoothingEnabled = false;
+          scratchCtx.clearRect(0, 0, tw, th);
+          scratchCtx.drawImage(context.canvas, box.x, box.y, box.width, box.height, 0, 0, tw, th);
+          context.imageSmoothingEnabled = false;
+          context.drawImage(scratch, 0, 0, tw, th, box.x, box.y, box.width, box.height);
+          context.imageSmoothingEnabled = true;
+        }
+        context.restore();
+
+        const on = state.selected && state.selected.kind === 'mask' && state.selected.id === mask.id;
+        if (on) {
+          context.save();
+          context.strokeStyle = '#FF5A4D';
+          context.lineWidth = 2;
+          context.setLineDash([6, 4]);
+          context.beginPath();
+          if (mask.shape === 'ellipse') {
+            context.ellipse(box.x + box.width / 2, box.y + box.height / 2, box.width / 2, box.height / 2, 0, 0, Math.PI * 2);
+          } else {
+            context.rect(box.x, box.y, box.width, box.height);
+          }
+          context.stroke();
+          context.setLineDash([]);
+          context.restore();
+        }
+        maskBoxes.push({ ...box, mask });
+      });
+    }
+
+    /* ------------------------------ 도형 · 말풍선 · 스티커 ------------------------------ */
+
+    /** 도형 하나를 그린다 — 미리보기와 (같은 코드로 만든) 내보내기 PNG 가 같은 모양이다. */
+    function paintShape(context, shape, width, height) {
+      const w = Math.max(6, Number(shape.w) * width);
+      const h = Math.max(6, Number(shape.h) * height);
+      const stroke = Math.max(1.5, Number(shape.stroke || 0.012) * width);
+      const color = shape.color || '#FFE24A';
+      context.lineWidth = stroke;
+      context.strokeStyle = color;
+      context.fillStyle = color;
+      context.lineJoin = 'round';
+      context.lineCap = 'round';
+      switch (shape.kind) {
+        case 'rect': {
+          context.strokeRect(-w / 2, -h / 2, w, h);
+          break;
+        }
+        case 'ellipse': {
+          context.beginPath();
+          context.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
+          context.stroke();
+          break;
+        }
+        case 'bubble': {
+          const r = Math.min(w, h) * 0.22;
+          context.beginPath();
+          context.moveTo(-w / 2 + r, -h / 2);
+          context.lineTo(w / 2 - r, -h / 2);
+          context.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r);
+          context.lineTo(w / 2, h / 2 - r - h * 0.15);
+          context.quadraticCurveTo(w / 2, h / 2 - h * 0.15, w / 2 - r, h / 2 - h * 0.15);
+          context.lineTo(-w * 0.1, h / 2 - h * 0.15);
+          context.lineTo(-w * 0.22, h / 2);
+          context.lineTo(-w * 0.24, h / 2 - h * 0.15);
+          context.lineTo(-w / 2 + r, h / 2 - h * 0.15);
+          context.quadraticCurveTo(-w / 2, h / 2 - h * 0.15, -w / 2, h / 2 - h * 0.15 - r);
+          context.lineTo(-w / 2, -h / 2 + r);
+          context.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
+          context.closePath();
+          context.stroke();
+          break;
+        }
+        case 'emoji': {
+          context.font = `${Math.round(h * 0.92)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+          context.textAlign = 'center';
+          context.textBaseline = 'middle';
+          context.fillText(shape.text || '👉', 0, 0);
+          break;
+        }
+        case 'arrow':
+        default: {
+          const head = Math.min(w, h) * 0.42;
+          context.beginPath();
+          context.moveTo(-w / 2, 0);
+          context.lineTo(w / 2 - head * 0.7, 0);
+          context.stroke();
+          context.beginPath();
+          context.moveTo(w / 2, 0);
+          context.lineTo(w / 2 - head, -head * 0.55);
+          context.lineTo(w / 2 - head, head * 0.55);
+          context.closePath();
+          context.fill();
+          break;
+        }
+      }
+    }
+
+    /** 도형의 화면 좌표(px) — 회전까지 넣은 테두리 상자. */
+    function shapeBox(shape, width, height) {
+      const w = Number(shape.w) * width;
+      const h = Number(shape.h) * height;
+      const rad = ((Number(shape.rotation) || 0) * Math.PI) / 180;
+      const cos = Math.abs(Math.cos(rad));
+      const sin = Math.abs(Math.sin(rad));
+      const bw = w * cos + h * sin;
+      const bh = w * sin + h * cos;
+      return {
+        x: Number(shape.x) * width - bw / 2,
+        y: Number(shape.y) * height - bh / 2,
+        width: bw,
+        height: bh,
+        inner: { w, h },
+      };
+    }
+
+    function drawShapes(context, width, height, time) {
+      shapeBoxes = [];
+      (project.shapes || []).forEach((shape) => {
+        if (time + 0.001 < Number(shape.start) || time >= Number(shape.end)) return;
+        const box = shapeBox(shape, width, height);
+        const opacity = shape.opacity === undefined ? 1 : Math.max(0, Math.min(1, Number(shape.opacity)));
+        context.save();
+        context.globalAlpha = opacity;
+        context.translate(Number(shape.x) * width, Number(shape.y) * height);
+        context.rotate(((Number(shape.rotation) || 0) * Math.PI) / 180);
+        paintShape(context, shape, width, height);
+        context.restore();
+
+        const on = state.selected && state.selected.kind === 'shape' && state.selected.id === shape.id;
+        if (on) {
+          context.save();
+          context.strokeStyle = '#FF5A4D';
+          context.lineWidth = 1.5;
+          context.setLineDash([5, 4]);
+          context.strokeRect(box.x, box.y, box.width, box.height);
+          context.setLineDash([]);
+          context.fillStyle = '#FF5A4D';
+          context.fillRect(box.x + box.width - 5, box.y + box.height - 5, 10, 10);
+          context.restore();
+        }
+        shapeBoxes.push({ ...box, shape });
+      });
+    }
+
+    /** 도형을 PNG(dataURL)로 — 내보내기에서 같은 모양을 그대로 얹는다. */
+    function shapePng(shape, width, height) {
+      const box = shapeBox(shape, width, height);
+      const pad = Math.max(8, Math.round(width * 0.01));
+      const canvasEl = document.createElement('canvas');
+      canvasEl.width = Math.max(2, Math.ceil(box.width) + pad * 2);
+      canvasEl.height = Math.max(2, Math.ceil(box.height) + pad * 2);
+      const context = canvasEl.getContext('2d');
+      context.translate(canvasEl.width / 2, canvasEl.height / 2);
+      context.rotate(((Number(shape.rotation) || 0) * Math.PI) / 180);
+      paintShape(context, shape, width, height);
+      return {
+        data: canvasEl.toDataURL('image/png').split(',')[1] || '',
+        width: canvasEl.width / width,
+        height: canvasEl.height / height,
+      };
+    }
+
+    /* ------------------------------ 안내선 · 안전영역 ------------------------------ */
+
+    function drawGuides(context, width, height) {
+      const guides = state.guides;
+      if (!guides) return;
+      context.save();
+      context.strokeStyle = 'rgba(255, 226, 74, 0.95)';
+      context.lineWidth = 1;
+      context.setLineDash([5, 4]);
+      if (guides.x !== null && guides.x !== undefined) {
+        context.beginPath();
+        context.moveTo(guides.x * width, 0);
+        context.lineTo(guides.x * width, height);
+        context.stroke();
+      }
+      if (guides.y !== null && guides.y !== undefined) {
+        context.beginPath();
+        context.moveTo(0, guides.y * height);
+        context.lineTo(width, guides.y * height);
+        context.stroke();
+      }
+      context.setLineDash([]);
+      context.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+      context.beginPath();
+      context.moveTo(width / 2, 0);
+      context.lineTo(width / 2, height);
+      context.moveTo(0, height / 2);
+      context.lineTo(width, height / 2);
+      context.stroke();
+      context.restore();
+    }
+
+    function drawSafeArea(context, width, height) {
+      const { top, bottom, right } = SAFE_AREA;
+      context.save();
+      context.fillStyle = 'rgba(255, 90, 77, 0.14)';
+      context.fillRect(0, 0, width, height * top);
+      context.fillRect(0, height * (1 - bottom), width, height * bottom);
+      context.fillRect(width * (1 - right), height * top, width * right, height * (1 - top - bottom));
+      context.strokeStyle = 'rgba(255, 90, 77, 0.75)';
+      context.lineWidth = 1;
+      context.setLineDash([6, 4]);
+      context.strokeRect(0, height * top, width, height * (1 - top - bottom));
+      context.strokeRect(width * (1 - right), height * top, width * right, height * (1 - top - bottom));
+      context.setLineDash([]);
+      context.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      context.font = `${Math.round(height * 0.028)}px Pretendard, system-ui, sans-serif`;
+      context.fillText('쇼츠 UI 가림 영역', 8, height * top - 8);
+      context.restore();
     }
 
     /** 오버레이(PIP) — 메인 영상 위에 크기·위치·불투명도대로 얹는다. */
@@ -1292,61 +1762,102 @@ const module = {
       return { x, y, width: boxWidth, height: Math.max(12, boxHeight), overlay };
     }
 
-    /** 자막 하나 — 등장 애니메이션(투명도·배율·아래서 위로)을 반영해 그린다. */
-    function drawSubtitleBox(context, width, height, subtitle, time) {
+    /**
+     * 자막 하나 — 등장 애니메이션(투명도·배율·아래서 위로)과 정렬(좌/중/우)·줄간격을 반영한다.
+     * 내보내기는 같은 줄 목록·상자 폭·줄간격을 받아 한 줄씩 drawtext 로 그린다.
+     */
+    function layoutSubtitle(context, width, height, subtitle) {
       const scale = height / 1080;
       const size = Math.max(12, subtitle.size * scale);
       const family = fontFamilyFor(subtitle);
+      context.save();
+      context.font = `600 ${size}px ${family}`;
+      const maxWidth = width * 0.86;
+      const lines = wrapText(context, subtitle.text, maxWidth);
+      const widths = lines.map((line) => context.measureText(line).width);
+      const blockWidth = Math.max(size, ...widths);
+      context.restore();
+      return {
+        scale,
+        size,
+        family,
+        lines,
+        widths,
+        blockWidth: Math.min(maxWidth, blockWidth),
+        lineHeight: size * (Number(subtitle.lineHeight) || 1.28),
+      };
+    }
+
+    /** 내보내기용 줄 나눔 — 1080 높이 기준으로 재어 ffmpeg 가 한 줄씩 그리게 한다. */
+    function subtitleExportMetrics(subtitle, width, height) {
+      const ratio = Math.max(0.3, height / 1080);
+      const refWidth = Math.max(320, Math.round(width / ratio));
+      const canvasEl = document.createElement('canvas');
+      canvasEl.width = refWidth;
+      canvasEl.height = 1080;
+      const context = canvasEl.getContext('2d');
+      context.font = `600 ${Math.max(12, Number(subtitle.size) || 54)}px ${fontFamilyFor(subtitle)}`;
+      const lines = wrapText(context, subtitle.text, refWidth * 0.86);
+      const widths = lines.map((line) => context.measureText(line).width);
+      const boxWidth = Math.min(refWidth * 0.86, Math.max(Number(subtitle.size) || 54, ...widths));
+      return { lines, boxWidth };
+    }
+
+    function drawSubtitleBox(context, width, height, subtitle, time) {
+      const metrics = layoutSubtitle(context, width, height, subtitle);
+      const { size, family, lines, lineHeight, blockWidth } = metrics;
       const local = (Number(time) || 0) - Number(subtitle.start || 0);
       const anim = animationAt(subtitle.animation, local, subtitle.size);
       context.save();
       context.globalAlpha = Math.max(0, Math.min(1, anim.alpha));
       context.font = `600 ${size}px ${family}`;
-      context.textAlign = 'center';
       context.textBaseline = 'middle';
-      const maxWidth = width * 0.86;
-      const lines = wrapText(context, subtitle.text, maxWidth);
-      const lineHeight = size * 1.28;
       const blockHeight = lines.length * lineHeight;
       const centerX = subtitle.x * width;
       const baseY = subtitle.y * height;
+      const align = subtitle.align || 'center';
+      context.textAlign = align === 'left' ? 'left' : align === 'right' ? 'right' : 'center';
+      const edgeX = align === 'left' ? centerX - blockWidth / 2
+        : align === 'right' ? centerX + blockWidth / 2 : centerX;
       if (anim.scale !== 1) {
         context.translate(centerX, baseY);
         context.scale(anim.scale, anim.scale);
         context.translate(-centerX, -baseY);
       }
-      const centerY = baseY + anim.offsetY * scale;
+      const centerY = baseY + anim.offsetY * metrics.scale;
       const top = centerY - blockHeight / 2 + lineHeight / 2;
 
       if (Number(subtitle.background) > 0) {
-        const boxWidth = Math.min(maxWidth, Math.max(...lines.map((line) => context.measureText(line).width), size));
         context.fillStyle = `rgba(0, 0, 0, ${Math.min(1, Number(subtitle.background))})`;
         const padX = size * 0.35;
         const padY = size * 0.22;
-        context.fillRect(centerX - boxWidth / 2 - padX, top - lineHeight / 2 - padY, boxWidth + padX * 2, blockHeight + padY * 2);
+        context.fillRect(centerX - blockWidth / 2 - padX, top - lineHeight / 2 - padY, blockWidth + padX * 2, blockHeight + padY * 2);
       }
 
-      const widest = Math.max(...lines.map((line) => context.measureText(line).width), size);
-      const outline = Number(subtitle.outlineWidth) * scale;
+      const outline = Number(subtitle.outlineWidth) * metrics.scale;
       lines.forEach((line, index) => {
         const y = top + index * lineHeight;
         if (outline > 0.2) {
           context.lineWidth = outline * 2;
           context.strokeStyle = subtitle.outlineColor || '#000000';
           context.lineJoin = 'round';
-          context.strokeText(line, centerX, y);
+          context.strokeText(line, edgeX, y);
         }
         context.fillStyle = subtitle.color || '#FFFFFF';
-        context.fillText(line, centerX, y);
+        context.fillText(line, edgeX, y);
       });
       context.restore();
 
       return {
         x: centerX,
         y: centerY,
-        width: widest + size * 0.8,
+        width: blockWidth + size * 0.8,
         height: blockHeight + size * 0.5,
         subtitle,
+        lines,
+        blockWidth,
+        lineHeight,
+        size,
       };
     }
 
@@ -1403,10 +1914,13 @@ const module = {
           });
         } else {
           const clip = project.clips[frame.index];
-          drawMedia(context, width, height, mediaOf(clip.mediaId), frame.local, clip.filter,
-            clip.motion, ratioOf(items[frame.index]));
+          drawMedia(context, width, height, mediaOf(clip.mediaId), frame.local, clip,
+            ratioOf(items[frame.index]));
         }
       }
+
+      // 부분 모자이크·블러 — 메인 영상 위, 오버레이·자막 아래.
+      drawMasks(context, width, height, time);
 
       // 오버레이(PIP) — 메인 영상 위, 자막 아래.
       overlayBoxes = [];
@@ -1422,6 +1936,13 @@ const module = {
           boxes.push(drawSubtitleBox(context, width, height, subtitle, time));
         }
       }
+
+      // 도형·말풍선·이모지 — 맨 위.
+      drawShapes(context, width, height, time);
+
+      // 가운데 보조선(끌 때)과 쇼츠 안전영역(토글) — 화면에만 보이고 내보내기에는 없다.
+      drawGuides(context, width, height);
+      if (state.safeArea) drawSafeArea(context, width, height);
       return boxes;
     }
 
@@ -1436,13 +1957,13 @@ const module = {
       const drawA = (alpha = 1) => {
         context.save();
         context.globalAlpha = alpha;
-        drawMedia(context, width, height, fromItem, fromTime, fromClip.filter, fromClip.motion, fromRatio);
+        drawMedia(context, width, height, fromItem, fromTime, fromClip, fromRatio);
         context.restore();
       };
       const drawB = (alpha = 1) => {
         context.save();
         context.globalAlpha = alpha;
-        drawMedia(context, width, height, toItem, toTime, toClip.filter, toClip.motion, toRatio);
+        drawMedia(context, width, height, toItem, toTime, toClip, toRatio);
         context.restore();
       };
 
@@ -1580,7 +2101,7 @@ const module = {
           small.width = Math.max(2, Math.round(width / size));
           small.height = Math.max(2, Math.round(height / size));
           const sctx = small.getContext('2d');
-          drawMedia(sctx, small.width, small.height, toItem, toTime, toClip.filter);
+          drawMedia(sctx, small.width, small.height, toItem, toTime, toClip, 0);
           context.imageSmoothingEnabled = false;
           context.globalAlpha = t;
           context.drawImage(small, 0, 0, width, height);
@@ -1625,11 +2146,17 @@ const module = {
         }
         const layoutItem = items[index];
         const speed = Math.max(SPEED_MIN, Number(clip.speed) || 1);
-        const local = (time - layoutItem.start) * speed + Number(clip.trimStart);
+        // 역재생은 뒤에서부터 센다(내보내기의 reverse 필터와 같은 프레임).
+        const local = localTimeOf(clip, layoutItem.start, time);
         node.playbackRate = Math.min(4, speed);
-        node.volume = Math.min(1, Math.max(0, Number(clip.volume) || 0));
+        node.volume = clip.muted ? 0 : Math.min(1, Math.max(0, Number(clip.volume) || 0));
+        applyAudioFx(item, clip);
         const drift = Math.abs(node.currentTime - local);
-        if (state.playing) {
+        if (clip.reverse) {
+          // 브라우저에는 역재생이 없다 — 프레임을 하나씩 되감아 보여 준다.
+          if (!node.paused) node.pause();
+          if (drift > 0.04) node.currentTime = Math.max(0, Math.min(local, Number(clip.trimEnd) || local));
+        } else if (state.playing) {
           if (drift > 0.35) node.currentTime = Math.max(0, local);
           if (node.paused) node.play().catch(() => {});
         } else {
@@ -1645,7 +2172,8 @@ const module = {
         const entry = elementFor(item);
         const node = entry && entry.node;
         if (!node) return;
-        node.volume = Math.min(1, Math.max(0, Number(audio.volume) || 0));
+        node.volume = audio.muted ? 0 : Math.min(1, Math.max(0, Number(audio.volume) || 0));
+        applyAudioFx(item, audio);
         const inside = time >= audio.start && time < audio.start + audio.duration;
         if (!inside || !state.playing) {
           if (!node.paused) node.pause();
@@ -1655,6 +2183,86 @@ const module = {
         if (Math.abs(node.currentTime - local) > 0.35) node.currentTime = Math.max(0, local);
         if (node.paused) node.play().catch(() => {});
       });
+    }
+
+    /**
+     * 오디오 효과 미리보기 — 노이즈 제거(고역·저역 차단), 로봇(진폭 변조), 에코(딜레이)를
+     * Web Audio 로 들려 준다. 음높이 변조(헬륨·저음)는 브라우저에 피치 시프터가 없어
+     * 미리보기에서는 원음으로, 내보내기에서만 실제로 바뀐다.
+     */
+    function applyAudioFx(item, clip) {
+      const denoise = denoiseById(clip && clip.denoise);
+      const voice = voiceById(clip && clip.voice);
+      const wanted = denoise.strength > 0 || voice.id === 'robot' || voice.id === 'echo';
+      if (!wanted) {
+        const existing = elementSources.get(item.id);
+        if (existing && existing.hp) {
+          existing.hp.frequency.value = 20;
+          existing.lp.frequency.value = 20000;
+          existing.ringDepth.gain.value = 0;
+          existing.wet.gain.value = 0;
+          existing.feedback.gain.value = 0;
+        }
+        return;
+      }
+      const chain = ensureAudioChain(item);
+      if (!chain) return;
+      chain.hp.frequency.value = denoise.strength > 0 ? 90 + 60 * denoise.strength : 20;
+      chain.lp.frequency.value = denoise.strength > 0 ? 8000 - 2500 * denoise.strength : 20000;
+      chain.ringDepth.gain.value = voice.id === 'robot' ? 0.55 : 0;
+      chain.wet.gain.value = voice.id === 'echo' ? 0.45 : 0;
+      chain.feedback.gain.value = voice.id === 'echo' ? 0.35 : 0;
+    }
+
+    function ensureAudioChain(item) {
+      const entry = elementFor(item);
+      const node = entry && entry.node;
+      if (!node || typeof node.nodeName !== 'string') return null;
+      let chain = elementSources.get(item.id);
+      if (chain && chain.hp) return chain;
+      try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaElementSource(node);
+        const gain = audioCtx.createGain();
+        const hp = audioCtx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 20;
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 20000;
+        const ring = audioCtx.createGain();
+        ring.gain.value = 1;
+        const depth = audioCtx.createGain();
+        depth.gain.value = 0;
+        const osc = audioCtx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = 32;
+        osc.connect(depth);
+        depth.connect(ring.gain);
+        try { osc.start(); } catch { /* 이미 시작됨 */ }
+        const delay = audioCtx.createDelay(1);
+        delay.delayTime.value = 0.12;
+        const feedback = audioCtx.createGain();
+        feedback.gain.value = 0;
+        const wet = audioCtx.createGain();
+        wet.gain.value = 0;
+        source.connect(hp);
+        hp.connect(lp);
+        lp.connect(ring);
+        ring.connect(gain);
+        gain.connect(audioCtx.destination);
+        gain.connect(delay);
+        delay.connect(feedback);
+        feedback.connect(delay);
+        delay.connect(wet);
+        wet.connect(audioCtx.destination);
+        chain = { source, gain, hp, lp, ring, ringDepth: depth, delay, feedback, wet };
+        elementSources.set(item.id, chain);
+        return chain;
+      } catch (error) {
+        console.warn('[TIP video] 오디오 효과', error);
+        return null;
+      }
     }
 
     function drawPreview() {
@@ -1955,6 +2563,15 @@ const module = {
       row.append(add, separate);
       wrap.append(row, el('p', { class: 've-hint', text: '배경 음악은 오디오 트랙에 놓이고, 클립 소리는 따로 뽑아 내릴 수 있습니다.' }));
 
+      const silenceRow = el('div', { class: 've-btn-row' });
+      const silence = el('button', { class: 've-btn', type: 'button', text: '무음 구간 자동 컷', 'aria-label': '무음 구간 자동 컷' });
+      silence.addEventListener('click', () => {
+        if (!project.clips.length) { say('영상을 먼저 넣으세요'); return; }
+        silenceDialog();
+      });
+      silenceRow.append(silence);
+      wrap.append(silenceRow, el('p', { class: 've-hint', text: '말이 없는 구간을 찾아 한 번에 잘라 냅니다. 결과를 보고 나서 적용하므로 ⌘Z 로 되돌릴 수 있습니다.' }));
+
       const list = el('div', { class: 've-sub-list' });
       if (!project.audios.length) list.append(el('p', { class: 've-empty', text: '아직 오디오가 없습니다' }));
       project.audios.forEach((audio) => {
@@ -2000,6 +2617,111 @@ const module = {
       return wrap;
     }
 
+    function maskSpan() {
+      const total = totalDuration(project.clips);
+      const start = Math.max(0, state.playhead);
+      const span = Math.min(3, Math.max(1, total - start || 2));
+      return { start, span };
+    }
+
+    function addMask(kind) {
+      if (!project.clips.length) { say('영상을 먼저 넣으세요'); talkMasks(); return; }
+      const { start, span } = maskSpan();
+      commit();
+      const at = freeSpan(project.masks || [], start, span, 0);
+      const mask = createMask(kind, at, at + span);
+      project.masks.push(mask);
+      state.selected = { kind: 'mask', id: mask.id };
+      refreshAll();
+      say(kind === 'blur' ? '블러 영역을 넣었습니다' : '모자이크 영역을 넣었습니다');
+    }
+
+    function addShape(kind, text) {
+      if (!project.clips.length) { say('영상을 먼저 넣으세요'); return; }
+      const { start, span } = maskSpan();
+      commit();
+      const at = freeSpan(project.shapes || [], start, span, 0);
+      const shape = createShape(kind, at, at + span, text);
+      project.shapes.push(shape);
+      state.selected = { kind: 'shape', id: shape.id };
+      refreshAll();
+      say('스티커를 넣었습니다');
+    }
+
+    function talkMasks() {
+      if (state.tab !== 'mask') { state.tab = 'mask'; renderLeft(); }
+    }
+
+    function renderMaskTab() {
+      const wrap = el('div', { class: 've-stack' });
+      const row = el('div', { class: 've-btn-row' });
+      const mosaic = el('button', { class: 've-btn ve-btn-primary', type: 'button', text: '모자이크 추가' });
+      mosaic.addEventListener('click', () => addMask('mosaic'));
+      const blur = el('button', { class: 've-btn', type: 'button', text: '블러 추가' });
+      blur.addEventListener('click', () => addMask('blur'));
+      row.append(mosaic, blur);
+      wrap.append(row, el('p', { class: 've-hint', text: '얼굴·번호판을 가릴 자리에 놓고, 미리보기에서 끌어 옮기거나 모서리를 끌어 크기를 맞춥니다. 내보내기는 그 구간에만 적용됩니다.' }));
+
+      const list = el('div', { class: 've-sub-list' });
+      if (!(project.masks || []).length) list.append(el('p', { class: 've-empty', text: '아직 가린 영역이 없습니다' }));
+      (project.masks || []).slice().sort((a, b) => a.start - b.start).forEach((mask) => {
+        const on = state.selected && state.selected.kind === 'mask' && state.selected.id === mask.id;
+        const rowEl = el('button', { class: `ve-sub-row${on ? ' is-on' : ''}`, type: 'button' }, [
+          el('span', { class: 've-sub-time', text: timecode(mask.start, false) }),
+          el('span', { class: 've-sub-text', text: `${mask.kind === 'blur' ? '블러' : '모자이크'} · ${mask.shape === 'ellipse' ? '원형' : '사각형'}` }),
+          el('span', { class: 've-sub-meta', text: friendlyDuration(mask.end - mask.start) }),
+        ]);
+        rowEl.addEventListener('click', () => {
+          state.selected = { kind: 'mask', id: mask.id };
+          seek(mask.start);
+          refreshAll();
+        });
+        list.append(rowEl);
+      });
+      wrap.append(list);
+      return wrap;
+    }
+
+    function renderShapeTab() {
+      const wrap = el('div', { class: 've-stack' });
+      const grid = el('div', { class: 've-preset-grid' });
+      SHAPE_KINDS.forEach((kind) => {
+        const button = el('button', { class: 've-preset', type: 'button', text: kind.label, 'aria-label': `${kind.label} 넣기` });
+        button.addEventListener('click', () => addShape(kind.id, kind.id === 'emoji' ? SHAPE_EMOJIS[0] : undefined));
+        grid.append(button);
+      });
+      wrap.append(el('p', { class: 've-field-label', text: '도형 · 말풍선 · 스티커' }), grid);
+
+      const emojiRow = el('div', { class: 've-emoji-grid' });
+      SHAPE_EMOJIS.forEach((emoji) => {
+        const button = el('button', { class: 've-emoji', type: 'button', text: emoji, 'aria-label': `이모지 ${emoji} 넣기` });
+        button.addEventListener('click', () => addShape('emoji', emoji));
+        emojiRow.append(button);
+      });
+      wrap.append(field('이모지 빠르게', emojiRow));
+      wrap.append(el('p', { class: 've-hint', text: '미리보기에서 끌어 옮기고 오른쪽 아래 손잡이로 크기를 바꿉니다. 위치·색·회전·투명도는 오른쪽 속성에서.' }));
+
+      const list = el('div', { class: 've-sub-list' });
+      if (!(project.shapes || []).length) list.append(el('p', { class: 've-empty', text: '아직 스티커가 없습니다' }));
+      (project.shapes || []).slice().sort((a, b) => a.start - b.start).forEach((shape) => {
+        const on = state.selected && state.selected.kind === 'shape' && state.selected.id === shape.id;
+        const label = (SHAPE_KINDS.find((kind) => kind.id === shape.kind) || {}).label || shape.kind;
+        const rowEl = el('button', { class: `ve-sub-row${on ? ' is-on' : ''}`, type: 'button' }, [
+          el('span', { class: 've-sub-time', text: timecode(shape.start, false) }),
+          el('span', { class: 've-sub-text', text: shape.kind === 'emoji' ? `${shape.text} 이모지` : label }),
+          el('span', { class: 've-sub-meta', text: friendlyDuration(shape.end - shape.start) }),
+        ]);
+        rowEl.addEventListener('click', () => {
+          state.selected = { kind: 'shape', id: shape.id };
+          seek(shape.start);
+          refreshAll();
+        });
+        list.append(rowEl);
+      });
+      wrap.append(list);
+      return wrap;
+    }
+
     function renderLeft() {
       renderTabs();
       leftBody.innerHTML = '';
@@ -2007,7 +2729,9 @@ const module = {
         : state.tab === 'transition' ? renderTransitionTab()
           : state.tab === 'subtitle' ? renderSubtitleTab()
             : state.tab === 'audio' ? renderAudioTab()
-              : renderFilterTab();
+              : state.tab === 'mask' ? renderMaskTab()
+                : state.tab === 'shape' ? renderShapeTab()
+                  : renderFilterTab();
       leftBody.append(body);
     }
 
@@ -2174,6 +2898,148 @@ const module = {
           }
         }
 
+        // 화면 맞춤 · 회전 · 반전
+        const fitSelect = el('select', { class: 've-select', 'aria-label': '화면 맞춤' });
+        FIT_MODES.forEach((mode) => {
+          const option = el('option', { value: mode.id, text: mode.label });
+          if ((clip.fit || 'fit') === mode.id) option.selected = true;
+          fitSelect.append(option);
+        });
+        fitSelect.addEventListener('change', () => {
+          commit();
+          clip.fit = fitSelect.value;
+          drawPreview();
+          renderTimeline();
+        });
+        wrap.append(field('화면 맞춤', fitSelect, '블러 배경은 세로 영상에 가로 영상을 넣을 때 씁니다'));
+
+        const rotateSelect = el('select', { class: 've-select', 'aria-label': '회전' });
+        ROTATIONS.forEach((angle) => {
+          const option = el('option', { value: String(angle), text: `${angle}°` });
+          if (Number(clip.rotate) === angle) option.selected = true;
+          rotateSelect.append(option);
+        });
+        rotateSelect.addEventListener('change', () => {
+          commit();
+          clip.rotate = Number(rotateSelect.value) || 0;
+          refreshAll();
+        });
+        wrap.append(field('회전', rotateSelect));
+        wrap.append(field('미세 회전', slider({
+          min: ROTATE_FREE_MIN, max: ROTATE_FREE_MAX, step: 1, value: Number(clip.rotate) || 0,
+          format: (value) => `${Math.round(value)}°`,
+          onInput: (value) => { clip.rotate = value; drawPreview(); },
+        })));
+
+        const flipRow = el('div', { class: 've-btn-row' });
+        const flipH = el('button', {
+          class: `ve-btn${clip.flipH ? ' is-on' : ''}`,
+          type: 'button',
+          text: '좌우 반전',
+          'aria-pressed': clip.flipH ? 'true' : 'false',
+        });
+        flipH.addEventListener('click', () => { commit(); clip.flipH = !clip.flipH; refreshAll(); });
+        const flipV = el('button', {
+          class: `ve-btn${clip.flipV ? ' is-on' : ''}`,
+          type: 'button',
+          text: '상하 반전',
+          'aria-pressed': clip.flipV ? 'true' : 'false',
+        });
+        flipV.addEventListener('click', () => { commit(); clip.flipV = !clip.flipV; refreshAll(); });
+        flipRow.append(flipH, flipV);
+        wrap.append(flipRow);
+
+        if (clip.kind !== 'image') {
+          const muteRow = el('div', { class: 've-btn-row' });
+          const mute = el('button', {
+            class: `ve-btn${clip.muted ? ' is-on' : ''}`,
+            type: 'button',
+            text: clip.muted ? '소리 켜기' : '음소거',
+            'aria-label': '이 클립 음소거',
+            'aria-pressed': clip.muted ? 'true' : 'false',
+          });
+          mute.addEventListener('click', () => { commit(); toggleMute(clip); });
+          const reverse = el('button', {
+            class: `ve-btn${clip.reverse ? ' is-on' : ''}`,
+            type: 'button',
+            text: '역재생',
+            'aria-label': '이 클립 역재생',
+            'aria-pressed': clip.reverse ? 'true' : 'false',
+          });
+          reverse.addEventListener('click', () => {
+            commit();
+            clip.reverse = !clip.reverse;
+            refreshAll();
+            say(clip.reverse ? '역재생으로 바꿨습니다' : '정방향으로 되돌렸습니다');
+          });
+          muteRow.append(mute, reverse);
+          wrap.append(muteRow);
+        }
+
+        // 색감 세부 보정 — 밝기·대비·채도(프리셋) + 색온도·선명도·비네트.
+        if (!clip.color) clip.color = { ...COLOR_DEFAULTS };
+        wrap.append(el('p', { class: 've-field-label', text: '색감 세부 보정' }));
+        wrap.append(field('밝기', slider({
+          min: 0.4, max: 1.6, step: 0.01, value: Number(clip.filter.brightness) || 1,
+          format: (value) => value.toFixed(2),
+          onInput: (value) => { clip.filter.brightness = value; drawPreview(); },
+        })));
+        wrap.append(field('대비', slider({
+          min: 0.4, max: 1.8, step: 0.01, value: Number(clip.filter.contrast) || 1,
+          format: (value) => value.toFixed(2),
+          onInput: (value) => { clip.filter.contrast = value; drawPreview(); },
+        })));
+        wrap.append(field('채도', slider({
+          min: 0, max: 2, step: 0.01, value: clip.filter.saturation === undefined ? 1 : Number(clip.filter.saturation),
+          format: (value) => value.toFixed(2),
+          onInput: (value) => { clip.filter.saturation = value; drawPreview(); },
+        })));
+        wrap.append(field('색온도', slider({
+          min: -1, max: 1, step: 0.01, value: Number(clip.color.temperature) || 0,
+          format: (value) => (value === 0 ? '0' : value > 0 ? `따뜻 +${value.toFixed(2)}` : `차갑 ${value.toFixed(2)}`),
+          onInput: (value) => { clip.color.temperature = value; drawPreview(); },
+        })));
+        wrap.append(field('선명도', slider({
+          min: 0, max: 2, step: 0.01, value: Number(clip.color.sharpen) || 0,
+          format: (value) => value.toFixed(2),
+          onInput: (value) => { clip.color.sharpen = value; drawPreview(); },
+        })));
+        wrap.append(field('비네트', slider({
+          min: 0, max: 1, step: 0.01, value: Number(clip.color.vignette) || 0,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { clip.color.vignette = value; drawPreview(); },
+        })));
+
+        if (clip.kind !== 'image') {
+          const denoiseSelect = el('select', { class: 've-select', 'aria-label': '노이즈 제거' });
+          DENOISE_LEVELS.forEach((level) => {
+            const option = el('option', { value: level.id, text: level.label });
+            if ((clip.denoise || 'off') === level.id) option.selected = true;
+            denoiseSelect.append(option);
+          });
+          denoiseSelect.addEventListener('change', () => {
+            commit();
+            clip.denoise = denoiseSelect.value;
+            refreshAll();
+            say(denoiseById(clip.denoise).id === 'off' ? '노이즈 제거를 껐습니다' : `노이즈 제거 ${denoiseById(clip.denoise).label}`);
+          });
+          wrap.append(field('노이즈 제거', denoiseSelect));
+
+          const voiceSelect = el('select', { class: 've-select', 'aria-label': '음성 변조' });
+          VOICE_PRESETS.forEach((preset) => {
+            const option = el('option', { value: preset.id, text: preset.label });
+            if ((clip.voice || 'original') === preset.id) option.selected = true;
+            voiceSelect.append(option);
+          });
+          voiceSelect.addEventListener('change', () => {
+            commit();
+            clip.voice = voiceSelect.value;
+            refreshAll();
+            say(voiceById(clip.voice).id === 'original' ? '원래 목소리로 되돌렸습니다' : `${voiceById(clip.voice).label} 목소리로 바꿨습니다`);
+          });
+          wrap.append(field('음성 변조', voiceSelect, '헬륨·저음은 내보내기에서 실제 음높이가 바뀝니다'));
+        }
+
         if (!item || !item.path) {
           wrap.append(el('p', { class: 've-hint', text: '브라우저에서 넣은 파일은 화면으로 미리 보며 편집하고, Mac 앱에서는 같은 작업을 ffmpeg 로 한 번에 내보냅니다.' }));
         }
@@ -2183,16 +3049,18 @@ const module = {
         split.addEventListener('click', splitAtPlayhead);
         const duplicate = el('button', { class: 've-btn', type: 'button', text: '클립 복제', 'aria-label': '클립 복제' });
         duplicate.addEventListener('click', duplicateSelected);
+        const freeze = el('button', { class: 've-btn', type: 'button', text: '프리즈 프레임', 'aria-label': '프리즈 프레임' });
+        freeze.addEventListener('click', () => freezeDialog());
         const remove = el('button', { class: 've-btn ve-btn-danger', type: 'button', text: '클립 지우기' });
         remove.addEventListener('click', deleteSelected);
-        actions.append(split, duplicate, remove);
+        actions.append(split, duplicate, freeze, remove);
         wrap.append(actions);
 
         const applyRow = el('div', { class: 've-btn-row' });
         const applyAll = el('button', { class: 've-btn', type: 'button', text: '모든 클립에 적용', 'aria-label': '모든 클립에 적용' });
         applyAll.addEventListener('click', applyClipToAll);
         applyRow.append(applyAll);
-        wrap.append(applyRow, el('p', { class: 've-hint', text: '필터·배속·볼륨·페이드·줌/팬을 모든 클립에 그대로 입힙니다(소스·자르기 구간은 그대로).' }));
+        wrap.append(applyRow, el('p', { class: 've-hint', text: '필터·색감·맞춤·회전·반전·배속·볼륨·페이드·줌/팬·오디오 효과를 모든 클립에 그대로 입힙니다(소스·자르기 구간은 그대로).' }));
         propsBody.append(wrap);
         return;
       }
@@ -2317,6 +3185,31 @@ const module = {
         });
         wrap.append(field('등장 애니메이션', animSelect));
 
+        // 정렬 — 여러 줄일 때 좌/중/우. 내보내기도 한 줄씩 같은 기준으로 그린다.
+        const alignRow = el('div', { class: 've-btn-row' });
+        [{ id: 'left', label: '왼쪽' }, { id: 'center', label: '가운데' }, { id: 'right', label: '오른쪽' }].forEach((align) => {
+          const on = (subtitle.align || 'center') === align.id;
+          const button = el('button', {
+            class: `ve-btn${on ? ' is-on' : ''}`,
+            type: 'button',
+            text: align.label,
+            'aria-label': `자막 ${align.label} 정렬`,
+            'aria-pressed': on ? 'true' : 'false',
+          });
+          button.addEventListener('click', () => {
+            commit();
+            subtitle.align = align.id;
+            refreshAll();
+          });
+          alignRow.append(button);
+        });
+        wrap.append(field('글자 정렬', alignRow));
+        wrap.append(field('줄간격', slider({
+          min: 0.8, max: 2.2, step: 0.02, value: Number(subtitle.lineHeight) || 1.28,
+          format: (value) => `${value.toFixed(2)}배`,
+          onInput: (value) => { subtitle.lineHeight = value; drawPreview(); },
+        })));
+
         const actions = el('div', { class: 've-btn-row' });
         const duplicate = el('button', { class: 've-btn', type: 'button', text: '자막 복제', 'aria-label': '자막 복제' });
         duplicate.addEventListener('click', duplicateSelected);
@@ -2364,6 +3257,45 @@ const module = {
           format: (value) => `${value.toFixed(1)}초`,
           onInput: (value) => { audio.fadeOut = value; },
         })));
+
+        const denoiseSelect = el('select', { class: 've-select', 'aria-label': '오디오 노이즈 제거' });
+        DENOISE_LEVELS.forEach((level) => {
+          const option = el('option', { value: level.id, text: level.label });
+          if ((audio.denoise || 'off') === level.id) option.selected = true;
+          denoiseSelect.append(option);
+        });
+        denoiseSelect.addEventListener('change', () => {
+          commit();
+          audio.denoise = denoiseSelect.value;
+          refreshAll();
+        });
+        wrap.append(field('노이즈 제거', denoiseSelect));
+
+        const voiceSelect = el('select', { class: 've-select', 'aria-label': '오디오 음성 변조' });
+        VOICE_PRESETS.forEach((preset) => {
+          const option = el('option', { value: preset.id, text: preset.label });
+          if ((audio.voice || 'original') === preset.id) option.selected = true;
+          voiceSelect.append(option);
+        });
+        voiceSelect.addEventListener('change', () => {
+          commit();
+          audio.voice = voiceSelect.value;
+          refreshAll();
+        });
+        wrap.append(field('음성 변조', voiceSelect));
+
+        const muteRow = el('div', { class: 've-btn-row' });
+        const mute = el('button', {
+          class: `ve-btn${audio.muted ? ' is-on' : ''}`,
+          type: 'button',
+          text: audio.muted ? '소리 켜기' : '음소거',
+          'aria-label': '오디오 음소거',
+          'aria-pressed': audio.muted ? 'true' : 'false',
+        });
+        mute.addEventListener('click', () => { commit(); audio.muted = !audio.muted; refreshAll(); });
+        muteRow.append(mute);
+        wrap.append(muteRow);
+
         const actions = el('div', { class: 've-btn-row' });
         const duplicate = el('button', { class: 've-btn', type: 'button', text: '오디오 복제', 'aria-label': '오디오 복제' });
         duplicate.addEventListener('click', duplicateSelected);
@@ -2414,6 +3346,159 @@ const module = {
         const duplicate = el('button', { class: 've-btn', type: 'button', text: '오버레이 복제', 'aria-label': '오버레이 복제' });
         duplicate.addEventListener('click', duplicateSelected);
         const remove = el('button', { class: 've-btn ve-btn-danger', type: 'button', text: '오버레이 지우기' });
+        remove.addEventListener('click', deleteSelected);
+        actions.append(duplicate, remove);
+        wrap.append(actions);
+        propsBody.append(wrap);
+        return;
+      }
+
+      if (selected.kind === 'mask') {
+        const mask = maskOf(selected.id);
+        if (!mask) { state.selected = null; renderProps(); return; }
+        const wrap = el('div', { class: 've-stack' });
+        wrap.append(el('h3', { class: 've-prop-title', text: mask.kind === 'blur' ? '가우시안 블러' : '모자이크' }));
+
+        const kindSelect = el('select', { class: 've-select', 'aria-label': '가리기 방식' });
+        MASK_KINDS.forEach((kind) => {
+          const option = el('option', { value: kind.id, text: kind.label });
+          if ((mask.kind || 'mosaic') === kind.id) option.selected = true;
+          kindSelect.append(option);
+        });
+        kindSelect.addEventListener('change', () => { commit(); mask.kind = kindSelect.value; refreshAll(); });
+        wrap.append(field('가리기 방식', kindSelect));
+
+        const shapeSelect = el('select', { class: 've-select', 'aria-label': '모양' });
+        MASK_SHAPES.forEach((shape) => {
+          const option = el('option', { value: shape.id, text: shape.label });
+          if ((mask.shape || 'rect') === shape.id) option.selected = true;
+          shapeSelect.append(option);
+        });
+        shapeSelect.addEventListener('change', () => { commit(); mask.shape = shapeSelect.value; refreshAll(); });
+        wrap.append(field('모양', shapeSelect));
+
+        wrap.append(field('강도', slider({
+          min: 0.05, max: 1, step: 0.01, value: Number(mask.strength) || 0.5,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { mask.strength = value; drawPreview(); },
+        })));
+        wrap.append(field('가로 크기', slider({
+          min: 0.04, max: 1, step: 0.01, value: Number(mask.w) || 0.3,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { mask.w = value; drawPreview(); renderTimeline(); },
+        })));
+        wrap.append(field('세로 크기', slider({
+          min: 0.04, max: 1, step: 0.01, value: Number(mask.h) || 0.2,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { mask.h = value; drawPreview(); renderTimeline(); },
+        })));
+        wrap.append(field('가로 위치', slider({
+          min: 0, max: 1, step: 0.005, value: Number(mask.x) || 0.5,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { mask.x = value; drawPreview(); },
+        })));
+        wrap.append(field('세로 위치', slider({
+          min: 0, max: 1, step: 0.005, value: Number(mask.y) || 0.5,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { mask.y = value; drawPreview(); },
+        }), '미리보기에서 끌어 옮기고 모서리를 끌어 크기를 바꿉니다'));
+        wrap.append(field('시작', slider({
+          min: 0, max: Math.max(1, totalDuration(project.clips)), step: 0.05, value: mask.start,
+          format: (value) => timecode(value),
+          onInput: (value) => { mask.start = Math.min(value, mask.end - 0.2); drawPreview(); renderTimeline(); },
+        })));
+        wrap.append(field('끝', slider({
+          min: 0, max: Math.max(1, totalDuration(project.clips) + 5), step: 0.05, value: mask.end,
+          format: (value) => timecode(value),
+          onInput: (value) => { mask.end = Math.max(value, mask.start + 0.2); drawPreview(); renderTimeline(); },
+        })));
+
+        const actions = el('div', { class: 've-btn-row' });
+        const duplicate = el('button', { class: 've-btn', type: 'button', text: '모자이크 복제', 'aria-label': '모자이크 복제' });
+        duplicate.addEventListener('click', duplicateSelected);
+        const remove = el('button', { class: 've-btn ve-btn-danger', type: 'button', text: '모자이크 지우기' });
+        remove.addEventListener('click', deleteSelected);
+        actions.append(duplicate, remove);
+        wrap.append(actions);
+        propsBody.append(wrap);
+        return;
+      }
+
+      if (selected.kind === 'shape') {
+        const shape = shapeOf(selected.id);
+        if (!shape) { state.selected = null; renderProps(); return; }
+        const wrap = el('div', { class: 've-stack' });
+        wrap.append(el('h3', { class: 've-prop-title', text: `스티커 · ${(SHAPE_KINDS.find((k) => k.id === shape.kind) || {}).label || shape.kind}` }));
+
+        if (shape.kind === 'emoji') {
+          const emojiGrid = el('div', { class: 've-emoji-grid' });
+          SHAPE_EMOJIS.forEach((emoji) => {
+            const button = el('button', {
+              class: `ve-emoji${shape.text === emoji ? ' is-on' : ''}`,
+              type: 'button',
+              text: emoji,
+              'aria-label': `이모지 ${emoji}`,
+            });
+            button.addEventListener('click', () => { commit(); shape.text = emoji; refreshAll(); });
+            emojiGrid.append(button);
+          });
+          wrap.append(field('이모지', emojiGrid));
+        }
+
+        if (shape.kind !== 'emoji') {
+          const color = el('input', { type: 'color', class: 've-color', value: shape.color || '#FFE24A', 'aria-label': '스티커 색' });
+          color.addEventListener('input', () => { shape.color = color.value; drawPreview(); });
+          color.addEventListener('change', () => { commit(); refreshAll(); });
+          wrap.append(field('색', color));
+        }
+
+        wrap.append(field('크기', slider({
+          min: 0.03, max: 1, step: 0.01, value: Number(shape.w) || 0.2,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { shape.w = value; shape.h = value * (Number(shape.kind === 'emoji' ? 1 : 0.7)); drawPreview(); renderTimeline(); },
+        })));
+        wrap.append(field('회전', slider({
+          min: -180, max: 180, step: 1, value: Number(shape.rotation) || 0,
+          format: (value) => `${Math.round(value)}°`,
+          onInput: (value) => { shape.rotation = value; drawPreview(); },
+        })));
+        wrap.append(field('투명도', slider({
+          min: 0.1, max: 1, step: 0.01, value: shape.opacity === undefined ? 1 : shape.opacity,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { shape.opacity = value; drawPreview(); },
+        })));
+        if (shape.kind !== 'emoji') {
+          wrap.append(field('선 두께', slider({
+            min: 0.002, max: 0.05, step: 0.001, value: Number(shape.stroke) || 0.012,
+            format: (value) => `${(value * 100).toFixed(1)}%`,
+            onInput: (value) => { shape.stroke = value; drawPreview(); },
+          })));
+        }
+        wrap.append(field('가로 위치', slider({
+          min: 0, max: 1, step: 0.005, value: Number(shape.x) || 0.5,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { shape.x = value; drawPreview(); },
+        })));
+        wrap.append(field('세로 위치', slider({
+          min: 0, max: 1, step: 0.005, value: Number(shape.y) || 0.45,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { shape.y = value; drawPreview(); },
+        }), '미리보기에서 끌어 옮기고 오른쪽 아래 손잡이로 크기를 바꿉니다'));
+        wrap.append(field('시작', slider({
+          min: 0, max: Math.max(1, totalDuration(project.clips)), step: 0.05, value: shape.start,
+          format: (value) => timecode(value),
+          onInput: (value) => { shape.start = Math.min(value, shape.end - 0.2); drawPreview(); renderTimeline(); },
+        })));
+        wrap.append(field('끝', slider({
+          min: 0, max: Math.max(1, totalDuration(project.clips) + 5), step: 0.05, value: shape.end,
+          format: (value) => timecode(value),
+          onInput: (value) => { shape.end = Math.max(value, shape.start + 0.2); drawPreview(); renderTimeline(); },
+        })));
+
+        const actions = el('div', { class: 've-btn-row' });
+        const duplicate = el('button', { class: 've-btn', type: 'button', text: '스티커 복제', 'aria-label': '스티커 복제' });
+        duplicate.addEventListener('click', duplicateSelected);
+        const remove = el('button', { class: 've-btn ve-btn-danger', type: 'button', text: '스티커 지우기' });
         remove.addEventListener('click', deleteSelected);
         actions.append(duplicate, remove);
         wrap.append(actions);
@@ -2546,6 +3631,52 @@ const module = {
         });
       }
 
+      if (kind === 'mask') {
+        if (!(project.masks || []).length) {
+          track.append(el('p', { class: 've-track-empty', text: '모자이크·블러 트랙' }));
+        }
+        (project.masks || []).forEach((mask) => {
+          const on = state.selected && state.selected.kind === 'mask' && state.selected.id === mask.id;
+          const block = el('div', {
+            class: `ve-mask-block${on ? ' is-on' : ''}`,
+            role: 'button',
+            tabindex: '0',
+            'aria-label': `모자이크 ${mask.kind === 'blur' ? '블러' : '모자이크'}`,
+          });
+          block.style.left = `${mask.start * state.zoom}px`;
+          block.style.width = `${Math.max(16, (mask.end - mask.start) * state.zoom)}px`;
+          block.dataset.maskId = mask.id;
+          block.dataset.start = Number(mask.start).toFixed(3);
+          block.append(el('span', { class: 've-sub-block-text', text: mask.kind === 'blur' ? '블러' : '모자이크' }));
+          block.append(el('span', { class: 've-trim ve-trim-left', 'data-trim': 'left' }));
+          block.append(el('span', { class: 've-trim ve-trim-right', 'data-trim': 'right' }));
+          track.append(block);
+        });
+      }
+
+      if (kind === 'shape') {
+        if (!(project.shapes || []).length) {
+          track.append(el('p', { class: 've-track-empty', text: '스티커 트랙' }));
+        }
+        (project.shapes || []).forEach((shape) => {
+          const on = state.selected && state.selected.kind === 'shape' && state.selected.id === shape.id;
+          const block = el('div', {
+            class: `ve-shape-block${on ? ' is-on' : ''}`,
+            role: 'button',
+            tabindex: '0',
+            'aria-label': `스티커 ${shape.kind}`,
+          });
+          block.style.left = `${shape.start * state.zoom}px`;
+          block.style.width = `${Math.max(16, (shape.end - shape.start) * state.zoom)}px`;
+          block.dataset.shapeId = shape.id;
+          block.dataset.start = Number(shape.start).toFixed(3);
+          block.append(el('span', { class: 've-sub-block-text', text: shape.kind === 'emoji' ? shape.text : ((SHAPE_KINDS.find((kindItem) => kindItem.id === shape.kind) || {}).label || shape.kind) }));
+          block.append(el('span', { class: 've-trim ve-trim-left', 'data-trim': 'left' }));
+          block.append(el('span', { class: 've-trim ve-trim-right', 'data-trim': 'right' }));
+          track.append(block);
+        });
+      }
+
       if (kind === 'audio') {
         if (!project.audios.length) {
           track.append(el('p', { class: 've-track-empty', text: '배경 음악 트랙' }));
@@ -2575,7 +3706,7 @@ const module = {
       const width = timelineWidth();
       renderRuler(width);
       trackArea.innerHTML = '';
-      ['video', 'overlay', 'subtitle', 'audio'].forEach((kind) => trackArea.append(renderTrack(kind, width)));
+      ['video', 'overlay', 'mask', 'shape', 'subtitle', 'audio'].forEach((kind) => trackArea.append(renderTrack(kind, width)));
       timelineInner.style.width = `${width}px`;
       updatePlayhead();
     }
@@ -2620,14 +3751,50 @@ const module = {
         say(state.snap ? '자석 스냅을 켰습니다' : '자석 스냅을 껐습니다');
       });
 
+      // Q/W 한 방 컷 · 음소거 · 스틸컷 · 쇼츠 안전영역
+      const trimStart = el('button', { class: 've-icon-btn', type: 'button', html: ICON_TRIM_START, 'aria-label': '앞부분 자르기 (Q)', title: '앞부분 자르기 (Q)' });
+      trimStart.addEventListener('click', () => trimAtPlayhead('start'));
+      const trimEnd = el('button', { class: 've-icon-btn', type: 'button', html: ICON_TRIM_END, 'aria-label': '뒷부분 자르기 (W)', title: '뒷부분 자르기 (W)' });
+      trimEnd.addEventListener('click', () => trimAtPlayhead('end'));
+      const muteBtn = el('button', {
+        class: 've-icon-btn',
+        type: 'button',
+        html: ICON_MUTE,
+        'aria-label': '음소거',
+        'aria-pressed': 'false',
+        title: '음소거',
+      });
+      muteBtn.addEventListener('click', () => {
+        const current = state.selected && state.selected.kind === 'clip' ? clipOf(state.selected.id) : null;
+        commit();
+        toggleMute(current);
+      });
+      const still = el('button', { class: 've-icon-btn', type: 'button', html: ICON_CAMERA, 'aria-label': '스틸컷 저장', title: '스틸컷 저장' });
+      still.addEventListener('click', () => saveStill());
+      const safe = el('button', {
+        class: `ve-icon-btn${state.safeArea ? ' is-on' : ''}`,
+        type: 'button',
+        html: ICON_SAFE,
+        'aria-label': '쇼츠 안전영역',
+        'aria-pressed': state.safeArea ? 'true' : 'false',
+        title: `쇼츠 안전영역 ${state.safeArea ? '켜짐' : '꺼짐'}`,
+      });
+      safe.addEventListener('click', () => {
+        state.safeArea = !state.safeArea;
+        renderToolbar();
+        drawPreview();
+      });
+
       savedHint = el('span', { class: 've-saved' });
       renderSavedHint();
 
       timelineToolbar.append(
         timelineMeta,
         el('div', { class: 've-tl-group' }, [split, remove]),
+        el('div', { class: 've-tl-group' }, [trimStart, trimEnd]),
+        el('div', { class: 've-tl-group' }, [muteBtn]),
         el('div', { class: 've-tl-group' }, [undoBtn, redoBtn]),
-        el('div', { class: 've-tl-group' }, [snapBtn]),
+        el('div', { class: 've-tl-group' }, [snapBtn, safe, still]),
         el('div', { class: 've-tl-group ve-zoom-group' }, [zoomOut, zoomValue, zoomIn]),
         savedHint,
       );
@@ -2735,6 +3902,384 @@ const module = {
       }
       engineNotice();
       if (state.engine && state.engine.available) renderProps();
+    }
+
+    /* ------------------------------ 스틸컷 · 프리즈 프레임 ------------------------------ */
+
+    /** 지금 화면(자막·모자이크·스티커까지)을 PNG 로 — 웹은 내려받기, Mac 은 저장 창. */
+    async function saveStill() {
+      if (!project.clips.length) { say('영상을 먼저 넣으세요'); return; }
+      const size = outputSize(project.aspect, 1080);
+      const canvasEl = document.createElement('canvas');
+      canvasEl.width = size.width;
+      canvasEl.height = size.height;
+      drawScene(canvasEl.getContext('2d'), size.width, size.height, state.playhead);
+      const name = `TIP-스틸-${stillStamp()}.png`;
+      if (IS_MAC) {
+        try {
+          const data = canvasEl.toDataURL('image/png').split(',')[1] || '';
+          const path = await invoke('video_save_png', { data, name, save: true });
+          if (path) say('스틸컷을 저장했습니다');
+        } catch (error) {
+          console.warn('[TIP video] 스틸컷', error);
+          say('스틸컷을 저장하지 못했습니다');
+        }
+        return;
+      }
+      canvasEl.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = name;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 20000);
+        say('스틸컷을 내려받았습니다');
+      }, 'image/png');
+    }
+
+    function stillStamp() {
+      const stamp = new Date();
+      return `${stamp.getFullYear()}${String(stamp.getMonth() + 1).padStart(2, '0')}${String(stamp.getDate()).padStart(2, '0')}-${String(stamp.getHours()).padStart(2, '0')}${String(stamp.getMinutes()).padStart(2, '0')}${String(stamp.getSeconds()).padStart(2, '0')}`;
+    }
+
+    /** 한 클립의 지금 프레임만 — 자막·스티커 없이. 프리즈 프레임 소스로 쓴다. */
+    function captureClipFrame(clip, item, localTime) {
+      const entry = elementFor(item);
+      const node = entry && entry.node;
+      if (!node) return null;
+      const naturalW = node instanceof HTMLVideoElement ? node.videoWidth : (node.naturalWidth || 0);
+      const naturalH = node instanceof HTMLVideoElement ? node.videoHeight : (node.naturalHeight || 0);
+      if (!naturalW || !naturalH) return null;
+      const canvasEl = document.createElement('canvas');
+      canvasEl.width = naturalW;
+      canvasEl.height = naturalH;
+      try {
+        canvasEl.getContext('2d').drawImage(node, 0, 0, naturalW, naturalH);
+      } catch (error) {
+        console.warn('[TIP video] 프리즈 프레임', error);
+        return null;
+      }
+      return { canvas: canvasEl, width: naturalW, height: naturalH, local: localTime };
+    }
+
+    async function insertFreeze(seconds) {
+      const index = indexAt(project.clips, state.playhead);
+      const clip = project.clips[index];
+      if (!clip) { say('플레이헤드를 클립 위에 두세요'); return; }
+      const at = layout(project.clips)[index];
+      const local = localTimeOf(clip, at.start, state.playhead);
+      const item = mediaOf(clip.mediaId);
+      const frame = captureClipFrame(clip, item, local);
+      if (!frame) { say('이 프레임을 잡지 못했습니다'); return; }
+
+      commit();
+      const mediaItem = {
+        id: newId('media'),
+        name: `정지 화면 ${timecode(state.playhead)}`,
+        kind: 'image',
+        url: null,
+        path: null,
+        width: frame.width,
+        height: frame.height,
+        duration: seconds,
+        hasAudio: false,
+        file: null,
+        missing: false,
+      };
+      media.set(mediaItem.id, mediaItem);
+      if (IS_MAC) {
+        try {
+          const data = frame.canvas.toDataURL('image/png').split(',')[1] || '';
+          const path = await invoke('video_save_png', { data, name: `tip-freeze-${Date.now()}.png`, save: false });
+          if (!path) { say('정지 화면을 만들지 못했습니다'); return; }
+          mediaItem.path = path;
+          mediaItem.url = fileSrc(path);
+        } catch (error) {
+          console.warn('[TIP video] 프리즈 프레임 저장', error);
+          say('정지 화면을 만들지 못했습니다');
+          return;
+        }
+      } else {
+        const blob = await new Promise((resolve) => frame.canvas.toBlob(resolve, 'image/png'));
+        if (!blob) { say('정지 화면을 만들지 못했습니다'); return; }
+        mediaItem.url = URL.createObjectURL(blob);
+        mediaItem.file = new File([blob], `${mediaItem.name}.png`, { type: 'image/png' });
+      }
+
+      const still = {
+        id: newId('clip'),
+        mediaId: mediaItem.id,
+        name: mediaItem.name,
+        kind: 'image',
+        trimStart: 0,
+        trimEnd: seconds,
+        speed: 1,
+        volume: 1,
+        fadeIn: 0,
+        fadeOut: 0,
+        filter: { brightness: 1, contrast: 1, saturation: 1, ...(clip.filter || {}) },
+        color: JSON.parse(JSON.stringify({ ...COLOR_DEFAULTS, ...(clip.color || {}) })),
+        fit: clip.fit || 'fit',
+        rotate: Number(clip.rotate) || 0,
+        flipH: !!clip.flipH,
+        flipV: !!clip.flipV,
+        motion: createMotion(),
+        muted: true,
+        reverse: false,
+        denoise: 'off',
+        voice: 'original',
+        transition: { kind: (clip.transition && clip.transition.kind) || 'fade', duration: 0 },
+        sourceDuration: 0,
+        hasAudio: false,
+      };
+      let insertAt = index;
+      if (state.playhead > at.start + 0.08 && state.playhead < at.end - 0.08) {
+        // 플레이헤드에서 나눈 뒤 그 뒤에 끼워 넣는다.
+        const offset = state.playhead - at.start;
+        const cut = Number(clip.trimStart) + offset * (Number(clip.speed) || 1);
+        const left = { ...clip, trimEnd: cut };
+        const right = { ...clip, id: newId('clip'), trimStart: cut, transition: { kind: 'fade', duration: CUT * 2 } };
+        project.clips.splice(index, 1, left, still, right);
+        insertAt = index + 1;
+      } else {
+        project.clips.splice(index + 1, 0, still);
+        insertAt = index + 1;
+      }
+      state.selected = { kind: 'clip', id: project.clips[insertAt].id };
+      refreshAll();
+      say(`${seconds.toFixed(1)}초 정지 화면을 넣었습니다`);
+    }
+
+    function freezeDialog() {
+      const overlay = el('div', { class: 've-modal-overlay' });
+      const dialog = el('div', { class: 've-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': '프리즈 프레임' });
+      const close = () => overlay.remove();
+      let seconds = 2;
+      const value = el('span', { class: 've-field-value', text: '2.0초' });
+      const range = el('input', {
+        type: 'range', class: 've-range', min: '0.5', max: '5', step: '0.1', value: '2',
+        'aria-label': '정지 시간',
+      });
+      range.addEventListener('input', () => {
+        seconds = Number(range.value);
+        value.textContent = `${seconds.toFixed(1)}초`;
+      });
+      const actions = el('div', { class: 've-modal-actions' });
+      const cancel = el('button', { class: 've-btn', type: 'button', text: '취소' });
+      cancel.addEventListener('click', close);
+      const insert = el('button', { class: 've-btn ve-btn-primary', type: 'button', text: '삽입' });
+      insert.addEventListener('click', async () => {
+        close();
+        await insertFreeze(seconds);
+      });
+      actions.append(cancel, insert);
+      dialog.append(
+        el('div', { class: 've-modal-head' }, [el('h2', { text: '프리즈 프레임' })]),
+        el('div', { class: 've-modal-body' }, [
+          el('p', { class: 've-hint', text: `${timecode(state.playhead)} 프레임을 정지 화면으로 끼워 넣습니다.` }),
+          el('div', { class: 've-slider' }, [range, value]),
+        ]),
+        actions,
+      );
+      overlay.append(dialog);
+      document.body.append(overlay);
+      insert.focus();
+    }
+
+    /* ------------------------------ 무음 구간 자동 컷 ------------------------------ */
+
+    function decodeAudio(item) {
+      if (!item) return Promise.reject(new Error('파일이 없습니다'));
+      if (audioBuffers.has(item.id)) return Promise.resolve(audioBuffers.get(item.id));
+      return (async () => {
+        const context = new (window.AudioContext || window.webkitAudioContext)();
+        let bytes;
+        if (item.file) bytes = await item.file.arrayBuffer();
+        else if (item.url) bytes = await (await fetch(item.url)).arrayBuffer();
+        else throw new Error('파일을 읽을 수 없습니다');
+        const buffer = await context.decodeAudioData(bytes.slice(0));
+        await context.close();
+        audioBuffers.set(item.id, buffer);
+        return buffer;
+      })();
+    }
+
+    /** 웹 — AudioBuffer 의 RMS 를 50ms 창으로 재어 무음 구간(원본 시각)을 찾는다. */
+    async function silenceOfItem(item, thresholdDb, minSilence) {
+      const buffer = await decodeAudio(item);
+      const rate = buffer.sampleRate;
+      const windowSize = Math.max(1, Math.round(rate * 0.05));
+      const limit = Math.pow(10, thresholdDb / 20);
+      const data = buffer.getChannelData(0);
+      const ranges = [];
+      let start = null;
+      for (let offset = 0; offset < data.length; offset += windowSize) {
+        let sum = 0;
+        const end = Math.min(data.length, offset + windowSize);
+        for (let index = offset; index < end; index += 1) sum += data[index] * data[index];
+        const rms = Math.sqrt(sum / Math.max(1, end - offset));
+        const silent = rms < limit;
+        if (silent && start === null) start = offset / rate;
+        if (!silent && start !== null) {
+          if (offset / rate - start >= minSilence) ranges.push({ start, end: offset / rate });
+          start = null;
+        }
+      }
+      if (start !== null && data.length / rate - start >= minSilence) ranges.push({ start, end: data.length / rate });
+      return ranges;
+    }
+
+    function silenceDialog() {
+      const overlay = el('div', { class: 've-modal-overlay' });
+      const dialog = el('div', { class: 've-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': '무음 구간 자동 컷' });
+      const close = () => overlay.remove();
+      let threshold = -35;
+      let minSilence = 0.5;
+      let found = null;
+
+      const thresholdValue = el('span', { class: 've-field-value', text: '-35dB' });
+      const thresholdRange = el('input', { type: 'range', class: 've-range', min: '-60', max: '-20', step: '1', value: '-35', 'aria-label': '무음 기준' });
+      thresholdRange.addEventListener('input', () => {
+        threshold = Number(thresholdRange.value);
+        thresholdValue.textContent = `${threshold}dB`;
+      });
+      const minValue = el('span', { class: 've-field-value', text: '0.5초' });
+      const minRange = el('input', { type: 'range', class: 've-range', min: '0.2', max: '2', step: '0.1', value: '0.5', 'aria-label': '최소 무음 길이' });
+      minRange.addEventListener('input', () => {
+        minSilence = Number(minRange.value);
+        minValue.textContent = `${minSilence.toFixed(1)}초`;
+      });
+
+      const list = el('div', { class: 've-sub-list' });
+      const summary = el('p', { class: 've-hint', text: '무음 기준을 정하고 찾기를 누르세요.' });
+      const actions = el('div', { class: 've-modal-actions' });
+      const cancel = el('button', { class: 've-btn', type: 'button', text: '취소' });
+      cancel.addEventListener('click', close);
+      const find = el('button', { class: 've-btn', type: 'button', text: '무음 찾기' });
+      const apply = el('button', { class: 've-btn ve-btn-primary', type: 'button', text: '무음 일괄 자르기' });
+      apply.disabled = true;
+      actions.append(cancel, find, apply);
+
+      const renderFound = () => {
+        list.innerHTML = '';
+        if (!found) return;
+        const total = found.ranges.reduce((sum, range) => sum + (range.end - range.start), 0);
+        summary.textContent = found.ranges.length
+          ? `무음 ${found.ranges.length}곳 · ${friendlyDuration(total)}를 잘라 낼 수 있습니다`
+          : '무음을 찾지 못했습니다. 기준을 조금 올려 보세요.';
+        apply.disabled = !found.ranges.length;
+        found.ranges.slice(0, 40).forEach((range) => {
+          list.append(el('div', { class: 've-sub-row', role: 'presentation' }, [
+            el('span', { class: 've-sub-time', text: timecode(range.start, false) }),
+            el('span', { class: 've-sub-text', text: `무음 ${friendlyDuration(range.end - range.start)}` }),
+          ]));
+        });
+      };
+
+      find.addEventListener('click', async () => {
+        if (state.silenceBusy) return;
+        if (!project.clips.length) { say('영상을 먼저 넣으세요'); return; }
+        state.silenceBusy = true;
+        find.disabled = true;
+        summary.textContent = '무음 구간을 찾는 중…';
+        try {
+          const result = await detectSilence(threshold, minSilence);
+          found = result;
+          renderFound();
+        } catch (error) {
+          console.warn('[TIP video] 무음 찾기', error);
+          const message = typeof error === 'string' ? error : (error && error.message) || '무음 구간을 찾지 못했습니다';
+          summary.textContent = message;
+          found = null;
+        } finally {
+          state.silenceBusy = false;
+          find.disabled = false;
+        }
+      });
+
+      apply.addEventListener('click', () => {
+        if (!found || !found.ranges.length) return;
+        const grouped = found.byClip || {};
+        commit();
+        const result = cutSilence(project.clips, grouped);
+        if (!result.clips.length) { say('남길 장면이 없습니다. 무음 기준을 낮춰 보세요'); undoStack.pop(); return; }
+        project.clips = result.clips;
+        state.playhead = Math.min(state.playhead, totalDuration(project.clips));
+        state.selected = null;
+        refreshAll();
+        close();
+        say(`무음 ${found.ranges.length}곳을 잘라 ${friendlyDuration(result.removed)}를 줄였습니다(⌘Z 로 되돌림)`);
+      });
+
+      dialog.append(
+        el('div', { class: 've-modal-head' }, [
+          el('h2', { text: '무음 구간 자동 컷' }),
+          (() => {
+            const button = el('button', { class: 've-icon-btn', type: 'button', html: icons.close, 'aria-label': '닫기' });
+            button.addEventListener('click', close);
+            return button;
+          })(),
+        ]),
+        el('div', { class: 've-modal-body' }, [
+          el('p', { class: 've-hint', text: IS_MAC ? '편집 엔진(ffmpeg)의 silencedetect 로 찾습니다.' : '브라우저에서 소리를 분석합니다(긴 영상은 시간이 걸립니다).' }),
+          el('div', { class: 've-field' }, [el('span', { class: 've-field-label', text: '무음 기준' }), el('div', { class: 've-slider' }, [thresholdRange, thresholdValue])]),
+          el('div', { class: 've-field' }, [el('span', { class: 've-field-label', text: '최소 무음 길이' }), el('div', { class: 've-slider' }, [minRange, minValue])]),
+          summary,
+          list,
+        ]),
+        actions,
+      );
+      overlay.append(dialog);
+      document.body.append(overlay);
+      find.focus();
+    }
+
+    /** 클립마다 무음을 찾아 타임라인 시각으로 — Mac 은 ffmpeg, 웹은 Web Audio. */
+    async function detectSilence(thresholdDb, minSilence) {
+      const items = layout(project.clips);
+      const byClip = {};
+      const all = [];
+      for (let index = 0; index < project.clips.length; index += 1) {
+        const clip = project.clips[index];
+        if (clip.kind === 'image') continue;
+        const item = mediaOf(clip.mediaId);
+        if (!item) continue;
+        if (IS_MAC) {
+          if (!item.path) continue;
+          const found = await invoke('video_silence', {
+            path: item.path,
+            start: Number(clip.trimStart) || 0,
+            end: Number(clip.trimEnd) || 0,
+            threshold: thresholdDb,
+            minSilence,
+          });
+          const ranges = (found && found.ranges) || [];
+          ranges.forEach((range) => {
+            const mapped = mapSilence(clip, items[index], {
+              start: (Number(clip.trimStart) || 0) + Number(range.start || 0),
+              end: (Number(clip.trimStart) || 0) + Number(range.end || 0),
+            });
+            if (mapped) {
+              (byClip[clip.id] = byClip[clip.id] || []).push(mapped);
+              all.push(mapped);
+            }
+          });
+        } else {
+          const ranges = await silenceOfItem(item, thresholdDb, minSilence);
+          ranges.forEach((range) => {
+            const mapped = mapSilence(clip, items[index], range);
+            if (mapped) {
+              (byClip[clip.id] = byClip[clip.id] || []).push(mapped);
+              all.push(mapped);
+            }
+          });
+        }
+      }
+      all.sort((a, b) => a.start - b.start);
+      return { ranges: all, byClip };
     }
 
     function exportDialog() {
@@ -2847,6 +4392,17 @@ const module = {
               brightness: (Number(clip.filter.brightness) || 1) - 1,
               contrast: Number(clip.filter.contrast) || 1,
               saturation: clip.filter.saturation === undefined ? 1 : Number(clip.filter.saturation),
+              fit: clip.fit || 'fit',
+              rotate: Number(clip.rotate) || 0,
+              flipH: !!clip.flipH,
+              flipV: !!clip.flipV,
+              muted: !!clip.muted,
+              reverse: !!clip.reverse,
+              temperature: Number((clip.color && clip.color.temperature) || 0),
+              sharpen: Number((clip.color && clip.color.sharpen) || 0),
+              vignette: Number((clip.color && clip.color.vignette) || 0),
+              denoise: clip.denoise || 'off',
+              voice: clip.voice || 'original',
               motion: clip.motion && clip.motion.kind && clip.motion.kind !== 'none' ? {
                 kind: clip.motion.kind,
                 startScale: Number(clip.motion.startScale) || 1,
@@ -2875,21 +4431,52 @@ const module = {
               opacity: overlay.opacity === undefined ? 1 : Number(overlay.opacity),
             };
           }).filter((overlay) => overlay.path),
-          subtitles: project.subtitles.map((subtitle) => ({
-            text: subtitle.text,
-            start: subtitle.start,
-            end: subtitle.end,
-            font: subtitle.font,
-            fontFile: subtitle.fontFile || null,
-            fontSize: subtitle.size,
-            color: subtitle.color,
-            outlineColor: subtitle.outlineColor,
-            outlineWidth: subtitle.outlineWidth,
-            background: subtitle.background,
-            animation: subtitle.animation || 'none',
-            x: subtitle.x,
-            y: subtitle.y,
+          masks: (project.masks || []).map((mask) => ({
+            kind: mask.kind || 'mosaic',
+            shape: mask.shape || 'rect',
+            x: Number(mask.x),
+            y: Number(mask.y),
+            w: Number(mask.w),
+            h: Number(mask.h),
+            strength: Number(mask.strength) || 0.5,
+            start: Number(mask.start) || 0,
+            end: Number(mask.end) || 0,
           })),
+          shapes: (project.shapes || []).map((shape) => {
+            const png = shapePng(shape, size.width, size.height);
+            return {
+              png: png.data,
+              pngWidth: png.width,
+              pngHeight: png.height,
+              x: Number(shape.x),
+              y: Number(shape.y),
+              opacity: shape.opacity === undefined ? 1 : Number(shape.opacity),
+              start: Number(shape.start) || 0,
+              end: Number(shape.end) || 0,
+            };
+          }).filter((shape) => shape.png),
+          subtitles: project.subtitles.map((subtitle) => {
+            const metrics = subtitleExportMetrics(subtitle, size.width, size.height);
+            return {
+              text: subtitle.text,
+              lines: metrics.lines,
+              boxWidth: metrics.boxWidth,
+              align: subtitle.align || 'center',
+              lineHeight: Number(subtitle.lineHeight) || 1.28,
+              start: subtitle.start,
+              end: subtitle.end,
+              font: subtitle.font,
+              fontFile: subtitle.fontFile || null,
+              fontSize: subtitle.size,
+              color: subtitle.color,
+              outlineColor: subtitle.outlineColor,
+              outlineWidth: subtitle.outlineWidth,
+              background: subtitle.background,
+              animation: subtitle.animation || 'none',
+              x: subtitle.x,
+              y: subtitle.y,
+            };
+          }),
           audios: project.audios.map((audio) => {
             const item = mediaOf(audio.mediaId);
             return {
@@ -2899,6 +4486,9 @@ const module = {
               fadeIn: audio.fadeIn,
               fadeOut: audio.fadeOut,
               duration: audio.duration,
+              muted: !!audio.muted,
+              denoise: audio.denoise || 'off',
+              voice: audio.voice || 'original',
             };
           }).filter((audio) => audio.path),
           width: size.width,
@@ -3279,23 +4869,30 @@ const module = {
       const subBlock = target.closest('[data-sub-id]');
       const audioBlock = target.closest('[data-audio-id]');
       const overlayBlock = target.closest('[data-overlay-id]');
+      const maskBlock = target.closest('[data-mask-id]');
+      const shapeBlock = target.closest('[data-shape-id]');
       const trim = target.closest('[data-trim]');
 
-      if (clipBlock || subBlock || audioBlock || overlayBlock) {
-        const kind = clipBlock ? 'clip' : subBlock ? 'subtitle' : audioBlock ? 'audio' : 'overlay';
+      if (clipBlock || subBlock || audioBlock || overlayBlock || maskBlock || shapeBlock) {
+        const kind = clipBlock ? 'clip' : subBlock ? 'subtitle' : audioBlock ? 'audio'
+          : overlayBlock ? 'overlay' : maskBlock ? 'mask' : 'shape';
         const id = clipBlock ? clipBlock.dataset.clipId
           : subBlock ? subBlock.dataset.subId
             : audioBlock ? audioBlock.dataset.audioId
-              : overlayBlock.dataset.overlayId;
+              : overlayBlock ? overlayBlock.dataset.overlayId
+                : maskBlock ? maskBlock.dataset.maskId
+                  : shapeBlock.dataset.shapeId;
         state.selected = { kind, id };
-        const blockEl = clipBlock || subBlock || audioBlock || overlayBlock;
+        const blockEl = clipBlock || subBlock || audioBlock || overlayBlock || maskBlock || shapeBlock;
         if (trim) {
           const side = trim.dataset.trim;
           const clip = kind === 'clip' ? clipOf(id) : null;
           const subtitle = kind === 'subtitle' ? subtitleOf(id) : null;
           const audio = kind === 'audio' ? audioOf(id) : null;
           const overlay = kind === 'overlay' ? overlayOf(id) : null;
-          drag = { mode: 'trim', kind, id, side, startX: event.clientX, clip, subtitle, audio, overlay };
+          const mask = kind === 'mask' ? maskOf(id) : null;
+          const shape = kind === 'shape' ? shapeOf(id) : null;
+          drag = { mode: 'trim', kind, id, side, startX: event.clientX, clip, subtitle, audio, overlay, mask, shape };
           commit();
         } else {
           const item = itemOf(kind, id);
@@ -3401,6 +4998,40 @@ const module = {
             renderTimeline();
             drawPreview();
           }
+        } else if (drag.kind === 'mask') {
+          const mask = maskOf(drag.id);
+          if (mask) {
+            const span = drag.original.end - drag.original.start;
+            let start = Math.max(0, drag.original.start + deltaSeconds);
+            if (state.snap) {
+              const result = snapRange(start, start + span, snapCandidates('mask', drag.id), snapTolerance());
+              if (result.snapped !== null && result.snapped !== undefined) {
+                start = Math.max(0, result.start);
+                showSnapGuide(result.snapped);
+              } else hideSnapGuide();
+            } else hideSnapGuide();
+            mask.start = start;
+            mask.end = start + span;
+            renderTimeline();
+            drawPreview();
+          }
+        } else if (drag.kind === 'shape') {
+          const shape = shapeOf(drag.id);
+          if (shape) {
+            const span = drag.original.end - drag.original.start;
+            let start = Math.max(0, drag.original.start + deltaSeconds);
+            if (state.snap) {
+              const result = snapRange(start, start + span, snapCandidates('shape', drag.id), snapTolerance());
+              if (result.snapped !== null && result.snapped !== undefined) {
+                start = Math.max(0, result.start);
+                showSnapGuide(result.snapped);
+              } else hideSnapGuide();
+            } else hideSnapGuide();
+            shape.start = start;
+            shape.end = start + span;
+            renderTimeline();
+            drawPreview();
+          }
         } else if (drag.kind === 'audio') {
           const audio = audioOf(drag.id);
           if (audio) {
@@ -3482,6 +5113,29 @@ const module = {
           }
           renderTimeline();
           drawPreview();
+        } else if ((drag.kind === 'mask' && drag.mask) || (drag.kind === 'shape' && drag.shape)) {
+          const item = drag.kind === 'mask' ? drag.mask : drag.shape;
+          const targets = snapCandidates(drag.kind, drag.id);
+          const tolerance = snapTolerance();
+          if (drag.side === 'left') {
+            let start = Math.max(0, Math.min(item.end - 0.2, drag.original.start + deltaSeconds));
+            if (state.snap) {
+              const result = snapTime(start, targets, tolerance);
+              if (result.snapped) { start = Math.max(0, Math.min(item.end - 0.2, result.value)); showSnapGuide(result.value); }
+              else hideSnapGuide();
+            }
+            item.start = start;
+          } else {
+            let end = Math.max(item.start + 0.2, drag.original.end + deltaSeconds);
+            if (state.snap) {
+              const result = snapTime(end, targets, tolerance);
+              if (result.snapped) { end = Math.max(item.start + 0.2, result.value); showSnapGuide(result.value); }
+              else hideSnapGuide();
+            }
+            item.end = end;
+          }
+          renderTimeline();
+          drawPreview();
         } else if (drag.kind === 'audio' && drag.audio) {
           const audio = drag.audio;
           if (drag.side === 'right') {
@@ -3516,18 +5170,77 @@ const module = {
     window.addEventListener('pointerup', (event) => endDrag(event), { signal });
     window.addEventListener('pointercancel', (event) => endDrag(event), { signal });
 
-    // 미리보기에서 자막·오버레이 끌기
-    let subDrag = null;
-    let overlayDrag = null;
+    // 미리보기 끌기 — 자막·오버레이·모자이크·스티커. 가운데(±6px)에서는 자석처럼 붙는다.
+    let canvasDrag = null;
+
+    /** 가운데 보조선 스냅 — 가로·세로 중앙 6px 안이면 0.5 로 붙이고 보조선을 켠다. */
+    function snapCenter(x, y, width, height) {
+      const guides = { x: null, y: null };
+      if (Math.abs(x - 0.5) * width <= CENTER_SNAP_PIXELS) { x = 0.5; guides.x = 0.5; }
+      if (Math.abs(y - 0.5) * height <= CENTER_SNAP_PIXELS) { y = 0.5; guides.y = 0.5; }
+      state.guides = guides;
+      return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+    }
+
+    const nearHandle = (box, x, y) => x >= box.x + box.width - 14 && x <= box.x + box.width + 8
+      && y >= box.y + box.height - 14 && y <= box.y + box.height + 8;
+
     canvas.addEventListener('pointerdown', (event) => {
       const rect = canvas.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
       const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+
+      const shapeHit = shapeBoxes.find((box) => x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height);
+      if (shapeHit) {
+        state.selected = { kind: 'shape', id: shapeHit.shape.id };
+        const resize = nearHandle(shapeHit, x, y);
+        canvasDrag = {
+          kind: 'shape',
+          item: shapeHit.shape,
+          mode: resize ? 'resize' : 'move',
+          box: shapeHit,
+          offsetX: x - Number(shapeHit.shape.x) * canvas.width,
+          offsetY: y - Number(shapeHit.shape.y) * canvas.height,
+          width: canvas.width,
+          height: canvas.height,
+        };
+        commit();
+        renderProps();
+        drawPreview();
+        canvas.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+
+      const maskHit = maskBoxes.find((box) => x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height);
+      if (maskHit) {
+        state.selected = { kind: 'mask', id: maskHit.mask.id };
+        const resize = nearHandle(maskHit, x, y);
+        canvasDrag = {
+          kind: 'mask',
+          item: maskHit.mask,
+          mode: resize ? 'resize' : 'move',
+          box: maskHit,
+          offsetX: x - Number(maskHit.mask.x) * canvas.width,
+          offsetY: y - Number(maskHit.mask.y) * canvas.height,
+          width: canvas.width,
+          height: canvas.height,
+        };
+        commit();
+        renderProps();
+        drawPreview();
+        canvas.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+
       const overlayHit = overlayBoxes.find((box) => x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height);
       if (overlayHit) {
         state.selected = { kind: 'overlay', id: overlayHit.overlay.id };
-        overlayDrag = {
-          overlay: overlayHit.overlay,
+        canvasDrag = {
+          kind: 'overlay',
+          item: overlayHit.overlay,
+          mode: 'move',
           offsetX: x - (overlayHit.x + overlayHit.width / 2),
           offsetY: y - (overlayHit.y + overlayHit.height / 2),
           width: canvas.width,
@@ -3540,11 +5253,14 @@ const module = {
         event.preventDefault();
         return;
       }
+
       const hit = subBoxes.find((box) => Math.abs(x - box.x) < box.width / 2 && Math.abs(y - box.y) < box.height / 2);
       if (!hit) return;
       state.selected = { kind: 'subtitle', id: hit.subtitle.id };
-      subDrag = {
-        subtitle: hit.subtitle,
+      canvasDrag = {
+        kind: 'subtitle',
+        item: hit.subtitle,
+        mode: 'move',
         offsetX: x - hit.x,
         offsetY: y - hit.y,
         width: canvas.width,
@@ -3556,27 +5272,51 @@ const module = {
       canvas.setPointerCapture?.(event.pointerId);
       event.preventDefault();
     });
+
     canvas.addEventListener('pointermove', (event) => {
-      if (!subDrag && !overlayDrag) return;
+      if (!canvasDrag) return;
       const rect = canvas.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
       const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
-      if (overlayDrag) {
-        overlayDrag.overlay.x = Math.min(1, Math.max(0, (x - overlayDrag.offsetX) / overlayDrag.width));
-        overlayDrag.overlay.y = Math.min(1, Math.max(0, (y - overlayDrag.offsetY) / overlayDrag.height));
+      const { item, width, height } = canvasDrag;
+
+      if (canvasDrag.mode === 'resize' && (canvasDrag.kind === 'mask' || canvasDrag.kind === 'shape')) {
+        const box = canvasDrag.box;
+        const nextW = Math.max(0.02, Math.abs(x - box.x) / width);
+        const nextH = Math.max(0.02, Math.abs(y - box.y) / height);
+        if (canvasDrag.kind === 'mask') {
+          item.w = Math.min(1, nextW);
+          item.h = Math.min(1, nextH);
+        } else if (item.kind === 'emoji') {
+          const size = Math.min(1, Math.max(nextW, nextH));
+          item.w = size;
+          item.h = size;
+        } else {
+          item.w = Math.min(1, nextW);
+          item.h = Math.min(1, nextH);
+        }
         drawPreview();
         return;
       }
-      subDrag.subtitle.x = Math.min(1, Math.max(0, (x - subDrag.offsetX) / subDrag.width));
-      subDrag.subtitle.y = Math.min(1, Math.max(0, (y - subDrag.offsetY) / subDrag.height));
+
+      const centered = snapCenter(
+        (x - canvasDrag.offsetX) / width,
+        (y - canvasDrag.offsetY) / height,
+        width,
+        height,
+      );
+      item.x = centered.x;
+      item.y = centered.y;
       drawPreview();
     });
+
     canvas.addEventListener('pointerup', () => {
-      if (!subDrag && !overlayDrag) return;
-      subDrag = null;
-      overlayDrag = null;
+      if (!canvasDrag) return;
+      canvasDrag = null;
+      state.guides = null;
       renderProps();
       renderTimeline();
+      drawPreview();
     });
 
     // 키보드 — 입력칸에 있을 때는 가로채지 않는다.
@@ -3594,6 +5334,24 @@ const module = {
       if (event.key === 's' || event.key === 'S' || (meta && event.key.toLowerCase() === 'b')) {
         event.preventDefault();
         splitAtPlayhead();
+        return;
+      }
+      // Q / W — 플레이헤드 기준 한 방 컷(앞·뒤). M — 음소거.
+      if (!meta && (event.key === 'q' || event.key === 'Q')) {
+        event.preventDefault();
+        trimAtPlayhead('start');
+        return;
+      }
+      if (!meta && (event.key === 'w' || event.key === 'W')) {
+        event.preventDefault();
+        trimAtPlayhead('end');
+        return;
+      }
+      if (!meta && (event.key === 'm' || event.key === 'M')) {
+        event.preventDefault();
+        const current = state.selected && state.selected.kind === 'clip' ? clipOf(state.selected.id) : null;
+        commit();
+        toggleMute(current);
         return;
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {

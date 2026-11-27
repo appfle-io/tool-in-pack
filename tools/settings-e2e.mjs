@@ -221,6 +221,8 @@ const MOCK = `
     video_pick_font: { path: '/tmp/MyFont.otf', name: 'MyFont.otf', kind: 'font', size: 2048 },
     video_probe: { duration: 12, width: 1920, height: 1080, hasAudio: true, hasVideo: true },
     video_save_path: '/tmp/TIP-편집-20261127-0900.mp4',
+    video_save_png: '/tmp/TIP-스틸-20261127-0900.png',
+    video_silence: { ranges: [{ start: 1.0, end: 2.2 }, { start: 4.0, end: 4.6 }] },
     video_export: { path: '/tmp/TIP-편집-20261127-0900.mp4', seconds: 2.4, encoder: 'libx264' },
     video_reveal: null,
     video_extract_audio: '/tmp/clip-audio-1.m4a',
@@ -3518,7 +3520,7 @@ check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes
   await ve.waitForTimeout(700);
 
   check('v1.23.0 — 영상 편집 화면', await ve.locator('.ve').count() === 1);
-  check('v1.23.0 — 다섯 도구 탭', await ve.locator('.ve-tab').count() === 5,
+  check('v1.25.0 — 일곱 도구 탭(모자이크·스티커 추가)', await ve.locator('.ve-tab').count() === 7,
     String(await ve.locator('.ve-tab').count()));
   check('v1.23.0 — 세 단(왼쪽·가운데·오른쪽)', await ve.locator('.ve-left').count() === 1
     && await ve.locator('.ve-center').count() === 1 && await ve.locator('.ve-right').count() === 1);
@@ -3607,19 +3609,20 @@ check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes
   await ve.click('.ve-tab-body .ve-btn-primary');
   await ve.waitForTimeout(300);
   check('v1.24.0 — 자막 두 개', await subBlocks() === 2, String(await subBlocks()));
-  await ve.locator('.ve-sub-block').first().click({ position: { x: 40, y: 8 } });
-  await ve.waitForTimeout(200);
+  // 같은 시각에 둘이 겹쳐 있으면 타임라인 블록은 위의 것만 잡히므로 왼쪽 자막 목록으로 고른다.
+  await ve.locator('.ve-sub-row').first().click();
+  await ve.waitForTimeout(250);
   await ve.selectOption('[aria-label="자막 프리셋"]', 'variety');
   await ve.waitForTimeout(250);
   await ve.click('.ve-props-body .ve-btn:has-text("모든 자막에 적용")');
   await ve.waitForTimeout(300);
-  await ve.locator('.ve-sub-block').nth(1).click();
+  await ve.locator('.ve-sub-row').nth(1).click();
   await ve.waitForTimeout(250);
   check('v1.24.0 — 모든 자막에 적용', await ve.locator('[aria-label="자막 프리셋"]').inputValue() === 'variety',
     await ve.locator('[aria-label="자막 프리셋"]').inputValue());
   await ve.keyboard.press('Meta+z');
   await ve.waitForTimeout(250);
-  await ve.locator('.ve-sub-block').nth(1).click();
+  await ve.locator('.ve-sub-row').nth(1).click();
   await ve.waitForTimeout(150);
   await ve.keyboard.press('Backspace');
   await ve.waitForTimeout(250);
@@ -3690,6 +3693,100 @@ check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes
   await ve.waitForTimeout(150);
   check('v1.24.0 — ← 되돌아가기', Math.abs((await seconds()) - t2 + 1 / 30) < 0.006);
 
+  /* v1.25.0 — 모자이크·스티커 트랙 · 화면 맞춤/회전/색감 · Q/W · 음소거 · 안전영역 · 무음 컷 · 스틸컷 */
+  await ve.click('.ve-tab:nth-child(6)');
+  await ve.waitForTimeout(200);
+  await ve.click('.ve-tab-body .ve-btn-primary');
+  await ve.waitForTimeout(300);
+  check('v1.25.0 — 모자이크 블록', await ve.locator('.ve-mask-block').count() === 1,
+    String(await ve.locator('.ve-mask-block').count()));
+  check('v1.25.0 — 모자이크 트랙', await ve.locator('.ve-track-mask').count() === 1);
+  check('v1.25.0 — 모자이크 속성(모양·강도)', (await ve.locator('.ve-props-body').textContent()).includes('가리기 방식')
+    && (await ve.locator('.ve-props-body').textContent()).includes('강도'));
+  await ve.selectOption('[aria-label="모양"]', 'ellipse');
+  await ve.waitForTimeout(200);
+  check('v1.25.0 — 원형 모자이크 선택', await ve.locator('[aria-label="모양"]').inputValue() === 'ellipse');
+
+  await ve.click('.ve-tab:nth-child(7)');
+  await ve.waitForTimeout(200);
+  await ve.locator('.ve-emoji').nth(1).click();
+  await ve.waitForTimeout(300);
+  check('v1.25.0 — 스티커 블록', await ve.locator('.ve-shape-block').count() === 1,
+    String(await ve.locator('.ve-shape-block').count()));
+  check('v1.25.0 — 스티커 트랙', await ve.locator('.ve-track-shape').count() === 1);
+  check('v1.25.0 — 스티커 속성(회전·투명도)', (await ve.locator('.ve-props-body').textContent()).includes('회전')
+    && (await ve.locator('.ve-props-body').textContent()).includes('투명도'));
+
+  // 클립 속성 — 화면 맞춤·회전·색감·역재생·음소거
+  await ve.locator('.ve-clip').first().click();
+  await ve.waitForTimeout(250);
+  const clipPropsText = await ve.locator('.ve-props-body').textContent();
+  check('v1.25.0 — 화면 맞춤 선택', await ve.locator('[aria-label="화면 맞춤"]').count() === 1
+    && clipPropsText.includes('블러 배경'));
+  check('v1.25.0 — 회전·미세 회전', await ve.locator('[aria-label="회전"]').count() === 1 && clipPropsText.includes('미세 회전'));
+  check('v1.25.0 — 색감 세부(색온도·선명도·비네트)', clipPropsText.includes('색온도')
+    && clipPropsText.includes('선명도') && clipPropsText.includes('비네트'));
+  check('v1.25.0 — 노이즈 제거·음성 변조', clipPropsText.includes('노이즈 제거') && clipPropsText.includes('음성 변조'));
+  await ve.selectOption('[aria-label="화면 맞춤"]', 'blur');
+  await ve.waitForTimeout(200);
+  check('v1.25.0 — 블러 배경 선택', await ve.locator('[aria-label="화면 맞춤"]').inputValue() === 'blur');
+  await ve.click('.ve-props-body .ve-btn:has-text("역재생")');
+  await ve.waitForTimeout(200);
+  check('v1.25.0 — 역재생 켜기', await ve.locator('.ve-props-body .ve-btn:has-text("역재생")').getAttribute('aria-pressed') === 'true');
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(200);
+  await ve.click('[aria-label="음소거"]');
+  await ve.waitForTimeout(200);
+  check('v1.25.0 — 한 번에 음소거', await ve.locator('.ve-props-body .ve-btn:has-text("소리 켜기")').count() === 1);
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(200);
+
+  // 쇼츠 안전영역 · 스틸컷
+  await ve.click('[aria-label="쇼츠 안전영역"]');
+  await ve.waitForTimeout(200);
+  check('v1.25.0 — 쇼츠 안전영역 토글', await ve.locator('[aria-label="쇼츠 안전영역"]').getAttribute('aria-pressed') === 'true');
+  await ve.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+  await ve.click('[aria-label="스틸컷 저장"]');
+  await ve.waitForTimeout(400);
+  check('v1.25.0 — 스틸컷 PNG 저장 호출', await ve.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'video_save_png')));
+
+  // Q/W 한 방 컷 — 두 번째 클립 안쪽에서 W
+  const totalBeforeTrim = await ve.locator('.ve-time-total').textContent();
+  await ve.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
+  const videoTrack = await ve.locator('.ve-track-video').boundingBox();
+  await ve.mouse.click(videoTrack.x + 380, videoTrack.y + 30);
+  await ve.waitForTimeout(250);
+  await ve.keyboard.press('w');
+  await ve.waitForTimeout(300);
+  const totalAfterTrim = await ve.locator('.ve-time-total').textContent();
+  check('v1.25.0 — W 로 뒷부분 자르기', totalAfterTrim !== totalBeforeTrim,
+    `${totalBeforeTrim} → ${totalAfterTrim}`);
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(250);
+  await ve.keyboard.press('q');
+  await ve.waitForTimeout(300);
+  check('v1.25.0 — Q 로 앞부분 자르기', (await ve.locator('.ve-time-total').textContent()) !== totalBeforeTrim,
+    await ve.locator('.ve-time-total').textContent());
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(250);
+
+  // 무음 구간 자동 컷 — 찾기 → 적용
+  await ve.click('.ve-tab:nth-child(4)');
+  await ve.waitForTimeout(200);
+  await ve.click('.ve-tab-body .ve-btn:has-text("무음 구간 자동 컷")');
+  await ve.waitForTimeout(300);
+  check('v1.25.0 — 무음 컷 창', await ve.locator('.ve-modal').count() === 1);
+  await ve.click('.ve-modal .ve-btn:has-text("무음 찾기")');
+  await ve.waitForTimeout(500);
+  check('v1.25.0 — 무음 찾기 호출·목록', await ve.evaluate(() => window.__TIP_CALLS__.some((call) => call.command === 'video_silence')));
+  const clipsBeforeSilence = await ve.locator('.ve-clip').count();
+  await ve.click('.ve-modal .ve-btn:has-text("무음 일괄 자르기")');
+  await ve.waitForTimeout(400);
+  check('v1.25.0 — 무음 일괄 자르기', await ve.locator('.ve-clip').count() > clipsBeforeSilence,
+    `${clipsBeforeSilence} → ${await ve.locator('.ve-clip').count()}`);
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(300);
+
   // 플레이헤드를 두 번째 클립 안쪽으로 옮기고 나누기
   const trackBox = await ve.locator('.ve-track-video').boundingBox();
   await ve.mouse.click(trackBox.x + 220, trackBox.y + 30);
@@ -3739,6 +3836,21 @@ check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes
       && typeof spec.subtitles[0].animation === 'string',
       JSON.stringify(spec.overlays && spec.overlays[0]));
     check('v1.24.0 — spec 줌/팬 칸', spec.clips.every((clip) => clip.motion === null || typeof clip.motion === 'object'));
+    // v1.25.0 — 새 기능이 내보내기 spec 에 실제로 실린다.
+    check('v1.25.0 — spec 화면 맞춤·회전·색감·오디오 효과', spec.clips.every((clip) => typeof clip.fit === 'string'
+      && typeof clip.rotate === 'number' && typeof clip.temperature === 'number'
+      && typeof clip.sharpen === 'number' && typeof clip.vignette === 'number'
+      && typeof clip.denoise === 'string' && typeof clip.voice === 'string'
+      && typeof clip.muted === 'boolean' && typeof clip.reverse === 'boolean'),
+      JSON.stringify({ fit: spec.clips[0].fit, rotate: spec.clips[0].rotate, color: spec.clips[0].temperature }));
+    check('v1.25.0 — spec 모자이크·스티커', Array.isArray(spec.masks) && spec.masks.length === 1
+      && spec.masks[0].shape === 'ellipse' && spec.masks[0].kind === 'mosaic'
+      && Array.isArray(spec.shapes) && spec.shapes.length === 1 && spec.shapes[0].png.length > 100,
+      JSON.stringify({ masks: spec.masks && spec.masks.length, shapes: spec.shapes && spec.shapes.length }));
+    check('v1.25.0 — spec 자막 줄·정렬·줄간격', Array.isArray(spec.subtitles[0].lines)
+      && spec.subtitles[0].lines.length >= 1 && spec.subtitles[0].boxWidth > 0
+      && typeof spec.subtitles[0].align === 'string' && typeof spec.subtitles[0].lineHeight === 'number',
+      JSON.stringify({ lines: spec.subtitles[0].lines, align: spec.subtitles[0].align }));
   }
   check('v1.23.0 — 저장했으면 진행률 100%', (await ve.locator('.ve-modal .ve-progress span').evaluate((node) => node.style.width)) === '100%');
   await ve.keyboard.press('Escape');

@@ -33,6 +33,8 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::video_graph::{self, ExportSpec, Graph, GraphEnv};
+
 /// 앱 전용 엔진 폴더 이름 — app_data_dir 아래.
 const BIN_DIR: &str = "bin";
 /// 이미 Mac 에 설치된 ffmpeg 를 찾을 자리(Apple Silicon → Intel 순).
@@ -133,169 +135,6 @@ pub struct ExportResult {
     pub encoder: String,
 }
 
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportTransition {
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub duration: f64,
-}
-
-/// 클립의 줌/팬 — 시작·끝 배율과 중심점(0~1). 화면의 줌/팬과 같은 값을 받는다.
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportMotion {
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default = "one")]
-    pub start_scale: f64,
-    #[serde(default = "one")]
-    pub end_scale: f64,
-    #[serde(default = "half")]
-    pub start_x: f64,
-    #[serde(default = "half")]
-    pub start_y: f64,
-    #[serde(default = "half")]
-    pub end_x: f64,
-    #[serde(default = "half")]
-    pub end_y: f64,
-}
-
-/// 오버레이(PIP) — 메인 영상 위에 얹는 영상·이미지.
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportOverlay {
-    pub path: String,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub start: f64,
-    #[serde(default)]
-    pub end: f64,
-    #[serde(default = "half")]
-    pub x: f64,
-    #[serde(default = "half")]
-    pub y: f64,
-    /// 출력 폭 대비 비율(0.05~1).
-    #[serde(default = "one_third")]
-    pub scale: f64,
-    #[serde(default = "one")]
-    pub opacity: f64,
-}
-
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportClip {
-    pub path: String,
-    /// "video" | "image"
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub trim_start: f64,
-    #[serde(default)]
-    pub trim_end: f64,
-    #[serde(default = "one")]
-    pub speed: f64,
-    #[serde(default = "one")]
-    pub volume: f64,
-    #[serde(default)]
-    pub fade_in: f64,
-    #[serde(default)]
-    pub fade_out: f64,
-    #[serde(default)]
-    pub brightness: f64,
-    #[serde(default = "one")]
-    pub contrast: f64,
-    #[serde(default = "one")]
-    pub saturation: f64,
-    #[serde(default)]
-    pub motion: Option<ExportMotion>,
-    #[serde(default)]
-    pub transition: Option<ExportTransition>,
-}
-
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportSubtitle {
-    pub text: String,
-    #[serde(default)]
-    pub start: f64,
-    #[serde(default)]
-    pub end: f64,
-    /// 글꼴 키(Pretendard·helvetica…) 또는 빈 값.
-    #[serde(default)]
-    pub font: String,
-    /// 사용자가 고른 폰트 파일(.ttf/.otf) 경로 — 있으면 이것을 쓴다.
-    #[serde(default)]
-    pub font_file: Option<String>,
-    #[serde(default)]
-    pub font_size: f64,
-    #[serde(default)]
-    pub color: String,
-    #[serde(default)]
-    pub outline_color: String,
-    #[serde(default)]
-    pub outline_width: f64,
-    #[serde(default)]
-    pub background: f64,
-    #[serde(default = "half")]
-    pub x: f64,
-    #[serde(default = "four_fifths")]
-    pub y: f64,
-    /// none | fade | pop | slideup
-    #[serde(default)]
-    pub animation: String,
-}
-
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportAudio {
-    pub path: String,
-    #[serde(default)]
-    pub start: f64,
-    #[serde(default = "one")]
-    pub volume: f64,
-    #[serde(default)]
-    pub fade_in: f64,
-    #[serde(default)]
-    pub fade_out: f64,
-    #[serde(default)]
-    pub duration: f64,
-}
-
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ExportSpec {
-    pub clips: Vec<ExportClip>,
-    #[serde(default)]
-    pub overlays: Vec<ExportOverlay>,
-    #[serde(default)]
-    pub subtitles: Vec<ExportSubtitle>,
-    #[serde(default)]
-    pub audios: Vec<ExportAudio>,
-    pub width: u32,
-    pub height: u32,
-    #[serde(default = "thirty")]
-    pub fps: u32,
-    pub output: String,
-}
-
-fn one() -> f64 {
-    1.0
-}
-fn half() -> f64 {
-    0.5
-}
-fn four_fifths() -> f64 {
-    0.82
-}
-fn thirty() -> u32 {
-    30
-}
-fn one_third() -> f64 {
-    0.32
-}
 
 /* ------------------------------ 경로 도우미 ------------------------------ */
 
@@ -678,6 +517,133 @@ pub fn video_extract_audio(
     Ok(target.to_string_lossy().to_string())
 }
 
+/// 무음 구간 찾기 — ffmpeg silencedetect 로 [start, end] 사이의 무음을 돌려준다.
+/// 돌려주는 시각은 클립 시작(trimStart)을 0 으로 한 상대 초다.
+#[derive(Serialize)]
+pub struct SilenceRange {
+    pub start: f64,
+    pub end: f64,
+}
+
+#[derive(Serialize)]
+pub struct SilenceResult {
+    pub ranges: Vec<SilenceRange>,
+}
+
+#[tauri::command]
+pub fn video_silence(
+    app: AppHandle,
+    path: String,
+    start: f64,
+    end: f64,
+    threshold: f64,
+    min_silence: f64,
+) -> Result<SilenceResult, String> {
+    let (ffmpeg, _) = find_engine(&app);
+    let ffmpeg = ffmpeg.ok_or_else(|| "편집 엔진이 없습니다".to_string())?;
+    check_allowed(Path::new(&path))?;
+    let from = start.max(0.0);
+    let span = (end - from).max(0.1);
+    let noise = threshold.clamp(-80.0, -5.0);
+    let minimum = min_silence.clamp(0.1, 5.0);
+    let output = Command::new(&ffmpeg)
+        .args([
+            "-hide_banner",
+            "-nostdin",
+            "-ss",
+            &format!("{from:.3}"),
+            "-t",
+            &format!("{span:.3}"),
+            "-i",
+            &path,
+            "-af",
+            &format!("silencedetect=noise={noise:.0}dB:d={minimum:.2}"),
+            "-f",
+            "null",
+            "-",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("무음을 찾지 못했습니다: {error}"))?;
+    let text = String::from_utf8_lossy(&output.stderr).to_string();
+    let mut ranges: Vec<SilenceRange> = Vec::new();
+    let mut opened: Option<f64> = None;
+    for line in text.lines() {
+        if let Some(at) = line.find("silence_start: ") {
+            let rest = &line[at + "silence_start: ".len()..];
+            opened = rest
+                .split_whitespace()
+                .next()
+                .and_then(|value| value.parse::<f64>().ok());
+        } else if let Some(at) = line.find("silence_end: ") {
+            let rest = &line[at + "silence_end: ".len()..];
+            let value = rest
+                .split_whitespace()
+                .next()
+                .and_then(|item| item.parse::<f64>().ok());
+            if let (Some(begin), Some(finish)) = (opened.take(), value) {
+                ranges.push(SilenceRange { start: begin.max(0.0), end: finish.min(span) });
+            }
+        }
+    }
+    if let Some(begin) = opened {
+        ranges.push(SilenceRange { start: begin.max(0.0), end: span });
+    }
+    ranges.retain(|range| range.end - range.start >= 0.05);
+    Ok(SilenceResult { ranges })
+}
+
+/// 그림(PNG base64)을 저장한다 — save=true 면 macOS 저장 창, false 면 임시 파일(프리즈 프레임용).
+#[tauri::command]
+pub fn video_save_png(data: String, name: String, save: bool) -> Result<Option<String>, String> {
+    let bytes = video_graph::decode_png(&data)?;
+    if !save {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|value| value.as_millis())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!("tip-still-{stamp}.png"));
+        fs::write(&path, &bytes).map_err(|error| format!("그림을 쓰지 못했습니다: {error}"))?;
+        return Ok(Some(path.to_string_lossy().to_string()));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let safe = if name.to_lowercase().ends_with(".png") { name } else { format!("{name}.png") };
+        if let Some(path) = save_png_panel(&safe)? {
+            fs::write(&path, &bytes).map_err(|error| format!("그림을 쓰지 못했습니다: {error}"))?;
+            return Ok(Some(path));
+        }
+        return Ok(None);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = name;
+        Err("그림 저장은 macOS 앱에서만 됩니다".to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn save_png_panel(name: &str) -> Result<Option<String>, String> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSModalResponseOK, NSSavePanel};
+    use objc2_foundation::NSString;
+
+    let mtm = MainThreadMarker::new().ok_or_else(|| "화면 스레드를 찾지 못했습니다".to_string())?;
+    let panel = NSSavePanel::savePanel(mtm);
+    panel.setTitle(Some(&NSString::from_str("스틸컷 저장")));
+    panel.setMessage(Some(&NSString::from_str("지금 화면을 PNG 로 저장합니다.")));
+    panel.setNameFieldStringValue(&NSString::from_str(name));
+    panel.setCanCreateDirectories(true);
+    activate_app();
+    if panel.runModal() != NSModalResponseOK {
+        return Ok(None);
+    }
+    let url = panel.URL().ok_or_else(|| "저장 위치를 읽지 못했습니다".to_string())?;
+    Ok(url.path().map(|value| value.to_string()))
+}
+
 #[tauri::command]
 pub fn video_cancel_export() {
     CANCEL.store(true, Ordering::SeqCst);
@@ -754,6 +720,10 @@ pub struct WhisperStatus {
     pub binary_dir: String,
     pub download_size: Option<u64>,
     pub message: Option<String>,
+}
+
+fn one() -> f64 {
+    1.0
 }
 
 #[derive(Deserialize, Clone)]
@@ -1172,7 +1142,7 @@ fn build_speech_wav(
                 "aresample=16000".into(),
                 "aformat=sample_fmts=s16:channel_layouts=mono".into(),
             ];
-            let tempo = atempo_chain(speed);
+            let tempo = video_graph::atempo_chain(speed);
             if !tempo.is_empty() {
                 chain.push(tempo);
             }
@@ -1325,156 +1295,6 @@ fn check_allowed(path: &Path) -> Result<(), String> {
     ))
 }
 
-/// 클립 하나의 타임라인 길이(초) — 배속을 반영한다.
-fn clip_visible(clip: &ExportClip) -> f64 {
-    let span = (clip.trim_end - clip.trim_start).max(0.05);
-    if clip.kind == "image" {
-        span
-    } else {
-        (span / clip.speed.max(0.05)).max(0.05)
-    }
-}
-
-/// 이어 붙이는 경계의 전환 길이 — 전환이 없으면 한 프레임(0.04초)짜리 아주 짧은 페이드로 붙인다.
-/// (화면 미리보기도 같은 값을 써서 자막 시각이 어긋나지 않는다.)
-fn boundary_duration(clip: &ExportClip, previous: f64) -> f64 {
-    let asked = clip
-        .transition
-        .as_ref()
-        .map(|item| item.duration)
-        .unwrap_or(0.0);
-    let want = if asked > 0.0 { asked } else { 0.04 };
-    want.min(previous * 0.5).min(clip_visible(clip) * 0.5).max(0.02)
-}
-
-fn transition_name(clip: &ExportClip) -> String {
-    let asked = clip
-        .transition
-        .as_ref()
-        .map(|item| item.kind.clone())
-        .unwrap_or_default();
-    const KNOWN: [&str; 34] = [
-        "fade", "fadeblack", "fadewhite", "dissolve", "pixelize", "radial",
-        "wipeleft", "wiperight", "wipeup", "wipedown",
-        "wipetl", "wipetr", "wipebl", "wipebr",
-        "slideleft", "slideright", "slideup", "slidedown",
-        "circleopen", "circleclose", "rectcrop",
-        "vertopen", "vertclose", "horzopen", "horzclose",
-        "diagtl", "diagtr", "diagbl", "diagbr",
-        "hlslice", "hrslice", "vuslice", "vdslice", "squeezeh",
-    ];
-    if KNOWN.contains(&asked.as_str()) {
-        asked
-    } else if asked == "squeezev" || asked == "zoomin" || asked == "smoothleft"
-        || asked == "smoothright" || asked == "smoothup" || asked == "smoothdown"
-    {
-        asked
-    } else {
-        "fade".to_string()
-    }
-}
-
-fn atempo_chain(mut speed: f64) -> String {
-    // atempo 는 0.5~100 만 받는다 — 그 밖은 두 단계로 나눈다.
-    let mut parts = Vec::new();
-    while speed < 0.5 {
-        parts.push("atempo=0.5".to_string());
-        speed /= 0.5;
-    }
-    while speed > 100.0 {
-        parts.push("atempo=100".to_string());
-        speed /= 100.0;
-    }
-    if (speed - 1.0).abs() > 0.001 {
-        parts.push(format!("atempo={speed:.4}"));
-    }
-    parts.join(",")
-}
-
-/// 필터 안에 넣는 경로 — 작은따옴표로 감싸고 안의 특수 문자를 이스케이프한다.
-fn filter_path(path: &Path) -> String {
-    let text = path.to_string_lossy().to_string();
-    let escaped = text.replace('\\', "\\\\").replace('\'', "'\\''").replace(':', "\\:");
-    format!("'{escaped}'")
-}
-
-fn hex_color(value: &str) -> String {
-    let trimmed = value.trim().trim_start_matches('#');
-    if trimmed.len() == 6 && trimmed.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        format!("0x{trimmed}")
-    } else {
-        "0xFFFFFF".to_string()
-    }
-}
-
-/// 자막 하나를 drawtext 로 — 글자는 임시 파일에 넣어 특수 문자 문제를 없앤다.
-/// v1.24.0 — 등장 애니메이션(페이드·팝·아래서 위로)을 alpha·fontsize·y 식으로 옮긴다(미리보기와 같은 값).
-fn drawtext_filter(
-    item: &ExportSubtitle,
-    text_file: &Path,
-    font_file: &Path,
-    out_label: &str,
-    in_label: &str,
-    height: u32,
-) -> String {
-    let ratio = (height as f64 / 1080.0).max(0.35);
-    let size = if item.font_size > 0.0 {
-        item.font_size * ratio
-    } else {
-        54.0 * ratio
-    };
-    let outline = item.outline_width.max(0.0) * ratio;
-    let start = item.start.max(0.0);
-    let x = format!("(w-text_w)*{:.4}", item.x.clamp(0.0, 1.0));
-    let mut y = format!("(h-text_h)*{:.4}", item.y.clamp(0.0, 1.0));
-    let mut fontsize = format!("{size:.1}");
-    let mut alpha: Option<String> = None;
-    match item.animation.as_str() {
-        "fade" => {
-            alpha = Some(format!("min(1,max(0,(t-{start:.3})/0.25))"));
-        }
-        "pop" => {
-            alpha = Some(format!("min(1,max(0,(t-{start:.3})/0.12))"));
-            fontsize = format!("{size:.1}*(0.86+0.14*min(1,max(0,(t-{start:.3})/0.30)))");
-        }
-        "slideup" => {
-            alpha = Some(format!("min(1,max(0,(t-{start:.3})/0.25))"));
-            let offset = size * 0.5;
-            y = format!(
-                "(h-text_h)*{:.4}+{offset:.1}*max(0,1-(t-{start:.3})/0.30)",
-                item.y.clamp(0.0, 1.0)
-            );
-        }
-        _ => {}
-    }
-    let mut parts = vec![
-        format!("fontfile={}", filter_path(font_file)),
-        format!("textfile={}", filter_path(text_file)),
-        format!("fontsize='{fontsize}'"),
-        format!("fontcolor={}", hex_color(&item.color)),
-        format!("x='{x}'"),
-        format!("y='{y}'"),
-        format!(
-            "enable='between(t,{:.3},{:.3})'",
-            item.start.max(0.0),
-            item.end.max(item.start + 0.1)
-        ),
-    ];
-    if let Some(expression) = alpha {
-        parts.push(format!("alpha='{expression}'"));
-    }
-    if outline > 0.1 {
-        parts.push(format!("borderw={outline:.1}"));
-        parts.push(format!("bordercolor={}", hex_color(&item.outline_color)));
-    }
-    if item.background > 0.0 {
-        parts.push("box=1".to_string());
-        parts.push(format!("boxcolor=0x000000@{:.2}", item.background.clamp(0.0, 1.0)));
-        parts.push("boxborderw=10".to_string());
-    }
-    format!("[{in_label}]drawtext={}[{out_label}]", parts.join(":"))
-}
-
 fn run_export(app: &AppHandle, spec: &ExportSpec) -> Result<ExportResult, String> {
     let (ffmpeg, _) = find_engine(app);
     let ffmpeg = ffmpeg.ok_or_else(|| "편집 엔진이 없습니다".to_string())?;
@@ -1493,16 +1313,7 @@ fn run_export(app: &AppHandle, spec: &ExportSpec) -> Result<ExportResult, String
         has_audio.push(probe.unwrap_or(true));
     }
 
-    let total: f64 = {
-        let mut sum = 0.0;
-        for (index, clip) in spec.clips.iter().enumerate() {
-            sum += clip_visible(clip);
-            if index > 0 {
-                sum -= boundary_duration(clip, clip_visible(&spec.clips[index - 1]));
-            }
-        }
-        sum.max(0.1)
-    };
+    let total = video_graph::total_visible(spec);
 
     let mut temp_files: Vec<PathBuf> = Vec::new();
     let graph = build_graph(app, spec, &has_audio, &mut temp_files)?;
@@ -1618,286 +1429,18 @@ fn probe_has_audio(probe: &Path, media: &Path) -> Result<bool, String> {
     Ok(!String::from_utf8_lossy(&output.stdout).trim().is_empty())
 }
 
-struct Graph {
-    inputs: Vec<String>,
-    complex: String,
-}
-
+/// 앱이 가진 Pretendard·임시 폴더를 붙여 순수 그래프 빌더(video_graph)로 넘긴다.
 fn build_graph(
     app: &AppHandle,
     spec: &ExportSpec,
     has_audio: &[bool],
     temp_files: &mut Vec<PathBuf>,
 ) -> Result<Graph, String> {
-    let width = spec.width.max(16) - spec.width % 2;
-    let height = spec.height.max(16) - spec.height % 2;
-    let fps = if spec.fps == 0 { 30 } else { spec.fps };
-
-    let mut inputs: Vec<String> = Vec::new();
-    let mut parts: Vec<String> = Vec::new();
-    let mut input_index = 0usize;
-    let mut video_labels: Vec<String> = Vec::new();
-    let mut audio_labels: Vec<String> = Vec::new();
-
-    for (index, clip) in spec.clips.iter().enumerate() {
-        let span = (clip.trim_end - clip.trim_start).max(0.05);
-        if clip.kind == "image" {
-            inputs.push("-loop".into());
-            inputs.push("1".into());
-            inputs.push("-t".into());
-            inputs.push(format!("{span:.3}"));
-        } else {
-            inputs.push("-ss".into());
-            inputs.push(format!("{:.3}", clip.trim_start));
-            inputs.push("-t".into());
-            inputs.push(format!("{span:.3}"));
-        }
-        inputs.push("-i".into());
-        inputs.push(clip.path.clone());
-
-        let speed = if clip.kind == "image" { 1.0 } else { clip.speed.max(0.05) };
-        let eq = format!(
-            "eq=brightness={:.3}:contrast={:.3}:saturation={:.3}",
-            clip.brightness.clamp(-1.0, 1.0),
-            clip.contrast.clamp(0.0, 3.0),
-            clip.saturation.clamp(0.0, 3.0)
-        );
-        let visible = clip_visible(clip);
-        let motion = clip
-            .motion
-            .as_ref()
-            .filter(|motion| !motion.kind.is_empty() && motion.kind != "none");
-
-        if let Some(motion) = motion {
-            // 줌/팬 — 2배로 키워 여유를 두고 zoompan 으로 잘라 낸다. 중심·배율은 화면과 같은 값이다.
-            let frames = (visible * fps as f64).round().max(2.0);
-            let denom = (frames - 1.0).max(1.0);
-            let zoom_start = motion.start_scale.clamp(1.0, 3.0);
-            let zoom_end = motion.end_scale.clamp(1.0, 3.0);
-            let cx_start = motion.start_x.clamp(0.0, 1.0);
-            let cx_end = motion.end_x.clamp(0.0, 1.0);
-            let cy_start = motion.start_y.clamp(0.0, 1.0);
-            let cy_end = motion.end_y.clamp(0.0, 1.0);
-            let lerp = |from: f64, to: f64| -> String {
-                if (to - from).abs() < 0.0005 {
-                    format!("{from:.4}")
-                } else {
-                    format!("{from:.4}+({to:.4}-{from:.4})*on/{denom:.1}")
-                }
-            };
-            let wide = width * 2;
-            let tall = height * 2;
-            parts.push(format!(
-                "[{input_index}:v]trim=0:{span:.3},setpts=(PTS-STARTPTS)/{speed:.4},fps={fps},\
-scale={wide}:{tall}:force_original_aspect_ratio=increase,crop={wide}:{tall},setsar=1,{eq},\
-zoompan=z='{}':x='iw*({})-(iw/zoom)/2':y='ih*({})-(ih/zoom)/2':d=1:s={width}x{height}:fps={fps},format=yuv420p[v{index}]",
-                lerp(zoom_start, zoom_end),
-                lerp(cx_start, cx_end),
-                lerp(cy_start, cy_end),
-            ));
-        } else {
-            parts.push(format!(
-                "[{input_index}:v]trim=0:{span:.3},setpts=(PTS-STARTPTS)/{speed:.4},fps={fps},\
-scale={width}:{height}:force_original_aspect_ratio=decrease,\
-pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,{eq},format=yuv420p[v{index}]"
-            ));
-        }
-        video_labels.push(format!("v{index}"));
-
-        if has_audio.get(index).copied().unwrap_or(false) {
-            let mut chain: Vec<String> = vec![
-                "aresample=48000".into(),
-                "aformat=sample_fmts=fltp:channel_layouts=stereo".into(),
-            ];
-            let tempo = atempo_chain(speed);
-            if !tempo.is_empty() {
-                chain.push(tempo);
-            }
-            chain.push(format!("asetpts=PTS-STARTPTS"));
-            chain.push(format!("volume={:.3}", clip.volume.clamp(0.0, 4.0)));
-            if clip.fade_in > 0.01 {
-                chain.push(format!("afade=t=in:st=0:d={:.3}", clip.fade_in.min(visible)));
-            }
-            if clip.fade_out > 0.01 {
-                let start = (visible - clip.fade_out).max(0.0);
-                chain.push(format!("afade=t=out:st={start:.3}:d={:.3}", clip.fade_out.min(visible)));
-            }
-            chain.push("apad".into());
-            chain.push(format!("atrim=0:{visible:.3}"));
-            parts.push(format!("[{input_index}:a]{}[a{index}]", chain.join(",")));
-        } else {
-            parts.push(format!(
-                "anullsrc=r=48000:cl=stereo,atrim=0:{visible:.3},asetpts=PTS-STARTPTS[a{index}]"
-            ));
-        }
-        audio_labels.push(format!("a{index}"));
-        input_index += 1;
-    }
-
-    // 이어 붙이기 — 전환은 xfade, 소리는 acrossfade 로 같은 길이만큼 겹친다.
-    let mut current_v = video_labels[0].clone();
-    let mut current_a = audio_labels[0].clone();
-    let mut offset = 0.0;
-    for index in 1..spec.clips.len() {
-        let previous = clip_visible(&spec.clips[index - 1]);
-        let duration = boundary_duration(&spec.clips[index], previous);
-        offset += previous - duration;
-        let name = if spec.clips[index].transition.as_ref().map(|item| item.duration).unwrap_or(0.0) > 0.0 {
-            transition_name(&spec.clips[index])
-        } else {
-            "fade".to_string()
-        };
-        let next_v = format!("vx{index}");
-        parts.push(format!(
-            "[{current_v}][{current_v_in}]xfade=transition={name}:duration={duration:.3}:offset={offset:.3}[{next_v}]",
-            current_v_in = video_labels[index]
-        ));
-        let next_a = format!("ax{index}");
-        parts.push(format!(
-            "[{current_a}][{current_a_in}]acrossfade=d={duration:.3}:c1=tri:c2=tri[{next_a}]",
-            current_a_in = audio_labels[index]
-        ));
-        current_v = next_v;
-        current_a = next_a;
-    }
-
-    let mut video_out = current_v;
-    let mut audio_out = current_a;
-
-    // BGM — 시작 지연·볼륨·페이드.
-    let mut mix_labels: Vec<String> = Vec::new();
-    for (index, audio) in spec.audios.iter().enumerate() {
-        inputs.push("-i".into());
-        inputs.push(audio.path.clone());
-        let mut chain: Vec<String> = vec![
-            "aresample=48000".into(),
-            "aformat=sample_fmts=fltp:channel_layouts=stereo".into(),
-            format!("volume={:.3}", audio.volume.clamp(0.0, 4.0)),
-        ];
-        if audio.fade_in > 0.01 {
-            chain.push(format!("afade=t=in:st=0:d={:.3}", audio.fade_in));
-        }
-        if audio.fade_out > 0.01 && audio.duration > 0.0 {
-            let start = (audio.duration - audio.fade_out).max(0.0);
-            chain.push(format!("afade=t=out:st={start:.3}:d={:.3}", audio.fade_out));
-        }
-        if audio.start > 0.01 {
-            let delay = (audio.start * 1000.0).round() as i64;
-            chain.push(format!("adelay={delay}|{delay}"));
-        }
-        let label = format!("bgm{index}");
-        parts.push(format!("[{input_index}:a]{}[{label}]", chain.join(",")));
-        mix_labels.push(label);
-        input_index += 1;
-    }
-    if !mix_labels.is_empty() {
-        let mut list = format!("[{audio_out}]");
-        for label in &mix_labels {
-            list.push_str(&format!("[{label}]"));
-        }
-        parts.push(format!(
-            "{list}amix=inputs={}:duration=first:dropout_transition=0:normalize=0[amixed]",
-            mix_labels.len() + 1
-        ));
-        audio_out = "amixed".to_string();
-    }
-
-    // 오버레이(PIP) — 메인 영상 위에 크기·위치·불투명도대로 얹는다(enable 구간 동안만).
-    for (index, overlay) in spec.overlays.iter().enumerate() {
-        let span = (overlay.end - overlay.start).max(0.2);
-        if overlay.kind == "image" {
-            inputs.push("-loop".into());
-            inputs.push("1".into());
-            inputs.push("-t".into());
-            inputs.push(format!("{span:.3}"));
-        } else {
-            inputs.push("-t".into());
-            inputs.push(format!("{span:.3}"));
-        }
-        inputs.push("-i".into());
-        inputs.push(overlay.path.clone());
-        let box_width = ((width as f64 * overlay.scale.clamp(0.05, 1.0)).round() as u32 / 2) * 2;
-        let box_width = box_width.max(16);
-        let opacity = overlay.opacity.clamp(0.0, 1.0);
-        parts.push(format!(
-            "[{input_index}:v]trim=0:{span:.3},setpts=PTS-STARTPTS+{start:.3}/TB,scale={box_width}:-2,format=rgba,colorchannelmixer=aa={opacity:.3}[ov{index}]",
-            start = overlay.start.max(0.0)
-        ));
-        parts.push(format!(
-            "[{video_out}][ov{index}]overlay=x='W*{cx:.4}-w/2':y='H*{cy:.4}-h/2':enable='between(t,{start:.3},{end:.3})':eof_action=pass:format=auto[vo{index}]",
-            cx = overlay.x.clamp(0.0, 1.0),
-            cy = overlay.y.clamp(0.0, 1.0),
-            start = overlay.start.max(0.0),
-            end = overlay.end.max(overlay.start + 0.1)
-        ));
-        video_out = format!("vo{index}");
-        input_index += 1;
-    }
-
-    // 자막 — 글자는 임시 파일에 넣는다.
-    let font_for = |item: &ExportSubtitle| -> Result<PathBuf, String> {
-        if let Some(path) = &item.font_file {
-            let candidate = PathBuf::from(path);
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
-        }
-        let bundled = bundled_font(app);
-        let key = item.font.trim().to_lowercase();
-        let system: Option<&str> = match key.as_str() {
-            "helvetica" => Some("/System/Library/Fonts/Helvetica.ttc"),
-            "helvetica-neue" => Some("/System/Library/Fonts/HelveticaNeue.ttc"),
-            "arial" => Some("/System/Library/Fonts/Supplemental/Arial.ttf"),
-            "georgia" => Some("/System/Library/Fonts/Supplemental/Georgia.ttf"),
-            "impact" => Some("/System/Library/Fonts/Supplemental/Impact.ttf"),
-            "apple-gothic" => Some("/System/Library/Fonts/Supplemental/AppleGothic.ttf"),
-            "menlo" => Some("/System/Library/Fonts/Menlo.ttc"),
-            _ => None,
-        };
-        if let Some(path) = system {
-            let candidate = PathBuf::from(path);
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
-        }
-        if let Some(path) = bundled {
-            return Ok(path);
-        }
-        if let Some(path) = system {
-            // 파일이 없어도 경로는 넘겨 본다(설치된 macOS 에는 늘 있다).
-            return Ok(PathBuf::from(path));
-        }
-        Err("자막에 쓸 글꼴을 찾지 못했습니다".to_string())
+    let env = GraphEnv {
+        bundled_font: bundled_font(app),
+        temp_dir: std::env::temp_dir(),
     };
-
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_millis())
-        .unwrap_or(0);
-    for (index, item) in spec.subtitles.iter().enumerate() {
-        if item.text.trim().is_empty() || item.end <= item.start {
-            continue;
-        }
-        let text_file = std::env::temp_dir().join(format!("tip-subtitle-{stamp}-{index}.txt"));
-        fs::write(&text_file, &item.text).map_err(|error| format!("자막을 쓰지 못했습니다: {error}"))?;
-        temp_files.push(text_file.clone());
-        let font = font_for(item)?;
-        let next = format!("vt{index}");
-        parts.push(drawtext_filter(item, &text_file, &font, &next, &video_out, height));
-        video_out = next;
-    }
-
-    if video_out != "vout" {
-        parts.push(format!("[{video_out}]null[vout]"));
-    }
-    if audio_out != "aout" {
-        parts.push(format!("[{audio_out}]anull[aout]"));
-    }
-
-    Ok(Graph {
-        inputs,
-        complex: parts.join(";"),
-    })
+    video_graph::build_graph(spec, has_audio, &env, temp_files)
 }
 
 fn bundled_font(app: &AppHandle) -> Option<PathBuf> {

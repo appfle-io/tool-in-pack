@@ -34,6 +34,7 @@ mod files;
 mod media;
 mod notch;
 mod video;
+mod video_graph;
 mod sticky;
 mod system;
 mod voice;
@@ -2125,6 +2126,8 @@ pub fn run() {
             video::video_transcribe,
             video::video_cancel_transcribe,
             video::video_project_media,
+            video::video_silence,
+            video::video_save_png,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

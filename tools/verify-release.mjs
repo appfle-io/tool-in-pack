@@ -1640,6 +1640,7 @@ check('settings-e2e 가 권한 탭을 본다', /권한 — 마이크 권한 요�
 const veModule = read('modules/video-editor/module.js');
 const veModel = read('modules/video-editor/model.js');
 const videoRs = read('mac/src-tauri/src/video.rs');
+const graphRs = read('mac/src-tauri/src/video_graph.rs');
 const clipboardPanel = read('js/clipboard-panel.js');
 const clipboardHtml = read('clipboard.html');
 const tauriConf = JSON.parse(read('mac/src-tauri/tauri.conf.json'));
@@ -1648,10 +1649,11 @@ const tauriConf = JSON.parse(read('mac/src-tauri/tauri.conf.json'));
 check('video-editor 를 registry 에 등록', read('modules/registry.js').includes("import videoEditor from './video-editor/module.js';")
   && /^\s{2}videoEditor,$/m.test(read('modules/registry.js')));
 check('video-editor 카테고리 media', /id: 'video-editor',[\s\S]{0,160}category: 'media',/.test(veModule));
-check('영상 편집 5탭', ['미디어', '전환', '자막', '오디오', '필터']
+check('영상 편집 도구 탭(미디어·전환·자막·오디오·필터·모자이크·스티커)', ['미디어', '전환', '자막', '오디오', '필터', '모자이크', '스티커']
   .every((label) => veModule.includes(`label: '${label}'`)) && /TAB_LABELS/.test(veModule));
-check('멀티 트랙 타임라인(영상·오버레이·자막·오디오)', /\['video', 'overlay', 'subtitle', 'audio'\]/.test(veModule)
-  && /ve-track-subtitle/.test(read('css/app.css')) && /ve-track-overlay/.test(read('css/app.css')));
+check('멀티 트랙 타임라인(영상·오버레이·모자이크·스티커·자막·오디오)', /\['video', 'overlay', 'mask', 'shape', 'subtitle', 'audio'\]/.test(veModule)
+  && /ve-track-subtitle/.test(read('css/app.css')) && /ve-track-overlay/.test(read('css/app.css'))
+  && /ve-track-mask/.test(read('css/app.css')) && /ve-track-shape/.test(read('css/app.css')));
 check('클립 나누기·트림·순서 이동·삭제·되돌리기', /function splitAtPlayhead/.test(veModule)
   && /data-trim/.test(veModule) && /function deleteSelected/.test(veModule)
   && /undoStack/.test(veModule) && /redoStack/.test(veModule) && /project\.clips\.splice\(target, 0/.test(veModule));
@@ -1669,10 +1671,12 @@ check('해상도 HD·FHD·2K·4K(2K·4K 는 Mac 전용)', /id: '2k'[\s\S]{0,80}m
 check('프레임 24·30·60', /FPS_OPTIONS = \[24, 30, 60\]/.test(veModel));
 check('자막 글꼴 Pretendard + 시스템 글꼴 + ttf 업로드', /id: 'pretendard'/.test(veModel)
   && /System\/Library\/Fonts\/Supplemental\/AppleGothic\.ttf/.test(veModel) && /video_pick_font/.test(veModule));
-check('자막 미리보기에서 끌어 옮기기', /subDrag/.test(veModule) && /subtitle\.x = Math\.min\(1, Math\.max\(0/.test(veModule));
+check('자막 미리보기에서 끌어 옮기기', /let canvasDrag = null/.test(veModule) && /item\.x = centered\.x/.test(veModule)
+  && /state\.selected = \{ kind: 'subtitle', id: hit\.subtitle\.id \}/.test(veModule));
 check('웹 내보내기 canvas + MediaRecorder(최대 FHD)', /captureStream/.test(veModule) && /new MediaRecorder/.test(veModule)
   && /if \(res\.macOnly\) return;/.test(veModule));
-check('미리보기 캔버스에 필터(밝기·대비·채도)', /context\.filter = fillFilter/.test(veModule) && /FILTER_PRESETS/.test(veModel));
+check('미리보기 캔버스에 필터(밝기·대비·채도)', /fillFilter\(filter\)/.test(veModule) && /context\.filter = filter/.test(veModule)
+  && /FILTER_PRESETS/.test(veModel));
 
 // ② 온디맨드 ffmpeg 엔진
 check('엔진 탐색 순서 — 앱 폴더 → Homebrew', /BIN_DIR: &str = "bin"/.test(videoRs)
@@ -1690,9 +1694,10 @@ check('실행 권한 0755', /from_mode\(0o755\)/.test(videoRs));
 check('다운로드 진행률 이벤트', /tip:\/\/video-engine-progress/.test(videoRs));
 check('인코더 videotoolbox → libx264', /h264_videotoolbox/.test(videoRs) && /libx264/.test(videoRs)
   && /attempts\.push\(/.test(videoRs));
-check('xfade·acrossfade·drawtext·amix', /xfade=transition=/.test(videoRs) && /acrossfade=d=/.test(videoRs)
-  && /drawtext=/.test(videoRs) && /amix=inputs=/.test(videoRs));
-check('배속·페이드·색감 필터', /atempo/.test(videoRs) && /afade=t=in/.test(videoRs) && /eq=brightness=/.test(videoRs));
+check('xfade·acrossfade·drawtext·amix', /xfade=transition=/.test(graphRs) && /acrossfade=d=/.test(graphRs)
+  && /drawtext=/.test(graphRs) && /amix=inputs=/.test(graphRs));
+check('배속·페이드·색감 필터', /atempo/.test(graphRs) && /afade=t=in/.test(graphRs)
+  && /eq=brightness=/.test(graphRs));
 check('진행률·완료 이벤트', /tip:\/\/video-export-progress/.test(videoRs) && /tip:\/\/video-export-done/.test(videoRs));
 check('고른 파일만 읽는다(허용 목록)', /static PICKED: Mutex<Option<HashSet<PathBuf>>>/.test(videoRs)
   && /fn check_allowed/.test(videoRs) && /이번 작업에서 고른 파일이 아닙니다/.test(videoRs));
@@ -1798,14 +1803,14 @@ check('v1.24.0 — 새 커맨드 등록(build.rs·capabilities·invoke_handler)'
 // ③ 오버레이(PIP) · 줌/팬
 check('v1.24.0 — 오버레이 트랙과 블록', /if \(kind === 'overlay'\)/.test(veModule)
   && /\.ve-track-overlay \{/.test(veCss) && /\.ve-overlay-block \{/.test(veCss));
-check('v1.24.0 — 오버레이 내보내기(overlay 필터·불투명도)', /overlay=x='W\*/.test(videoRs)
-  && /eof_action=pass/.test(videoRs) && /colorchannelmixer=aa=/.test(videoRs) && /struct ExportOverlay/.test(videoRs));
-check('v1.24.0 — 미리보기에서 오버레이 끌기', /let overlayDrag = null/.test(veModule)
+check('v1.24.0 — 오버레이 내보내기(overlay 필터·불투명도)', /overlay=x='W\*/.test(graphRs)
+  && /eof_action=pass/.test(graphRs) && /colorchannelmixer=aa=/.test(graphRs) && /struct ExportOverlay/.test(graphRs));
+check('v1.24.0 — 미리보기에서 오버레이 끌기', /let canvasDrag = null/.test(veModule)
   && /overlayBoxes\.find/.test(veModule) && /function drawOverlay/.test(veModule));
 check('v1.24.0 — 클립 줌/팬 프리셋 5종', ['줌인', '줌아웃', '좌→우 팬', '우→좌 팬', '직접 설정']
   .every((label) => veModel.includes(`label: '${label}'`)) && /export const MOTIONS/.test(veModel));
-check('v1.24.0 — 줌/팬 내보내기(zoompan·중심 식)', /zoompan=z='/.test(videoRs)
-  && /\(iw\/zoom\)\/2/.test(videoRs) && /struct ExportMotion/.test(videoRs)
+check('v1.24.0 — 줌/팬 내보내기(zoompan·중심 식)', /zoompan=z='/.test(graphRs)
+  && /\(iw\/zoom\)\/2/.test(graphRs) && /struct ExportMotion/.test(graphRs)
   && /motion: clip\.motion && clip\.motion\.kind/.test(veModule));
 check('v1.24.0 — 줌/팬 보간 함수', /export function motionAt/.test(veModel) && /function applyMotionPreset/.test(veModel));
 
@@ -1820,11 +1825,11 @@ check('v1.24.0 — 등장 애니메이션 4종', (() => {
   const block = veModel.slice(at, veModel.indexOf('];', at));
   return ['none', 'fade', 'pop', 'slideup'].every((id) => block.includes(`id: '${id}'`));
 })());
-check('v1.24.0 — drawtext 가 alpha·fontsize·y 로 애니메이션', /min\(1,max\(0,\(t-\{start/.test(videoRs)
-  && /alpha='\{expression\}'/.test(videoRs) && /fontsize='\{fontsize\}'/.test(videoRs)
-  && /0\.86\+0\.14\*min\(1,max\(0,\(t-\{start/.test(videoRs) && /\*max\(0,1-\(t-\{start/.test(videoRs));
+check('v1.24.0 — drawtext 가 alpha·fontsize·y 로 애니메이션', /min\(1,max\(0,\(t-\{start/.test(graphRs)
+  && /alpha='\{expression\}'/.test(graphRs) && /fontsize='\{fontsize\}'/.test(graphRs)
+  && /0\.86\+0\.14\*min\(1,max\(0,\(t-\{start/.test(graphRs) && /\*max\(0,1-\(t-\{start/.test(graphRs));
 check('v1.24.0 — 애니메이션 값을 내보내기 spec 에 싣는다', /animation: subtitle\.animation \|\| 'none'/.test(veModule)
-  && /pub animation: String/.test(videoRs));
+  && /pub animation: String/.test(graphRs));
 
 // ⑤ 복사·붙여넣기·복제(자막·클립·오디오·오버레이)
 check('v1.24.0 — ⌘C/⌘V 복사·붙여넣기', /function copySelected/.test(veModule)
@@ -1871,6 +1876,134 @@ check('v1.24.0 — README 안내', read('README.md').includes('| v1.24.0 |')
 check('v1.24.0 — settings-e2e 가 새 기능을 본다', /v1\.24\.0 — 자막 복사·붙여넣기/.test(settingsE2e)
   && /v1\.24\.0 — 모든 자막에 적용/.test(settingsE2e) && /v1\.24\.0 — 자석 스냅/.test(settingsE2e)
   && /v1\.24\.0 — 1프레임 이동/.test(settingsE2e) && /v1\.24\.0 — 오버레이/.test(settingsE2e));
+
+/* ==================================================================
+   v1.25.0 — 영상 편집 캡컷·블로급 10종
+   가운데 자석·쇼츠 안전영역 · 맞춤/채움/블러 · 회전·반전 · Q/W · 음소거 · 자막 정렬/줄간격 ·
+   스틸컷 · 무음 자동 컷 · 부분 모자이크/블러 · 프리즈/역재생 · 색감·비네트 · 노이즈 제거/변조 ·
+   도형·말풍선·이모지
+   ================================================================== */
+
+// ① 모델 — 새 기능의 값과 셈
+check('v1.25.0 — 맞춤 3종(맞춤·채움·블러 배경)', /export const FIT_MODES/.test(veModel)
+  && ['fit', 'fill', 'blur'].every((id) => veModel.includes(`id: '${id}'`)));
+check('v1.25.0 — 회전 90° 단위 + 미세 회전', /export const ROTATIONS = \[0, 90, 180, 270\]/.test(veModel)
+  && /ROTATE_FREE_MIN = -180/.test(veModel) && /ROTATE_FREE_MAX = 180/.test(veModel));
+check('v1.25.0 — 색감 기본값 6종', /export const COLOR_DEFAULTS = \{ brightness: 1, contrast: 1, saturation: 1, temperature: 0, sharpen: 0, vignette: 0 \}/.test(veModel));
+check('v1.25.0 — 노이즈 제거 3단계', /export const DENOISE_LEVELS/.test(veModel)
+  && ['off', 'light', 'strong'].every((id) => veModel.includes(`id: '${id}'`)));
+check('v1.25.0 — 음성 변조 5종(원본·헬륨·저음·로봇·에코)', (() => {
+  const at = veModel.indexOf('export const VOICE_PRESETS');
+  const block = veModel.slice(at, veModel.indexOf('];', at));
+  return ['original', 'helium', 'deep', 'robot', 'echo'].every((id) => block.includes(`id: '${id}'`));
+})());
+check('v1.25.0 — 모자이크 2종·모양 2종', /export const MASK_KINDS/.test(veModel)
+  && ['mosaic', 'blur'].every((id) => veModel.includes(`id: '${id}'`))
+  && /export const MASK_SHAPES/.test(veModel) && ['rect', 'ellipse'].every((id) => veModel.includes(`id: '${id}'`)));
+check('v1.25.0 — 도형 5종·이모지 8종', (() => {
+  const at = veModel.indexOf('export const SHAPE_KINDS');
+  const block = veModel.slice(at, veModel.indexOf('];', at));
+  return ['arrow', 'rect', 'ellipse', 'bubble', 'emoji'].every((id) => block.includes(`id: '${id}'`))
+    && /export const SHAPE_EMOJIS/.test(veModel);
+})());
+check('v1.25.0 — 가운데 스냅 6px·쇼츠 안전영역', /CENTER_SNAP_PIXELS = 6/.test(veModel)
+  && /export const SAFE_AREA = \{ top: 0\.13, bottom: 0\.2, right: 0\.15/.test(veModel));
+check('v1.25.0 — 무음 → 타임라인 변환·일괄 자르기', /export function mapSilence/.test(veModel)
+  && /export function cutSilence/.test(veModel) && /newId\('clip'\)/.test(veModel));
+check('v1.25.0 — 역재생 원본 시각 계산', /export function localTimeOf/.test(veModel)
+  && /clip\.reverse && clip\.kind !== 'image'/.test(veModel));
+check('v1.25.0 — 새 클립 기본값(맞춤·회전·반전·음소거·역재생·색감·오디오)', /export function createClipLook/.test(veModel)
+  && ['fit: ', 'rotate: ', 'flipH:', 'flipV:', 'muted:', 'reverse:', 'denoise:', 'voice:'].every((key) => veModel.includes(key)));
+check('v1.25.0 — 프로젝트에 모자이크·스티커 저장', /masks: \[\],\n    shapes: \[\]/.test(veModel)
+  && /export function createMask/.test(veModel) && /export function createShape/.test(veModel));
+
+// ② 화면 — 미리보기·도구·타임라인
+check('v1.25.0 — 도구 탭 7개(모자이크·스티커)', /label: '모자이크'/.test(veModule) && /label: '스티커'/.test(veModule)
+  && /state\.tab === 'mask' \? renderMaskTab/.test(veModule) && /state\.tab === 'shape' \? renderShapeTab/.test(veModule));
+check('v1.25.0 — 가운데 자석 스냅·보조선', /function snapCenter/.test(veModule) && /CENTER_SNAP_PIXELS/.test(veModule)
+  && /function drawGuides/.test(veModule));
+check('v1.25.0 — 쇼츠 안전영역 오버레이', /function drawSafeArea/.test(veModule) && /state\.safeArea/.test(veModule)
+  && /'aria-label': '쇼츠 안전영역'/.test(veModule));
+check('v1.25.0 — 맞춤·회전·반전 미리보기', /const fit = \(clip && clip\.fit\)/.test(veModule)
+  && /function drawRotated/.test(veModule) && /context\.filter = `blur\(/.test(veModule));
+check('v1.25.0 — 색온도·비네트·선명도 미리보기', /globalCompositeOperation = 'overlay'/.test(veModule)
+  && /createRadialGradient/.test(veModule) && /ve-sharpen/.test(veModule));
+check('v1.25.0 — Q/W 한 방 컷', /function trimAtPlayhead/.test(veModule)
+  && /event\.key === 'q'/.test(veModule) && /event\.key === 'w'/.test(veModule)
+  && /trimAtPlayhead\('start'\)/.test(veModule) && /trimAtPlayhead\('end'\)/.test(veModule));
+check('v1.25.0 — 원클릭 음소거(버튼·M)', /function toggleMute/.test(veModule) && /event\.key === 'm'/.test(veModule)
+  && /'aria-label': '음소거'/.test(veModule));
+check('v1.25.0 — 자막 정렬·줄간격', /subtitle\.align/.test(veModule) && /subtitle\.lineHeight/.test(veModule)
+  && /'글자 정렬'/.test(veModule) && /'줄간격'/.test(veModule));
+check('v1.25.0 — 스틸컷 저장(1080p PNG)', /async function saveStill/.test(veModule)
+  && /outputSize\(project\.aspect, 1080\)/.test(veModule) && /'스틸컷 저장'/.test(veModule));
+check('v1.25.0 — 부분 모자이크·블러 그리기', /function drawMasks/.test(veModule) && /imageSmoothingEnabled = false/.test(veModule)
+  && /context\.ellipse/.test(veModule));
+check('v1.25.0 — 도형·말풍선·이모지 그리기', /function paintShape/.test(veModule) && /function shapePng/.test(veModule)
+  && /Apple Color Emoji/.test(veModule));
+check('v1.25.0 — 프리즈 프레임 삽입', /function insertFreeze/.test(veModule) && /function freezeDialog/.test(veModule)
+  && /captureClipFrame/.test(veModule));
+check('v1.25.0 — 무음 구간 자동 컷(웹 Web Audio)', /function silenceDialog/.test(veModule) && /async function detectSilence/.test(veModule)
+  && /Math\.sqrt\(sum \/ Math\.max\(1, end - offset\)\)/.test(veModule) && /'무음 일괄 자르기'/.test(veModule));
+check('v1.25.0 — 모자이크·스티커 타임라인 트랙', /kind === 'mask'/.test(veModule) && /kind === 'shape'/.test(veModule)
+  && /'video', 'overlay', 'mask', 'shape', 'subtitle', 'audio'/.test(veModule)
+  && /\.ve-mask-block \{/.test(veCss) && /\.ve-shape-block \{/.test(veCss));
+
+// ③ 내보내기 spec — 화면과 ffmpeg 가 같은 값
+check('v1.25.0 — spec 맞춤·회전·반전·음소거·역재생', /fit: clip\.fit \|\| 'fit'/.test(veModule)
+  && /rotate: Number\(clip\.rotate\)/.test(veModule) && /flipH: !!clip\.flipH/.test(veModule)
+  && /muted: !!clip\.muted/.test(veModule) && /reverse: !!clip\.reverse/.test(veModule));
+check('v1.25.0 — spec 색감·오디오 효과', /temperature: Number\(\(clip\.color/.test(veModule)
+  && /sharpen: Number\(\(clip\.color/.test(veModule) && /vignette: Number\(\(clip\.color/.test(veModule)
+  && /denoise: clip\.denoise \|\| 'off'/.test(veModule) && /voice: clip\.voice \|\| 'original'/.test(veModule));
+check('v1.25.0 — spec 모자이크·스티커·자막 줄', /masks: \(project\.masks \|\| \[\]\)\.map/.test(veModule)
+  && /shapes: \(project\.shapes \|\| \[\]\)\.map/.test(veModule) && /subtitleExportMetrics/.test(veModule)
+  && /lines: metrics\.lines/.test(veModule) && /align: subtitle\.align \|\| 'center'/.test(veModule));
+
+// ④ Rust — 필터 그래프(video_graph.rs)
+check('v1.25.0 — 그래프 빌더 분리(video_graph.rs, tauri 없음)', exists('mac/src-tauri/src/video_graph.rs')
+  && /pub fn build_graph/.test(graphRs) && !/use tauri::/.test(graphRs) && !/AppHandle/.test(graphRs.replace(/\/\/.*$/gm, ''))
+  && /mod video_graph;/.test(lib));
+check('v1.25.0 — 맞춤/채움/블러 배경 필터', /force_original_aspect_ratio=decrease/.test(graphRs)
+  && /force_original_aspect_ratio=increase/.test(graphRs) && /boxblur=\{sigma/.test(graphRs)
+  && /overlay=\(W-w\)\/2:\(H-h\)\/2/.test(graphRs));
+check('v1.25.0 — 회전·반전 필터', /transpose=1/.test(graphRs) && /transpose=2/.test(graphRs)
+  && /rotate=\{angle/.test(graphRs) && /hflip/.test(graphRs) && /vflip/.test(graphRs));
+check('v1.25.0 — 음소거·역재생', /if clip\.muted \{ 0\.0 \}/.test(graphRs) && /"reverse"/.test(graphRs)
+  && /"areverse"/.test(graphRs));
+check('v1.25.0 — 색감·비네트 필터', /eq=brightness=/.test(graphRs) && /colorbalance=rs=/.test(graphRs)
+  && /unsharp=5:5:/.test(graphRs) && /vignette=angle=PI\//.test(graphRs));
+check('v1.25.0 — 노이즈 제거·음성 변조 필터', /afftdn=nr=24/.test(graphRs) && /afftdn=nr=12/.test(graphRs)
+  && /asetrate=48000\*1\.28/.test(graphRs) && /asetrate=48000\*0\.82/.test(graphRs)
+  && /tremolo=f=32/.test(graphRs) && /aecho=0\.8:0\.9/.test(graphRs));
+check('v1.25.0 — 부분 모자이크·블러(구간 제한)', /crop=\{box_w\}:\{box_h\}:\{box_x\}:\{box_y\}/.test(graphRs)
+  && /flags=neighbor/.test(graphRs) && /geq=r='r\(X,Y\)'/.test(graphRs)
+  && /enable='between\(t,\{start:\.3\},\{end:\.3\}\)'/.test(graphRs) && /pub struct ExportMask/.test(graphRs));
+check('v1.25.0 — 스티커 PNG 오버레이', /pub struct ExportShape/.test(graphRs) && /fn base64_decode/.test(graphRs)
+  && /tip-shape-\{stamp\}/.test(graphRs) && /colorchannelmixer=aa=/.test(graphRs));
+check('v1.25.0 — 자막 줄마다 drawtext·정렬·줄간격', /fn drawtext_line/.test(graphRs)
+  && /"left" => format!\("w\*\{:\.4\}-\{:\.1\}"/.test(graphRs)
+  && /"right" => format!\("w\*\{:\.4\}\+\{:\.1\}-text_w"/.test(graphRs)
+  && /item\.line_height\.clamp/.test(graphRs) && /tip-subtitle-\{stamp\}-\{index\}-\{line_index\}/.test(graphRs));
+check('v1.25.0 — SAR 1:1 고정', /setsar=1,null\[vout\]/.test(graphRs));
+check('v1.25.0 — 새 커맨드(video_silence·video_save_png) 등록', [
+  'video_silence', 'video_save_png',
+].every((name) => appBuildRs.includes(`"${name}"`) && lib.includes(`video::${name}`)
+  && capJson.permissions.includes(`allow-${name.replace(/_/g, '-')}`)));
+check('v1.25.0 — silencedetect 파싱', /silencedetect=noise=\{noise:\.0\}dB:d=\{minimum:\.2\}/.test(videoRs)
+  && /silence_start: /.test(videoRs) && /silence_end: /.test(videoRs));
+check('v1.25.0 — 스틸컷 PNG 저장(저장 창·임시 파일)', /fn video_save_png/.test(videoRs)
+  && /fn save_png_panel/.test(videoRs) && /fn decode_png/.test(graphRs));
+
+// ⑤ 문서·검사
+check('v1.25.0 — README 기능·버전', read('README.md').includes('| v1.25.0 |')
+  && read('README.md').includes('무음 구간 자동 컷') && read('README.md').includes('프리즈 프레임')
+  && read('README.md').includes('부분 모자이크'));
+check('v1.25.0 — settings-e2e 가 새 기능을 본다', /v1\.25\.0 — 모자이크 블록/.test(settingsE2e)
+  && /v1\.25\.0 — 스티커 블록/.test(settingsE2e) && /v1\.25\.0 — W 로 뒷부분 자르기/.test(settingsE2e)
+  && /v1\.25\.0 — 무음 일괄 자르기/.test(settingsE2e) && /v1\.25\.0 — spec 모자이크·스티커/.test(settingsE2e));
+check('v1.25.0 — 필터 그래프 검증 도구', exists('tools/video-graph-test.mjs') && exists('tools/ve-graph-test/Cargo.toml')
+  && read('tools/video-graph-test.mjs').includes('video_graph.rs'));
 
 /* ------------------------------ 결과 ------------------------------ */
 

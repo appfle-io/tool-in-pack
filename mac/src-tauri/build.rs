@@ -136,6 +136,9 @@ const APP_COMMANDS: &[&str] = &[
     "video_transcribe",
     "video_cancel_transcribe",
     "video_project_media",
+    // v1.25.0 — 무음 구간 찾기 · 스틸컷/프리즈 프레임 PNG
+    "video_silence",
+    "video_save_png",
 ];
 
 fn main() {

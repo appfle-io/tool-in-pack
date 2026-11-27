@@ -88,6 +88,8 @@
     "allow-video-transcribe",
     "allow-video-cancel-transcribe",
     "allow-video-project-media",
+    "allow-video-silence",
+    "allow-video-save-png",
     "allow-set-search-shortcut",
     "allow-get-search-shortcut",
     "allow-set-module-shortcuts",

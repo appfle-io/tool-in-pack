@@ -1,5 +1,5 @@
 /**
- * TIP · 영상 편집 모델 (v1.24.0)
+ * TIP · 영상 편집 모델 (v1.25.0)
  *
  * 화면(module.js)과 계산을 나눠 둔다 — 타임라인 배치·전환 겹침·시간 계산이 한곳에 모여야
  * 미리보기와 내보내기의 시각이 어긋나지 않는다.
@@ -12,6 +12,10 @@
  *
  * v1.24.0 — 오버레이(PIP) 트랙 · 클립 줌/팬 · 자막 프리셋·등장 애니메이션 · 자석 스냅 ·
  *           프로젝트 복제를 여기에 모아 두었다(화면과 내보내기가 같은 값을 쓴다).
+ * v1.25.0 — 맞춤/채움/블러 배경 · 회전·반전 · 무음(음소거) · 역재생 · 색감 세부 보정(색온도·
+ *           선명도·비네트) · 오디오 노이즈 제거·음성 변조 · 자막 정렬·줄간격 · 부분 모자이크·
+ *           블러 영역 · 도형/말풍선/이모지 스티커 · 무음 구간 자동 컷을 더했다. 화면과
+ *           ffmpeg 내보내기가 같은 값을 쓰도록 계산은 모두 이 파일에 둔다.
  */
 
 /** 전환이 없는 경계에 쓰는 겹침 — 한 프레임 남짓(내보내기의 xfade 와 같은 값). */
@@ -22,6 +26,12 @@ export const FRAME_STEP = 1 / 30;
 
 /** 자석 스냅이 붙는 거리(화면 픽셀). */
 export const SNAP_PIXELS = 8;
+
+/** 화면 가운데 자석 스냅 거리(미리보기 픽셀) — 자막·PIP·모자이크·스티커를 끌 때. */
+export const CENTER_SNAP_PIXELS = 6;
+
+/** 쇼츠/릴스 안전영역 — 플랫폼 UI 가 가리는 비율(세로 영상 기준). */
+export const SAFE_AREA = { top: 0.13, bottom: 0.2, right: 0.15, label: '쇼츠 안전영역' };
 
 export const ASPECTS = [
   { id: '16:9', label: '16:9', value: 16 / 9 },
@@ -81,6 +91,75 @@ export const TRANSITIONS = [
 
 export function transitionById(id) {
   return TRANSITIONS.find((item) => item.id === id) || TRANSITIONS[0];
+}
+
+/** 화면 맞춤 — 검정 여백(Fit) · 잘라서 채움(Fill) · 블러 배경. */
+export const FIT_MODES = [
+  { id: 'fit', label: '맞춤 (여백 검정)' },
+  { id: 'fill', label: '채움 (잘라서 가득)' },
+  { id: 'blur', label: '블러 배경' },
+];
+
+export function fitById(id) {
+  return FIT_MODES.find((item) => item.id === id) || FIT_MODES[0];
+}
+
+/** 회전 — 90° 단위 프리셋과 미세 회전(-180~180)을 함께 쓴다. */
+export const ROTATIONS = [0, 90, 180, 270];
+export const ROTATE_FREE_MIN = -180;
+export const ROTATE_FREE_MAX = 180;
+
+/** 색감 세부 보정 기본값 — 배율은 1이 원본, 색온도·선명도·비네트는 0이 원본. */
+export const COLOR_DEFAULTS = { brightness: 1, contrast: 1, saturation: 1, temperature: 0, sharpen: 0, vignette: 0 };
+
+/** 오디오 노이즈 제거 — 미리보기(Web Audio highpass/lowpass)와 내보내기(afftdn)가 같은 단계. */
+export const DENOISE_LEVELS = [
+  { id: 'off', label: '끄기', strength: 0, nr: 0 },
+  { id: 'light', label: '약하게', strength: 0.4, nr: 12 },
+  { id: 'strong', label: '강하게', strength: 0.85, nr: 24 },
+];
+
+export function denoiseById(id) {
+  return DENOISE_LEVELS.find((item) => item.id === id) || DENOISE_LEVELS[0];
+}
+
+/** 음성 변조 — 미리보기는 Web Audio(재생 속도·딜레이·진동), 내보내기는 ffmpeg 필터. */
+export const VOICE_PRESETS = [
+  { id: 'original', label: '원본', pitch: 1, filter: '' },
+  { id: 'helium', label: '고음 (헬륨)', pitch: 1.28, filter: 'asetrate=48000*1.28,aresample=48000,atempo=0.7813' },
+  { id: 'deep', label: '저음', pitch: 0.82, filter: 'asetrate=48000*0.82,aresample=48000,atempo=1.2195' },
+  { id: 'robot', label: '로봇', pitch: 1, filter: 'tremolo=f=32:d=0.92' },
+  { id: 'echo', label: '에코', pitch: 1, filter: 'aecho=0.8:0.9:60|120:0.38|0.24' },
+];
+
+export function voiceById(id) {
+  return VOICE_PRESETS.find((item) => item.id === id) || VOICE_PRESETS[0];
+}
+
+/** 부분 모자이크/블러 영역 — 시간 구간과 사각형·원형 모양, 세기. */
+export const MASK_KINDS = [
+  { id: 'mosaic', label: '모자이크' },
+  { id: 'blur', label: '가우시안 블러' },
+];
+
+export const MASK_SHAPES = [
+  { id: 'rect', label: '사각형' },
+  { id: 'ellipse', label: '원형' },
+];
+
+/** 도형·말풍선·이모지 스티커 — 내보내기는 화면(Canvas)에서 그린 PNG 를 얹는다. */
+export const SHAPE_KINDS = [
+  { id: 'arrow', label: '화살표' },
+  { id: 'rect', label: '사각형 강조' },
+  { id: 'ellipse', label: '원형 강조' },
+  { id: 'bubble', label: '말풍선' },
+  { id: 'emoji', label: '이모지 스티커' },
+];
+
+export const SHAPE_EMOJIS = ['👉', '🔥', '⭐', '❤️', '😂', '✅', '❗', '🎉'];
+
+export function shapeKindById(id) {
+  return SHAPE_KINDS.find((item) => item.id === id) || SHAPE_KINDS[0];
 }
 
 /** 필터 프리셋 — 밝기(0.5~1.5) · 대비(0.5~1.5) · 채도(0~2) 배율. */
@@ -219,7 +298,49 @@ export function createProject() {
     subtitles: [],
     audios: [],
     overlays: [],
+    masks: [],
+    shapes: [],
   };
+}
+
+/** 부분 모자이크/블러 기본값 — 플레이헤드 위치에 30%×20% 크기로. */
+export function createMask(kind, start, end) {
+  return {
+    id: newId('mask'),
+    kind: kind === 'blur' ? 'blur' : 'mosaic',
+    shape: 'rect',
+    x: 0.5,
+    y: 0.5,
+    w: 0.3,
+    h: 0.2,
+    strength: 0.5,
+    start,
+    end,
+  };
+}
+
+/** 도형·말풍선·이모지 기본값 — x·y·w·h 는 화면 비율(0~1). */
+export function createShape(kind, start, end, text) {
+  const base = {
+    id: newId('shape'),
+    kind,
+    x: 0.5,
+    y: 0.45,
+    w: 0.22,
+    h: 0.16,
+    rotation: 0,
+    opacity: 1,
+    color: '#FFE24A',
+    stroke: 0.012,
+    text: text || '👉',
+    start,
+    end,
+  };
+  if (kind === 'arrow') { base.w = 0.24; base.h = 0.14; }
+  if (kind === 'rect' || kind === 'ellipse') { base.w = 0.3; base.h = 0.2; }
+  if (kind === 'bubble') { base.w = 0.34; base.h = 0.18; base.color = '#FFFFFF'; }
+  if (kind === 'emoji') { base.w = 0.16; base.h = 0.16; }
+  return base;
 }
 
 /** 자막 기본 스타일 — 1080p 기준 픽셀. 화면에서는 캔버스 높이에 맞춰 줄여 그린다. */
@@ -239,9 +360,41 @@ export function createSubtitle(text, start, end) {
     background: 0.35,
     preset: 'basic',
     animation: 'none',
+    align: 'center',
+    lineHeight: 1.28,
     x: 0.5,
     y: 0.82,
   };
+}
+
+/** 새 클립의 화면 설정 기본값 — 맞춤·회전·반전·음소거·역재생·색감·오디오 효과. */
+export function createClipLook() {
+  return {
+    fit: 'fit',
+    rotate: 0,
+    flipH: false,
+    flipV: false,
+    muted: false,
+    reverse: false,
+    denoise: 'off',
+    voice: 'original',
+    color: { ...COLOR_DEFAULTS },
+  };
+}
+
+/**
+ * 클립 안에서의 원본 시각 — 역재생이면 뒤에서부터 센다.
+ * 화면 미리보기와 ffmpeg(reverse)가 같은 프레임을 가리키게 하는 식이다.
+ */
+export function localTimeOf(clip, start, elapsed) {
+  const speed = clip.kind === 'image' ? 1 : Math.max(SPEED_MIN, Number(clip.speed) || 1);
+  const trimStart = Number(clip.trimStart) || 0;
+  const trimEnd = Number(clip.trimEnd) || trimStart;
+  const span = Math.max(0, (elapsed - (Number(start) || 0)) * speed);
+  if (clip.reverse && clip.kind !== 'image') {
+    return Math.max(trimStart, trimEnd - span);
+  }
+  return Math.min(trimEnd, trimStart + span);
 }
 
 /** 오버레이(PIP) 기본값 — x·y 는 화면 안 중심 비율, scale 은 출력 폭 대비 비율. */
@@ -393,11 +546,82 @@ export function friendlyDuration(seconds) {
   return rest ? `${minutes}분 ${rest}초` : `${minutes}분`;
 }
 
+/* ------------------------------ 무음 구간 자동 컷 ------------------------------ */
+
+/**
+ * 원본(소스) 시각의 무음 구간을 타임라인 시각으로 옮긴다.
+ * 클립의 자르기 구간 밖은 버리고, 배속이 있으면 그만큼 나눈다(내보내기의 atempo 와 같은 뜻).
+ */
+export function mapSilence(clip, item, silence) {
+  if (!clip || !item || !silence) return null;
+  const speed = clip.kind === 'image' ? 1 : Math.max(SPEED_MIN, Number(clip.speed) || 1);
+  const trimStart = Number(clip.trimStart) || 0;
+  const trimEnd = Number(clip.trimEnd) || trimStart;
+  const from = Math.max(trimStart, Math.min(trimEnd, Number(silence.start) || 0));
+  const to = Math.min(trimEnd, Math.max(trimStart, Number(silence.end) || 0));
+  if (to - from < 0.05) return null;
+  return {
+    start: (Number(item.start) || 0) + (from - trimStart) / speed,
+    end: (Number(item.start) || 0) + (to - trimStart) / speed,
+  };
+}
+
+/**
+ * 무음을 빼고 클립을 다시 만든다 — 잘라 낸 조각마다 trimStart/trimEnd 를 옮긴다.
+ * ranges 는 { [clipId]: [{ start, end }] } (타임라인 초). ⌘Z 한 번으로 되돌리도록 배열만 돌려준다.
+ */
+export function cutSilence(clips, ranges) {
+  const out = [];
+  let removed = 0;
+  let pieces = 0;
+  clips.forEach((clip, index) => {
+    const items = layout(clips);
+    const item = items[index];
+    const spans = (ranges[clip.id] || [])
+      .map((range) => ({
+        start: Math.max(item.start, Number(range.start) || 0),
+        end: Math.min(item.end, Number(range.end) || 0),
+      }))
+      .filter((range) => range.end - range.start > 0.02)
+      .sort((a, b) => a.start - b.start);
+    if (!spans.length) { out.push(clip); return; }
+
+    const speed = clip.kind === 'image' ? 1 : Math.max(SPEED_MIN, Number(clip.speed) || 1);
+    const trimStart = Number(clip.trimStart) || 0;
+    const keep = [];
+    let cursor = item.start;
+    spans.forEach((span) => {
+      if (span.start - cursor > 0.05) keep.push({ from: cursor, to: span.start });
+      cursor = Math.max(cursor, span.end);
+      removed += span.end - span.start;
+    });
+    if (item.end - cursor > 0.05) keep.push({ from: cursor, to: item.end });
+    if (!keep.length) { pieces += 1; return; }
+
+    keep.forEach((part, partIndex) => {
+      const piece = JSON.parse(JSON.stringify(clip));
+      if (partIndex > 0) piece.id = newId('clip');
+      piece.trimStart = trimStart + (part.from - item.start) * speed;
+      piece.trimEnd = trimStart + (part.to - item.start) * speed;
+      if (partIndex > 0) piece.transition = { kind: (clip.transition && clip.transition.kind) || 'fade', duration: 0 };
+      if (partIndex === 0) {
+        // 첫 조각만 원래 앞 경계의 전환을 그대로 쓴다.
+        piece.transition = clip.transition ? { ...clip.transition } : null;
+      }
+      out.push(piece);
+      pieces += 1;
+    });
+  });
+  return { clips: out, removed, pieces };
+}
+
 /* ------------------------------ 자막 스타일 ------------------------------ */
 
 /** 자막의 '스타일'만 뽑는다 — 복사·붙여넣기와 일괄 적용이 글자·시간은 건드리지 않게. */
 export function subtitleStyle(subtitle) {
   return {
+    align: subtitle.align || 'center',
+    lineHeight: Number(subtitle.lineHeight) || 1.28,
     font: subtitle.font,
     fontFile: subtitle.fontFile || null,
     fontLabel: subtitle.fontLabel || fontById(subtitle.font).label,
@@ -416,6 +640,8 @@ export function subtitleStyle(subtitle) {
  * 스타일을 자막에 입힌다. 위치 x 는 자막마다 다를 수 있어 그대로 둔다(요청: y 까지 일괄).
  */
 export function applySubtitleStyle(subtitle, style) {
+  subtitle.align = style.align || subtitle.align || 'center';
+  subtitle.lineHeight = Number(style.lineHeight) || Number(subtitle.lineHeight) || 1.28;
   subtitle.font = style.font;
   subtitle.fontFile = style.fontFile || null;
   subtitle.fontLabel = style.fontLabel || fontById(style.font).label;
@@ -495,6 +721,13 @@ export function clipFormat(clip) {
       contrast: Number(clip.filter && clip.filter.contrast) || 1,
       saturation: clip.filter && clip.filter.saturation === undefined ? 1 : Number(clip.filter.saturation),
     },
+    color: JSON.parse(JSON.stringify({ ...COLOR_DEFAULTS, ...(clip.color || {}) })),
+    fit: clip.fit || 'fit',
+    rotate: Number(clip.rotate) || 0,
+    flipH: !!clip.flipH,
+    flipV: !!clip.flipV,
+    denoise: clip.denoise || 'off',
+    voice: clip.voice || 'original',
     motion: JSON.parse(JSON.stringify(clip.motion || createMotion())),
   };
 }
@@ -505,6 +738,13 @@ export function applyClipFormat(clip, format) {
   clip.fadeIn = format.fadeIn;
   clip.fadeOut = format.fadeOut;
   clip.filter = { ...format.filter };
+  clip.color = JSON.parse(JSON.stringify({ ...COLOR_DEFAULTS, ...(format.color || {}) }));
+  clip.fit = format.fit || 'fit';
+  clip.rotate = Number(format.rotate) || 0;
+  clip.flipH = !!format.flipH;
+  clip.flipV = !!format.flipV;
+  clip.denoise = format.denoise || 'off';
+  clip.voice = format.voice || 'original';
   clip.motion = JSON.parse(JSON.stringify(format.motion));
   return clip;
 }
@@ -538,6 +778,18 @@ export function cloneOverlay(overlay, start) {
   return { ...clone(overlay), id: newId('ov'), start, end: start + span };
 }
 
+/** 모자이크/블러 영역 복제. */
+export function cloneMask(mask, start) {
+  const span = Math.max(0.2, Number(mask.end) - Number(mask.start));
+  return { ...clone(mask), id: newId('mask'), start, end: start + span };
+}
+
+/** 도형·스티커 복제. */
+export function cloneShape(shape, start) {
+  const span = Math.max(0.2, Number(shape.end) - Number(shape.start));
+  return { ...clone(shape), id: newId('shape'), start, end: start + span };
+}
+
 /* ------------------------------ 자석 스냅 ------------------------------ */
 
 /**
@@ -565,6 +817,16 @@ export function snapTargets(project, playhead, excludeId) {
     push(item.start + Number(item.duration || 0));
   });
   (project.overlays || []).forEach((item) => {
+    if (item.id === excludeId) return;
+    push(item.start);
+    push(item.end);
+  });
+  (project.masks || []).forEach((item) => {
+    if (item.id === excludeId) return;
+    push(item.start);
+    push(item.end);
+  });
+  (project.shapes || []).forEach((item) => {
     if (item.id === excludeId) return;
     push(item.start);
     push(item.end);
