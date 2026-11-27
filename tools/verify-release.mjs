@@ -1650,8 +1650,8 @@ check('video-editor 를 registry 에 등록', read('modules/registry.js').includ
 check('video-editor 카테고리 media', /id: 'video-editor',[\s\S]{0,160}category: 'media',/.test(veModule));
 check('영상 편집 5탭', ['미디어', '전환', '자막', '오디오', '필터']
   .every((label) => veModule.includes(`label: '${label}'`)) && /TAB_LABELS/.test(veModule));
-check('멀티 트랙 타임라인(비디오·자막·오디오)', /\['video', 'subtitle', 'audio'\]/.test(veModule)
-  && /ve-track-subtitle/.test(read('css/app.css')) && /ve-track-audio/.test(read('css/app.css')));
+check('멀티 트랙 타임라인(영상·오버레이·자막·오디오)', /\['video', 'overlay', 'subtitle', 'audio'\]/.test(veModule)
+  && /ve-track-subtitle/.test(read('css/app.css')) && /ve-track-overlay/.test(read('css/app.css')));
 check('클립 나누기·트림·순서 이동·삭제·되돌리기', /function splitAtPlayhead/.test(veModule)
   && /data-trim/.test(veModule) && /function deleteSelected/.test(veModule)
   && /undoStack/.test(veModule) && /redoStack/.test(veModule) && /project\.clips\.splice\(target, 0/.test(veModule));
@@ -1746,6 +1746,131 @@ check('README 영상 편집 안내', read('README.md').includes('### 35) 영상 
 check('README 편집 엔진 출처·해시 안내', read('README.md').includes('ffmpeg-static') && read('README.md').includes('SHA-256'));
 check('sw.js 프리캐시(영상 편집)', read('sw.js').includes("'./modules/video-editor/module.js'")
   && read('sw.js').includes("'./modules/video-editor/model.js'"));
+
+/* ==================================================================
+   v1.24.0 — 영상 편집 고도화
+   자동 저장·이어서 편집 · 로컬 Whisper 자동 자막 · 오버레이(PIP) · 클립 줌/팬 ·
+   자막 프리셋·등장 애니메이션 · 복사·붙여넣기·복제 · 일괄 적용 · 자석 스냅 · 1프레임 이동
+   ================================================================== */
+
+const veCss = read('css/app.css');
+const capJson = JSON.parse(read('mac/src-tauri/capabilities/default.json'));
+const appBuildRs = read('mac/src-tauri/build.rs');
+
+// ① 자동 저장 & 이어서 편집 & 프로젝트 파일
+check('v1.24.0 — IndexedDB 자동 저장(0.7초)', /DB_NAME = 'tip-video-editor'/.test(veModule)
+  && /indexedDB\.open/.test(veModule) && /function scheduleSave/.test(veModule) && /\}, 700\)/.test(veModule));
+check('v1.24.0 — 이어서 편집 / 새로 시작 물음', /async function offerResume/.test(veModule)
+  && veModule.includes("'이어서 편집'") && veModule.includes("'새로 시작'"));
+check('v1.24.0 — .tipproj 프로젝트 저장·열기', /function saveProjectFile/.test(veModule)
+  && /function openProjectFile/.test(veModule) && /\.tipproj/.test(veModule)
+  && /save_backup_file/.test(veModule) && /open_backup_file/.test(veModule));
+check('v1.24.0 — 프로젝트 경로 재허용(확장자 검사)', /fn video_project_media/.test(videoRs)
+  && /fn has_media_extension/.test(videoRs) && /video_project_media/.test(lib));
+check('v1.24.0 — 웹은 다시 연결 안내', /function relinkMedia/.test(veModule) && /function missingNotice/.test(veModule));
+
+// ② 로컬 Whisper 자동 자막
+check('v1.24.0 — whisper 자산 2종 SHA-256 64자리', ['WHISPER_ARM64', 'WHISPER_X64'].every((name) => {
+  const at = videoRs.indexOf(name);
+  return at > 0 && /"[0-9a-f]{64}"/.test(videoRs.slice(at, at + 300));
+}));
+check('v1.24.0 — ggml 모델 해시·크기 고정', /60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe/.test(videoRs)
+  && /MODEL_BYTES: u64 = 147_951_465/.test(videoRs));
+check('v1.24.0 — 해시가 다르면 저장하지 않는다(whisper·모델)', /내려받은 자동 자막 엔진의 해시가 다릅니다/.test(videoRs)
+  && /모델의 해시가 다릅니다/.test(videoRs) && /모델 크기가 다릅니다/.test(videoRs));
+check('v1.24.0 — whisper-cli 실행 옵션(-oj·--print-progress·-l)', /whisper-cli/.test(videoRs)
+  && /"-oj"/.test(videoRs) && /--print-progress/.test(videoRs) && /command\.arg\("-l"\)/.test(videoRs));
+check('v1.24.0 — 자동 자막 진행률 이벤트', /tip:\/\/video-whisper-progress/.test(videoRs)
+  && /tip:\/\/video-whisper-progress/.test(veModule) && /fn fetch_asset/.test(videoRs));
+check('v1.24.0 — 16kHz 모노 WAV 추출(내보내기와 같은 겹침)', /fn build_speech_wav/.test(videoRs)
+  && /pcm_s16le/.test(videoRs) && /channel_layouts=mono/.test(videoRs) && /acrossfade=d=/.test(videoRs));
+check('v1.24.0 — 받아 적은 구간을 자막으로 삽입', /function whisperDialog/.test(veModule)
+  && /video_transcribe/.test(veModule) && /segments\.map/.test(veModule));
+check('v1.24.0 — 웹은 자동 자막 Mac 전용 안내', /자동 자막은 Mac 앱에서 됩니다/.test(veModule));
+check('v1.24.0 — 자동 자막 취소', /video_cancel_transcribe/.test(videoRs) && /video_cancel_transcribe/.test(veModule)
+  && /TRANSCRIBE_CANCEL/.test(videoRs));
+check('v1.24.0 — 새 커맨드 등록(build.rs·capabilities·invoke_handler)', [
+  'video_whisper_status', 'video_whisper_download', 'video_transcribe', 'video_cancel_transcribe', 'video_project_media',
+].every((name) => appBuildRs.includes(`"${name}"`)
+  && lib.includes(`video::${name}`)
+  && capJson.permissions.includes(`allow-${name.replace(/_/g, '-')}`)));
+
+// ③ 오버레이(PIP) · 줌/팬
+check('v1.24.0 — 오버레이 트랙과 블록', /if \(kind === 'overlay'\)/.test(veModule)
+  && /\.ve-track-overlay \{/.test(veCss) && /\.ve-overlay-block \{/.test(veCss));
+check('v1.24.0 — 오버레이 내보내기(overlay 필터·불투명도)', /overlay=x='W\*/.test(videoRs)
+  && /eof_action=pass/.test(videoRs) && /colorchannelmixer=aa=/.test(videoRs) && /struct ExportOverlay/.test(videoRs));
+check('v1.24.0 — 미리보기에서 오버레이 끌기', /let overlayDrag = null/.test(veModule)
+  && /overlayBoxes\.find/.test(veModule) && /function drawOverlay/.test(veModule));
+check('v1.24.0 — 클립 줌/팬 프리셋 5종', ['줌인', '줌아웃', '좌→우 팬', '우→좌 팬', '직접 설정']
+  .every((label) => veModel.includes(`label: '${label}'`)) && /export const MOTIONS/.test(veModel));
+check('v1.24.0 — 줌/팬 내보내기(zoompan·중심 식)', /zoompan=z='/.test(videoRs)
+  && /\(iw\/zoom\)\/2/.test(videoRs) && /struct ExportMotion/.test(videoRs)
+  && /motion: clip\.motion && clip\.motion\.kind/.test(veModule));
+check('v1.24.0 — 줌/팬 보간 함수', /export function motionAt/.test(veModel) && /function applyMotionPreset/.test(veModel));
+
+// ④ 자막 프리셋·애니메이션
+check('v1.24.0 — 자막 프리셋 5종', (() => {
+  const at = veModel.indexOf('export const SUBTITLE_PRESETS');
+  const block = veModel.slice(at, veModel.indexOf('];', at));
+  return (block.match(/id: '/g) || []).length === 5;
+})());
+check('v1.24.0 — 등장 애니메이션 4종', (() => {
+  const at = veModel.indexOf('export const SUBTITLE_ANIMATIONS');
+  const block = veModel.slice(at, veModel.indexOf('];', at));
+  return ['none', 'fade', 'pop', 'slideup'].every((id) => block.includes(`id: '${id}'`));
+})());
+check('v1.24.0 — drawtext 가 alpha·fontsize·y 로 애니메이션', /min\(1,max\(0,\(t-\{start/.test(videoRs)
+  && /alpha='\{expression\}'/.test(videoRs) && /fontsize='\{fontsize\}'/.test(videoRs)
+  && /0\.86\+0\.14\*min\(1,max\(0,\(t-\{start/.test(videoRs) && /\*max\(0,1-\(t-\{start/.test(videoRs));
+check('v1.24.0 — 애니메이션 값을 내보내기 spec 에 싣는다', /animation: subtitle\.animation \|\| 'none'/.test(veModule)
+  && /pub animation: String/.test(videoRs));
+
+// ⑤ 복사·붙여넣기·복제(자막·클립·오디오·오버레이)
+check('v1.24.0 — ⌘C/⌘V 복사·붙여넣기', /function copySelected/.test(veModule)
+  && /function pasteClipboard/.test(veModule) && /event\.key\.toLowerCase\(\) === 'c'/.test(veModule)
+  && /event\.key\.toLowerCase\(\) === 'v'/.test(veModule));
+check('v1.24.0 — 입력칸에서는 평소 복붙', /const typing = target instanceof HTMLElement/.test(veModule)
+  && /if \(typing\) return;/.test(veModule));
+check('v1.24.0 — 붙여넣기 자리(플레이헤드·겹치면 뒤로)', /function pasteAt/.test(veModule)
+  && /freeSpan\(items, Math\.max\(0, state\.playhead\)/.test(veModule));
+check('v1.24.0 — 클립은 고른 클립 바로 뒤', /findIndex\(\(item\) => item\.id === state\.selected\.id\) \+ 1/.test(veModule)
+  && /project\.clips\.splice\(Math\.max\(0, at\), 0, clip\)/.test(veModule));
+check('v1.24.0 — 복제 버튼 4종·⌘D', /'자막 복제'/.test(veModule) && /'클립 복제'/.test(veModule)
+  && /'오디오 복제'/.test(veModule) && /'오버레이 복제'/.test(veModule)
+  && /function duplicateSelected/.test(veModule) && /event\.key\.toLowerCase\(\) === 'd'/.test(veModule));
+check('v1.24.0 — 복제 도우미(자막·클립·오디오·오버레이)', ['cloneSubtitle', 'cloneClip', 'cloneAudio', 'cloneOverlay']
+  .every((name) => new RegExp(`export function ${name}`).test(veModel) && veModule.includes(name)));
+
+// ⑥ 일괄 적용
+check('v1.24.0 — 모든 자막에 적용(스타일만)', /function applySubtitleToAll/.test(veModule)
+  && /'모든 자막에 적용'/.test(veModule) && /function applySubtitleStyle/.test(veModel)
+  && /export function subtitleStyle/.test(veModel));
+check('v1.24.0 — 모든 클립에 적용(포맷만)', /function applyClipToAll/.test(veModule)
+  && /'모든 클립에 적용'/.test(veModule) && /export function clipFormat/.test(veModel)
+  && /export function applyClipFormat/.test(veModel));
+check('v1.24.0 — 일괄 적용도 ⌘Z 한 번에', /function applySubtitleToAll\(\)[\s\S]{0,700}commit\(\)/.test(veModule)
+  && /function applyClipToAll\(\)[\s\S]{0,700}commit\(\)/.test(veModule));
+
+// ⑦ 자석 스냅 · 1프레임 이동
+check('v1.24.0 — 자석 스냅 8px·가이드선', /SNAP_PIXELS = 8/.test(veModel) && /export function snapTime/.test(veModel)
+  && /export function snapRange/.test(veModel) && /export function snapTargets/.test(veModel)
+  && /\.ve-snap-guide \{/.test(veCss) && /function showSnapGuide/.test(veModule));
+check('v1.24.0 — 스냅 켜고 끄기 버튼', /'aria-label': '자석 스냅'/.test(veModule) && /state\.snap = !state\.snap/.test(veModule));
+check('v1.24.0 — 스냅은 자막·오버레이·오디오에', /snapCandidates\('subtitle'/.test(veModule)
+  && /snapCandidates\('overlay'/.test(veModule) && /snapCandidates\('audio'/.test(veModule));
+check('v1.24.0 — 끌어 옮긴 것도 ⌘Z', /처음 움직이는 순간의 모습을 남긴다/.test(veModule) && /window.addEventListener\('pointermove'/.test(veModule));
+check('v1.24.0 — ←/→ 1프레임·Shift 0.5초', /FRAME_STEP = 1 \/ 30/.test(veModel)
+  && /event\.shiftKey \? 0\.5 : FRAME_STEP/.test(veModule) && /1프레임 이동/.test(veModule)
+  && /0\.5초 이동/.test(veModule));
+
+// ⑧ 버그 수정·문서
+check('v1.24.0 — 웹 상단 안내 띠 버그 수정', /async function loadEngine\(\) \{[\s\S]{0,220}engineNotice\(\);/.test(veModule));
+check('v1.24.0 — README 안내', read('README.md').includes('| v1.24.0 |')
+  && read('README.md').includes('.tipproj') && read('README.md').includes('자동 자막'));
+check('v1.24.0 — settings-e2e 가 새 기능을 본다', /v1\.24\.0 — 자막 복사·붙여넣기/.test(settingsE2e)
+  && /v1\.24\.0 — 모든 자막에 적용/.test(settingsE2e) && /v1\.24\.0 — 자석 스냅/.test(settingsE2e)
+  && /v1\.24\.0 — 1프레임 이동/.test(settingsE2e) && /v1\.24\.0 — 오버레이/.test(settingsE2e));
 
 /* ------------------------------ 결과 ------------------------------ */
 

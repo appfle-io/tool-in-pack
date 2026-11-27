@@ -130,6 +130,12 @@ const APP_COMMANDS: &[&str] = &[
     "video_extract_audio",
     "video_export",
     "video_cancel_export",
+    // v1.24.0 — 자동 자막(whisper.cpp)·프로젝트 파일로 되살린 원본 경로
+    "video_whisper_status",
+    "video_whisper_download",
+    "video_transcribe",
+    "video_cancel_transcribe",
+    "video_project_media",
 ];
 
 fn main() {

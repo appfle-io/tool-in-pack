@@ -225,6 +225,25 @@ const MOCK = `
     video_reveal: null,
     video_extract_audio: '/tmp/clip-audio-1.m4a',
     video_cancel_export: null,
+    // v1.24.0 — 자동 자막(whisper) · 프로젝트 파일로 되살린 경로
+    video_whisper_status: {
+      available: true, binary: '/tmp/tip/bin/whisper-cli', model: 'ggml-base.bin',
+      modelSize: 147951465, binaryDir: '/tmp/tip/bin', downloadSize: null, message: null,
+    },
+    video_whisper_download: {
+      available: true, binary: '/tmp/tip/bin/whisper-cli', model: 'ggml-base.bin',
+      modelSize: 147951465, binaryDir: '/tmp/tip/bin', downloadSize: null, message: null,
+    },
+    video_transcribe: {
+      model: 'ggml-base.bin',
+      seconds: 3.2,
+      segments: [
+        { start: 0.4, end: 2.2, text: '안녕하세요 자동 자막입니다' },
+        { start: 2.6, end: 4.4, text: '두 번째 문장입니다' },
+      ],
+    },
+    video_cancel_transcribe: null,
+    video_project_media: [{ path: '/tmp/tip-sample.mp4', name: 'tip-sample.mp4', kind: 'video', size: 1048576 }],
     open_clipboard: null,
     hide_clipboard: null,
   };
@@ -3544,6 +3563,133 @@ check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes
   check('v1.23.0 — 자막 속성(글꼴·크기·색)', (await ve.locator('.ve-props-body').textContent()).includes('글꼴')
     && (await ve.locator('.ve-props-body').textContent()).includes('외곽선'));
 
+  /* v1.24.0 — 복사·붙여넣기 · 복제 · 일괄 적용 · 오버레이 · 스냅 · 1프레임 이동 */
+  const subBlocks = () => ve.locator('.ve-sub-block').count();
+  await ve.locator('.ve-sub-block').first().click({ position: { x: 40, y: 8 } });
+  await ve.waitForTimeout(200);
+  await ve.keyboard.press('Meta+c');
+  await ve.keyboard.press('Meta+v');
+  await ve.waitForTimeout(300);
+  check('v1.24.0 — 자막 복사·붙여넣기', await subBlocks() === 2, String(await subBlocks()));
+  check('v1.24.0 — 붙여넣은 자막이 선택된다', (await ve.locator('.ve-props-body').textContent()).includes('모든 자막에 적용'));
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(300);
+  check('v1.24.0 — 붙여넣기 ⌘Z 되돌리기', await subBlocks() === 1, String(await subBlocks()));
+
+  await ve.locator('.ve-sub-block').first().click({ position: { x: 40, y: 8 } });
+  await ve.waitForTimeout(200);
+  await ve.click('.ve-props-body .ve-btn:has-text("자막 복제")');
+  await ve.waitForTimeout(300);
+  check('v1.24.0 — 자막 복제 버튼', await subBlocks() === 2, String(await subBlocks()));
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(300);
+  check('v1.24.0 — 복제도 ⌘Z 한 번에', await subBlocks() === 1, String(await subBlocks()));
+
+  // 클립 복제·복사: 고른 클립 바로 뒤에 같은 모양으로 붙는다.
+  const clipsBeforeCopy = await ve.locator('.ve-clip').count();
+  await ve.locator('.ve-clip').first().click();
+  await ve.waitForTimeout(200);
+  await ve.keyboard.press('Meta+c');
+  await ve.keyboard.press('Meta+v');
+  await ve.waitForTimeout(300);
+  check('v1.24.0 — 클립 복사·붙여넣기', await ve.locator('.ve-clip').count() === clipsBeforeCopy + 1,
+    String(await ve.locator('.ve-clip').count()));
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(300);
+  check('v1.24.0 — 클립 붙여넣기 되돌리기', await ve.locator('.ve-clip').count() === clipsBeforeCopy);
+
+  // 모든 자막에 적용 — 둘째 자막을 만든 뒤 첫 자막 스타일을 일괄로.
+  // 다른 자막과 겹치지 않게 플레이헤드를 처음으로 되돌린 뒤 둘째 자막을 만든다.
+  await ve.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
+  await ve.keyboard.press('Home');
+  await ve.waitForTimeout(250);
+  await ve.fill('.ve-tab-body .ve-textarea', '둘째 자막');
+  await ve.click('.ve-tab-body .ve-btn-primary');
+  await ve.waitForTimeout(300);
+  check('v1.24.0 — 자막 두 개', await subBlocks() === 2, String(await subBlocks()));
+  await ve.locator('.ve-sub-block').first().click({ position: { x: 40, y: 8 } });
+  await ve.waitForTimeout(200);
+  await ve.selectOption('[aria-label="자막 프리셋"]', 'variety');
+  await ve.waitForTimeout(250);
+  await ve.click('.ve-props-body .ve-btn:has-text("모든 자막에 적용")');
+  await ve.waitForTimeout(300);
+  await ve.locator('.ve-sub-block').nth(1).click();
+  await ve.waitForTimeout(250);
+  check('v1.24.0 — 모든 자막에 적용', await ve.locator('[aria-label="자막 프리셋"]').inputValue() === 'variety',
+    await ve.locator('[aria-label="자막 프리셋"]').inputValue());
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(250);
+  await ve.locator('.ve-sub-block').nth(1).click();
+  await ve.waitForTimeout(150);
+  await ve.keyboard.press('Backspace');
+  await ve.waitForTimeout(250);
+  check('v1.24.0 — 둘째 자막 정리', await subBlocks() === 1, String(await subBlocks()));
+
+  // 오버레이(PIP) — 미디어 목록의 PIP 로 얹는다.
+  await ve.click('.ve-tab:nth-child(1)');
+  await ve.waitForTimeout(200);
+  await ve.click('.ve-media-row .ve-mini-btn:has-text("PIP")');
+  await ve.waitForTimeout(300);
+  check('v1.24.0 — 오버레이(PIP) 블록', await ve.locator('.ve-overlay-block').count() === 1,
+    String(await ve.locator('.ve-overlay-block').count()));
+  check('v1.24.0 — 오버레이 트랙', await ve.locator('.ve-track-overlay').count() === 1);
+  check('v1.24.0 — 오버레이 속성(크기·불투명도)', (await ve.locator('.ve-props-body').textContent()).includes('불투명도')
+    && (await ve.locator('.ve-props-body').textContent()).includes('가로 위치'));
+  await ve.click('.ve-props-body .ve-btn:has-text("오버레이 복제")');
+  await ve.waitForTimeout(300);
+  check('v1.24.0 — 오버레이 복제', await ve.locator('.ve-overlay-block').count() === 2,
+    String(await ve.locator('.ve-overlay-block').count()));
+  await ve.keyboard.press('Meta+z');
+  await ve.waitForTimeout(300);
+
+  // 자석 스냅 — 클립 경계에서 0.05초 어긋난 자리로 끌면 그 경계에 딱 붙는다.
+  const snapState = await ve.evaluate(() => document.querySelector('[aria-label="자석 스냅"]').getAttribute('aria-pressed'));
+  await ve.click('[aria-label="자석 스냅"]');
+  check('v1.24.0 — 스냅 끄기 토글', await ve.locator('[aria-label="자석 스냅"]').getAttribute('aria-pressed') === 'false', String(snapState));
+  await ve.click('[aria-label="자석 스냅"]');
+  check('v1.24.0 — 스냅 다시 켜기', await ve.locator('[aria-label="자석 스냅"]').getAttribute('aria-pressed') === 'true');
+
+  const clipInfo = await ve.locator('.ve-clip').nth(1).evaluate((node) => ({
+    start: Number(node.dataset.start), width: parseFloat(node.style.width),
+  }));
+  const subInfo = await ve.locator('.ve-sub-block').first().evaluate((node) => ({
+    start: Number(node.dataset.start), width: parseFloat(node.style.width), left: parseFloat(node.style.left),
+  }));
+  const zoom = subInfo.width / 3;
+  const target = clipInfo.start;
+  await ve.locator('.ve-sub-block').first().scrollIntoViewIfNeeded();
+  await ve.waitForTimeout(150);
+  await ve.locator('.ve-sub-block').first().hover();
+  await ve.waitForTimeout(100);
+  const box = await ve.locator('.ve-sub-block').first().boundingBox();
+  const dx = (target + 0.05 - subInfo.start) * zoom;
+  await ve.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await ve.mouse.down();
+  await ve.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2, { steps: 12 });
+  await ve.mouse.up();
+  await ve.waitForTimeout(300);
+  const snapped = Number(await ve.locator('.ve-sub-block').first().getAttribute('data-start'));
+  check('v1.24.0 — 자석 스냅이 클립 경계에 붙인다', Math.abs(snapped - target) < 0.001, `${snapped} vs ${target}`);
+  if (Math.abs(snapped - subInfo.start) > 0.001) {
+    await ve.keyboard.press('Meta+z');
+    await ve.waitForTimeout(250);
+  }
+
+  // 1프레임 이동 — ←/→ 는 1/30초, Shift 를 누르면 0.5초.
+  const seconds = async () => Number(await ve.locator('.ve-playhead').getAttribute('data-seconds'));
+  const t0 = await seconds();
+  await ve.keyboard.press('ArrowRight');
+  await ve.waitForTimeout(200);
+  const t1 = await seconds();
+  check('v1.24.0 — 1프레임 이동(←→)', Math.abs((t1 - t0) - 1 / 30) < 0.006, `${t0} → ${t1}`);
+  await ve.keyboard.press('Shift+ArrowRight');
+  await ve.waitForTimeout(200);
+  const t2 = await seconds();
+  check('v1.24.0 — Shift+→ 0.5초 이동', Math.abs((t2 - t1) - 0.5) < 0.006, `${t1} → ${t2}`);
+  await ve.keyboard.press('ArrowLeft');
+  await ve.waitForTimeout(150);
+  check('v1.24.0 — ← 되돌아가기', Math.abs((await seconds()) - t2 + 1 / 30) < 0.006);
+
   // 플레이헤드를 두 번째 클립 안쪽으로 옮기고 나누기
   const trackBox = await ve.locator('.ve-track-video').boundingBox();
   await ve.mouse.click(trackBox.x + 220, trackBox.y + 30);
@@ -3588,17 +3734,65 @@ check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes
     check('v1.23.0 — spec 자막·전환', spec.subtitles.length === 1 && spec.subtitles[0].text === '첫 자막입니다'
       && spec.clips.some((clip) => clip.transition && clip.transition.duration > 0),
       JSON.stringify(spec.subtitles.length));
+    check('v1.24.0 — spec 오버레이·자막 애니메이션', Array.isArray(spec.overlays) && spec.overlays.length === 1
+      && spec.overlays[0].scale > 0 && spec.overlays[0].opacity === 1
+      && typeof spec.subtitles[0].animation === 'string',
+      JSON.stringify(spec.overlays && spec.overlays[0]));
+    check('v1.24.0 — spec 줌/팬 칸', spec.clips.every((clip) => clip.motion === null || typeof clip.motion === 'object'));
   }
   check('v1.23.0 — 저장했으면 진행률 100%', (await ve.locator('.ve-modal .ve-progress span').evaluate((node) => node.style.width)) === '100%');
   await ve.keyboard.press('Escape');
   await ve.waitForTimeout(200);
   check('v1.23.0 — Esc 로 내보내기 창 닫기', await ve.locator('.ve-modal').count() === 0);
+
+  /* v1.24.0 — 자동 자막(whisper) · 프로젝트 파일 · 이어서 편집 */
+  await ve.click('.ve-tab:nth-child(3)');
+  await ve.waitForTimeout(200);
+  await ve.click('.ve-tab-body .ve-btn:has-text("음성으로 자동 자막")');
+  await ve.waitForTimeout(300);
+  check('v1.24.0 — 자동 자막 창', await ve.locator('.ve-whisper').count() === 1);
+  check('v1.24.0 — 자동 자막 언어·범위', await ve.locator('.ve-whisper select').count() === 2,
+    String(await ve.locator('.ve-whisper select').count()));
+  const beforeWhisper = await subBlocks();
+  await ve.click('.ve-whisper .ve-modal-actions .ve-btn-primary');
+  await ve.waitForTimeout(700);
+  check('v1.24.0 — 받아 적은 자막 삽입', await subBlocks() === beforeWhisper + 2,
+    `${beforeWhisper} → ${await subBlocks()}`);
+  check('v1.24.0 — 자동 자막 결과 문구', (await ve.locator('.ve-whisper').textContent()).includes('자막 2개를 만들었습니다'));
+  const transcribeCall = await ve.evaluate(() => window.__TIP_CALLS__.find((call) => call.command === 'video_transcribe'));
+  check('v1.24.0 — 받아 적기 호출(ko·클립)', !!transcribeCall && transcribeCall.args.spec.language === 'ko'
+    && Array.isArray(transcribeCall.args.spec.clips) && transcribeCall.args.spec.clips.length >= 1,
+    JSON.stringify(transcribeCall && transcribeCall.args.spec.language));
+  await ve.click('.ve-whisper .ve-modal-actions .ve-btn-primary');
+  await ve.waitForTimeout(250);
+
+  await ve.evaluate(() => { window.__TIP_CALLS__.length = 0; });
+  await ve.click('.ve-tab:nth-child(1)');
+  await ve.waitForTimeout(200);
+  await ve.click('.ve-tab-body .ve-btn:has-text("프로젝트 저장")');
+  await ve.waitForTimeout(400);
+  const savedProject = await ve.evaluate(() => window.__TIP_CALLS__.find((call) => call.command === 'save_backup_file'));
+  check('v1.24.0 — 프로젝트 저장(.tipproj)', !!savedProject && /\.tipproj$/.test(savedProject.args.name)
+    && JSON.parse(savedProject.args.content).format === 'tip-video-project',
+    JSON.stringify(savedProject && savedProject.args.name));
+
+  // 자동 저장본이 남아 있으면 다시 열 때 이어서 편집을 묻는다.
+  await ve.waitForTimeout(1100);
+  await ve.reload({ waitUntil: 'networkidle' });
+  await ve.waitForTimeout(1400);
+  const resumeText = await ve.locator('.ve-modal').first().textContent().catch(() => '');
+  check('v1.24.0 — 다시 열면 이어서 편집을 묻는다', resumeText.includes('이어서 편집'), resumeText.slice(0, 40));
+  await ve.click('.ve-modal-actions .ve-btn-primary');
+  await ve.waitForTimeout(600);
+  check('v1.24.0 — 이어서 편집으로 타임라인 복원', await ve.locator('.ve-clip').count() >= 1
+    && await subBlocks() >= 1, `${await ve.locator('.ve-clip').count()} clips`);
+
   await veContext.close();
 }
 
 /* ------------------------------ 결과 ------------------------------ */
 
-const errors = consoleErrors.filter((line) => !/favicon|service worker|ERR_FILE/i.test(line));
+const errors = consoleErrors.filter((line) => !/favicon|service worker|ERR_FILE|no sw/i.test(line));
 check('콘솔 오류 없음', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();

@@ -1,5 +1,5 @@
 /**
- * TIP · 영상 편집 모델 (v1.23.0)
+ * TIP · 영상 편집 모델 (v1.24.0)
  *
  * 화면(module.js)과 계산을 나눠 둔다 — 타임라인 배치·전환 겹침·시간 계산이 한곳에 모여야
  * 미리보기와 내보내기의 시각이 어긋나지 않는다.
@@ -9,10 +9,19 @@
  *  · 전환이 없는 경계도 아주 짧은(0.04초) 페이드로 붙인다 — 내보내기의 xfade 가 모든 경계를
  *    같은 방식으로 처리하므로, 화면도 같은 값을 써야 자막 시각이 밀리지 않는다.
  *  · 길이는 모두 초(실수)다.
+ *
+ * v1.24.0 — 오버레이(PIP) 트랙 · 클립 줌/팬 · 자막 프리셋·등장 애니메이션 · 자석 스냅 ·
+ *           프로젝트 복제를 여기에 모아 두었다(화면과 내보내기가 같은 값을 쓴다).
  */
 
 /** 전환이 없는 경계에 쓰는 겹침 — 한 프레임 남짓(내보내기의 xfade 와 같은 값). */
 export const CUT = 0.04;
+
+/** 한 프레임(1/30초) — ←/→ 미세 이동과 스냅 판정에 쓴다. */
+export const FRAME_STEP = 1 / 30;
+
+/** 자석 스냅이 붙는 거리(화면 픽셀). */
+export const SNAP_PIXELS = 8;
 
 export const ASPECTS = [
   { id: '16:9', label: '16:9', value: 16 / 9 },
@@ -102,6 +111,100 @@ export function fontById(id) {
   return FONTS.find((item) => item.id === id) || FONTS[0];
 }
 
+/**
+ * 자막 스타일 프리셋 5종 — 원클릭으로 글꼴·크기·색·외곽선·배경·세로 위치·등장 애니메이션을
+ * 한꺼번에 바꾼다. 값은 1080p 기준 픽셀(미리보기는 캔버스 높이에 맞춰 줄여 그린다).
+ */
+export const SUBTITLE_PRESETS = [
+  {
+    id: 'basic', label: '기본',
+    size: 54, color: '#FFFFFF', outlineColor: '#000000', outlineWidth: 3,
+    background: 0.35, y: 0.82, animation: 'none', font: 'pretendard',
+  },
+  {
+    id: 'variety', label: '예능',
+    size: 62, color: '#FFE24A', outlineColor: '#141414', outlineWidth: 5,
+    background: 0, y: 0.76, animation: 'pop', font: 'pretendard',
+  },
+  {
+    id: 'shorts', label: '쇼츠 강조',
+    size: 72, color: '#FFFFFF', outlineColor: '#1A1A1A', outlineWidth: 6,
+    background: 0, y: 0.64, animation: 'pop', font: 'pretendard',
+  },
+  {
+    id: 'docu', label: '다큐',
+    size: 40, color: '#F2F2F2', outlineColor: '#000000', outlineWidth: 0,
+    background: 0.18, y: 0.9, animation: 'fade', font: 'pretendard',
+  },
+  {
+    id: 'neon', label: '네온',
+    size: 58, color: '#8BF7E4', outlineColor: '#0A3F44', outlineWidth: 6,
+    background: 0, y: 0.8, animation: 'fade', font: 'pretendard',
+  },
+];
+
+export function subtitlePresetById(id) {
+  return SUBTITLE_PRESETS.find((item) => item.id === id) || SUBTITLE_PRESETS[0];
+}
+
+/** 자막 등장 애니메이션 — 미리보기(Canvas)와 내보내기(drawtext alpha·y·fontsize)가 같은 값을 쓴다. */
+export const SUBTITLE_ANIMATIONS = [
+  { id: 'none', label: '없음' },
+  { id: 'fade', label: '페이드 인' },
+  { id: 'pop', label: '팝' },
+  { id: 'slideup', label: '아래서 위로' },
+];
+
+/** 애니메이션 길이(초) — 세 종류가 같은 값을 쓴다. */
+export const ANIMATION_SECONDS = 0.3;
+export const FADE_SECONDS = 0.25;
+
+/** 클립 줌/팬 — 프리셋을 고르면 시작·끝 배율과 중심점이 함께 채워진다. */
+export const MOTIONS = [
+  { id: 'none', label: '없음', startScale: 1, endScale: 1, startX: 0.5, startY: 0.5, endX: 0.5, endY: 0.5 },
+  { id: 'zoomin', label: '줌인', startScale: 1, endScale: 1.22, startX: 0.5, startY: 0.5, endX: 0.5, endY: 0.5 },
+  { id: 'zoomout', label: '줌아웃', startScale: 1.22, endScale: 1, startX: 0.5, startY: 0.5, endX: 0.5, endY: 0.5 },
+  { id: 'panright', label: '좌→우 팬', startScale: 1.18, endScale: 1.18, startX: 0.36, startY: 0.5, endX: 0.64, endY: 0.5 },
+  { id: 'panleft', label: '우→좌 팬', startScale: 1.18, endScale: 1.18, startX: 0.64, startY: 0.5, endX: 0.36, endY: 0.5 },
+  { id: 'custom', label: '직접 설정', startScale: 1, endScale: 1.1, startX: 0.5, startY: 0.5, endX: 0.5, endY: 0.5 },
+];
+
+export function motionById(id) {
+  return MOTIONS.find((item) => item.id === id) || MOTIONS[0];
+}
+
+/** 클립 기본 줌/팬 — 없음. */
+export function createMotion() {
+  return { kind: 'none', startScale: 1, endScale: 1, startX: 0.5, startY: 0.5, endX: 0.5, endY: 0.5 };
+}
+
+/** 프리셋을 클립 motion 에 채운다(값을 복사해 두어 내보내기가 그대로 쓸 수 있게). */
+export function applyMotionPreset(motion, id) {
+  const preset = motionById(id);
+  const next = {
+    kind: preset.id,
+    startScale: preset.startScale,
+    endScale: preset.endScale,
+    startX: preset.startX,
+    startY: preset.startY,
+    endX: preset.endX,
+    endY: preset.endY,
+  };
+  if (motion && typeof motion === 'object') Object.assign(motion, next);
+  return next;
+}
+
+/** 진행률(0~1)에서의 배율·중심 — 없음이면 그대로. */
+export function motionAt(motion, progress) {
+  const start = motion || createMotion();
+  if (!start.kind || start.kind === 'none') return { scale: 1, cx: 0.5, cy: 0.5 };
+  const t = Math.max(0, Math.min(1, Number(progress) || 0));
+  const scale = Number(start.startScale || 1) + (Number(start.endScale || 1) - Number(start.startScale || 1)) * t;
+  const cx = Number(start.startX ?? 0.5) + (Number(start.endX ?? 0.5) - Number(start.startX ?? 0.5)) * t;
+  const cy = Number(start.startY ?? 0.5) + (Number(start.endY ?? 0.5) - Number(start.startY ?? 0.5)) * t;
+  return { scale: Math.max(1, scale), cx: Math.min(1, Math.max(0, cx)), cy: Math.min(1, Math.max(0, cy)) };
+}
+
 let counter = 0;
 export function newId(prefix = 'id') {
   counter += 1;
@@ -115,6 +218,7 @@ export function createProject() {
     clips: [],
     subtitles: [],
     audios: [],
+    overlays: [],
   };
 }
 
@@ -133,8 +237,26 @@ export function createSubtitle(text, start, end) {
     outlineColor: '#000000',
     outlineWidth: 3,
     background: 0.35,
+    preset: 'basic',
+    animation: 'none',
     x: 0.5,
     y: 0.82,
+  };
+}
+
+/** 오버레이(PIP) 기본값 — x·y 는 화면 안 중심 비율, scale 은 출력 폭 대비 비율. */
+export function createOverlay(mediaId, name, kind, start, end) {
+  return {
+    id: newId('ov'),
+    mediaId,
+    name,
+    kind,
+    start,
+    end,
+    x: 0.5,
+    y: 0.5,
+    scale: 0.32,
+    opacity: 1,
   };
 }
 
@@ -217,6 +339,8 @@ export function frameAt(clips, t) {
         index,
         local: (time - item.start) * speed + Number(clip.trimStart),
         progress: 0,
+        /** 클립 안에서의 진행률(0~1) — 줌/팬 보간에 쓴다. */
+        ratio: Math.min(1, Math.max(0, (time - item.start) / Math.max(0.001, item.duration))),
       };
     }
   }
@@ -227,6 +351,7 @@ export function frameAt(clips, t) {
     index: last,
     local: Number(clip.trimEnd),
     progress: 0,
+    ratio: 1,
   };
 }
 
@@ -266,4 +391,246 @@ export function friendlyDuration(seconds) {
   const minutes = Math.floor(value / 60);
   const rest = Math.round(value - minutes * 60);
   return rest ? `${minutes}분 ${rest}초` : `${minutes}분`;
+}
+
+/* ------------------------------ 자막 스타일 ------------------------------ */
+
+/** 자막의 '스타일'만 뽑는다 — 복사·붙여넣기와 일괄 적용이 글자·시간은 건드리지 않게. */
+export function subtitleStyle(subtitle) {
+  return {
+    font: subtitle.font,
+    fontFile: subtitle.fontFile || null,
+    fontLabel: subtitle.fontLabel || fontById(subtitle.font).label,
+    size: subtitle.size,
+    color: subtitle.color,
+    outlineColor: subtitle.outlineColor,
+    outlineWidth: subtitle.outlineWidth,
+    background: subtitle.background,
+    preset: subtitle.preset || 'basic',
+    animation: subtitle.animation || 'none',
+    y: subtitle.y,
+  };
+}
+
+/**
+ * 스타일을 자막에 입힌다. 위치 x 는 자막마다 다를 수 있어 그대로 둔다(요청: y 까지 일괄).
+ */
+export function applySubtitleStyle(subtitle, style) {
+  subtitle.font = style.font;
+  subtitle.fontFile = style.fontFile || null;
+  subtitle.fontLabel = style.fontLabel || fontById(style.font).label;
+  subtitle.size = style.size;
+  subtitle.color = style.color;
+  subtitle.outlineColor = style.outlineColor;
+  subtitle.outlineWidth = style.outlineWidth;
+  subtitle.background = style.background;
+  subtitle.preset = style.preset || 'basic';
+  subtitle.animation = style.animation || 'none';
+  subtitle.y = style.y;
+  return subtitle;
+}
+
+/** 프리셋 하나를 자막에 — 글꼴·크기·색·외곽선·배경·세로 위치·애니메이션을 함께 바꾼다. */
+export function applySubtitlePreset(subtitle, presetId) {
+  const preset = subtitlePresetById(presetId);
+  subtitle.font = preset.font;
+  subtitle.fontFile = null;
+  subtitle.fontLabel = fontById(preset.font).label;
+  subtitle.size = preset.size;
+  subtitle.color = preset.color;
+  subtitle.outlineColor = preset.outlineColor;
+  subtitle.outlineWidth = preset.outlineWidth;
+  subtitle.background = preset.background;
+  subtitle.y = preset.y;
+  subtitle.animation = preset.animation;
+  subtitle.preset = preset.id;
+  return subtitle;
+}
+
+/** 어떤 프리셋과 같은 모양인지 — 없으면 null. */
+export function matchSubtitlePreset(subtitle) {
+  const found = SUBTITLE_PRESETS.find((preset) => preset.id === subtitle.preset
+    && Math.abs(Number(subtitle.size) - preset.size) < 0.5
+    && String(subtitle.color).toUpperCase() === preset.color.toUpperCase());
+  return found ? found.id : null;
+}
+
+/**
+ * 등장 애니메이션의 한 순간 — { alpha, scale, offsetY } (offsetY 는 1080p 기준 픽셀).
+ * 내보내기의 drawtext 가 쓰는 식과 같은 모양이다.
+ */
+export function animationAt(animation, local, size) {
+  const t = Math.max(0, Number(local) || 0);
+  switch (animation) {
+    case 'fade': {
+      const alpha = Math.min(1, t / FADE_SECONDS);
+      return { alpha, scale: 1, offsetY: 0 };
+    }
+    case 'pop': {
+      const p = Math.min(1, t / ANIMATION_SECONDS);
+      const eased = 1 - Math.pow(1 - p, 3);
+      return { alpha: Math.min(1, t / 0.12), scale: 0.86 + 0.14 * eased, offsetY: 0 };
+    }
+    case 'slideup': {
+      const p = Math.min(1, t / ANIMATION_SECONDS);
+      const eased = 1 - Math.pow(1 - p, 3);
+      return { alpha: Math.min(1, t / FADE_SECONDS), scale: 1, offsetY: (1 - eased) * (Number(size) || 54) * 0.5 };
+    }
+    default:
+      return { alpha: 1, scale: 1, offsetY: 0 };
+  }
+}
+
+/* ------------------------------ 복제 ------------------------------ */
+
+/** 클립의 '포맷'만 뽑는다 — 필터·배속·볼륨·페이드·줌/팬. 소스와 트림 구간은 건드리지 않는다. */
+export function clipFormat(clip) {
+  return {
+    speed: Number(clip.speed) || 1,
+    volume: Number(clip.volume) || 1,
+    fadeIn: Number(clip.fadeIn) || 0,
+    fadeOut: Number(clip.fadeOut) || 0,
+    filter: {
+      brightness: Number(clip.filter && clip.filter.brightness) || 1,
+      contrast: Number(clip.filter && clip.filter.contrast) || 1,
+      saturation: clip.filter && clip.filter.saturation === undefined ? 1 : Number(clip.filter.saturation),
+    },
+    motion: JSON.parse(JSON.stringify(clip.motion || createMotion())),
+  };
+}
+
+export function applyClipFormat(clip, format) {
+  clip.speed = format.speed;
+  clip.volume = format.volume;
+  clip.fadeIn = format.fadeIn;
+  clip.fadeOut = format.fadeOut;
+  clip.filter = { ...format.filter };
+  clip.motion = JSON.parse(JSON.stringify(format.motion));
+  return clip;
+}
+
+const clone = (item) => JSON.parse(JSON.stringify(item));
+
+/** 자막 복제 — 스타일 그대로, 시작 시각만 옮긴다. */
+export function cloneSubtitle(subtitle, start) {
+  const span = Math.max(0.2, Number(subtitle.end) - Number(subtitle.start));
+  return {
+    ...clone(subtitle),
+    id: newId('sub'),
+    start,
+    end: start + span,
+  };
+}
+
+/** 클립 복제 — 트림·배속·필터·줌/팬 그대로. */
+export function cloneClip(clip) {
+  return { ...clone(clip), id: newId('clip') };
+}
+
+/** 오디오 복제. */
+export function cloneAudio(audio, start) {
+  return { ...clone(audio), id: newId('audio'), start };
+}
+
+/** 오버레이 복제. */
+export function cloneOverlay(overlay, start) {
+  const span = Math.max(0.2, Number(overlay.end) - Number(overlay.start));
+  return { ...clone(overlay), id: newId('ov'), start, end: start + span };
+}
+
+/* ------------------------------ 자석 스냅 ------------------------------ */
+
+/**
+ * 자석 스냅 후보 시각 — 클립 경계, 자막·오디오·오버레이의 시작·끝, 플레이헤드.
+ * excludeId 를 주면 그 항목 자신은 뺀다(끌고 있는 것이 자기 끝에 붙지 않게).
+ */
+export function snapTargets(project, playhead, excludeId) {
+  const out = [];
+  const push = (value) => {
+    const time = Number(value);
+    if (Number.isFinite(time) && time >= 0) out.push(time);
+  };
+  layout(project.clips || []).forEach((item) => {
+    push(item.start);
+    push(item.end);
+  });
+  (project.subtitles || []).forEach((item) => {
+    if (item.id === excludeId) return;
+    push(item.start);
+    push(item.end);
+  });
+  (project.audios || []).forEach((item) => {
+    if (item.id === excludeId) return;
+    push(item.start);
+    push(item.start + Number(item.duration || 0));
+  });
+  (project.overlays || []).forEach((item) => {
+    if (item.id === excludeId) return;
+    push(item.start);
+    push(item.end);
+  });
+  push(playhead);
+  return out;
+}
+
+/**
+ * value 를 후보 중 tolerance 안에서 가장 가까운 시각으로 붙인다.
+ * 붙지 않으면 value 그대로. 붙었는지는 returned.snapped 로 알린다.
+ */
+export function snapTime(value, targets, tolerance) {
+  let best = null;
+  for (const target of targets || []) {
+    const distance = Math.abs(Number(value) - target);
+    if (distance <= tolerance && (!best || distance < best.distance)) best = { distance, value: target };
+  }
+  if (best) return { value: best.value, snapped: true };
+  return { value, snapped: false };
+}
+
+/** 시작·끝 중 더 가까운 쪽을 붙인다 — 자막·오버레이를 끌 때 쓴다. */
+export function snapRange(start, end, targets, tolerance) {
+  const left = snapTime(start, targets, tolerance);
+  const right = snapTime(end, targets, tolerance);
+  if (left.snapped && right.snapped) {
+    return Math.abs(start - left.value) <= Math.abs(end - right.value)
+      ? { start: left.value, end: left.value + (end - start), snapped: left.value }
+      : { start: start - (right.value - end), end: right.value, snapped: right.value };
+  }
+  if (left.snapped) return { start: left.value, end: left.value + (end - start), snapped: left.value };
+  if (right.snapped) return { start: start - (right.value - end), end: right.value, snapped: right.value };
+  return { start, end, snapped: null };
+}
+
+/**
+ * 겹치지 않는 자리를 찾는다 — 원하는 시각에 이미 무언가 있으면 그 뒤로 밀어 붙인다.
+ * items 는 [{ start, end }] (자막·오버레이·오디오 공통).
+ */
+export function freeSpan(items, wanted, span, max) {
+  let start = Math.max(0, Number(wanted) || 0);
+  const list = (items || [])
+    .map((item) => ({ start: Number(item.start) || 0, end: Number(item.end) || 0 }))
+    .sort((a, b) => a.start - b.start);
+  let moved = true;
+  let guard = 0;
+  while (moved && guard < 200) {
+    moved = false;
+    guard += 1;
+    for (const item of list) {
+      if (start < item.end - 0.001 && start + span > item.start + 0.001) {
+        start = item.end;
+        moved = true;
+      }
+    }
+  }
+  if (max && start + span > max) {
+    // 끝을 넘으면 마지막 항목 뒤로 — 그래도 넘으면 있는 그대로 둔다.
+    const last = list.length ? list[list.length - 1].end : 0;
+    start = Math.max(0, last);
+  }
+  return start;
+}
+
+/** 오버레이·자막이 t 에 보이는지. */
+export function isVisibleAt(item, t) {
+  return t >= Number(item.start) - 0.001 && t < Number(item.end);
 }

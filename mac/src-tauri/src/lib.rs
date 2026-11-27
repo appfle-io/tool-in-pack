@@ -2119,6 +2119,12 @@ pub fn run() {
             video::video_extract_audio,
             video::video_export,
             video::video_cancel_export,
+            // v1.24.0 — 자동 자막(whisper.cpp)·프로젝트 파일 미디어 재허용
+            video::video_whisper_status,
+            video::video_whisper_download,
+            video::video_transcribe,
+            video::video_cancel_transcribe,
+            video::video_project_media,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

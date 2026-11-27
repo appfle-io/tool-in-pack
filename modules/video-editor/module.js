@@ -1,13 +1,20 @@
 /**
- * TIP · 영상 편집 (video-editor) — v1.23.0
+ * TIP · 영상 편집 (video-editor) — v1.24.0
  *
  * 캡컷 스타일 3단 작업실: 왼쪽 도구 탭(미디어·전환·자막·오디오·필터), 가운데 미리보기,
- * 오른쪽 속성, 아래 멀티 트랙 타임라인.
+ * 오른쪽 속성, 아래 멀티 트랙 타임라인(영상·오버레이·자막·오디오).
  *
  * 두 가지 길로 내보낸다.
- *  · Mac 앱 — 온디맨드 ffmpeg(engine.rs)로 클립·전환(xfade)·자막(drawtext)·BGM 을 한 번에 합쳐
- *    HD·FHD·2K·4K MP4 로 저장한다. 진행률은 tip://video-export-progress 로 받는다.
- *  · 웹(PWA) — <canvas> + MediaRecorder 로 실시간 인코딩(최대 FHD). 2K·4K 는 Mac 앱 전용이다.
+ *  · Mac 앱 — 온디맨드 ffmpeg(engine.rs)로 클립·전환(xfade)·오버레이·줌/팬(zoompan)·자막
+ *    (drawtext)·BGM 을 한 번에 합쳐 HD·FHD·2K·4K MP4 로 저장한다. 진행률은
+ *    tip://video-export-progress 로 받는다.
+ *  · 웹(PWA) — <canvas> + MediaRecorder 로 실시간 인코딩(최대 FHD). 2K·4K 와 자동 자막은 Mac 전용.
+ *
+ * v1.24.0 — 작업하던 타임라인을 IndexedDB 에 자동 저장하고 이어서 편집한다. 프로젝트 파일
+ *           (.tipproj)로 내보내고 불러온다. 자막은 복사·붙여넣기·복제와 '모든 자막에 적용',
+ *           클립은 복제와 '모든 클립에 적용'을 갖는다. 끌 때 자석처럼 붙는 스냅과 ←/→ 1프레임
+ *           이동도 넣었다. Mac 은 whisper.cpp 로 음성을 받아 자막을 만들고, 오버레이(PIP)와
+ *           클립 줌/팬, 자막 프리셋·등장 애니메이션은 미리보기와 ffmpeg 결과가 같게 맞췄다.
  *
  * 화면에서 쓰는 말은 짧게, 버튼은 44px 이상, 글자는 12px 이상(다른 모듈과 같은 기준).
  */
@@ -15,9 +22,14 @@
 import { el, icons, formatBytes } from '../../js/ui.js';
 import {
   ASPECTS, RESOLUTIONS, FPS_OPTIONS, TRANSITIONS, FILTER_PRESETS, FONTS,
-  SPEED_MIN, SPEED_MAX, CUT,
-  createProject, createSubtitle, newId, clipDuration, layout, totalDuration, frameAt,
-  indexAt, outputSize, timecode, friendlyDuration, transitionById, fontById,
+  SUBTITLE_PRESETS, SUBTITLE_ANIMATIONS, MOTIONS,
+  SPEED_MIN, SPEED_MAX, CUT, FRAME_STEP, SNAP_PIXELS,
+  createProject, createSubtitle, createOverlay, createMotion, newId,
+  clipDuration, layout, totalDuration, frameAt, indexAt, outputSize, timecode, friendlyDuration,
+  transitionById, fontById, subtitlePresetById, matchSubtitlePreset, applySubtitlePreset,
+  subtitleStyle, applySubtitleStyle, animationAt, clipFormat, applyClipFormat, applyMotionPreset,
+  motionById, motionAt, cloneSubtitle, cloneClip, cloneAudio, cloneOverlay,
+  snapTargets, snapTime, snapRange, freeSpan,
 } from './model.js';
 
 const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2.6"/><path d="M7 10.2v3.6M10.5 10.2v3.6"/><path d="M14 9.4l4 2.6-4 2.6z"/></svg>';
@@ -49,6 +61,7 @@ const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const ICON_UNDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H5V3"/><path d="M5.5 6.5a8 8 0 1 1-1.2 8"/></svg>';
 const ICON_REDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7h4V3"/><path d="M18.5 6.5a8 8 0 1 0 1.2 8"/></svg>';
 const ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M4 18.5v1a1.5 1.5 0 0 0 1.5 1.5h13a1.5 1.5 0 0 0 1.5-1.5v-1"/></svg>';
+const ICON_SNAP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v9a4 4 0 0 0 8 0V4"/><path d="M6 8h4M14 8h4"/><path d="M3 20h18"/></svg>';
 
 const module = {
   id: 'video-editor',
@@ -72,7 +85,7 @@ const module = {
     const elements = new Map();       // mediaId → { node, ready }
     const state = {
       tab: 'media',
-      selected: null,                 // { kind:'clip'|'subtitle'|'audio', id }
+      selected: null,                 // { kind:'clip'|'subtitle'|'audio'|'overlay', id }
       playhead: 0,
       playing: false,
       zoom: 56,                       // px / 초
@@ -81,11 +94,19 @@ const module = {
       engine: null,
       engineBusy: false,
       webFonts: new Map(),            // 업로드한 폰트 이름 → FontFace
+      clipboard: null,                // { kind, data } — ⌘C 로 담은 것
+      snap: true,                     // 자석 스냅
+      defaultPreset: 'basic',         // 새 자막에 쓸 프리셋
+      whisper: null,                  // { available, model, modelSize, binary, downloadSize }
+      whisperBusy: false,
+      lastSavedAt: 0,
+      resumeAsked: false,
     };
     const undoStack = [];
     const redoStack = [];
     let activeCtx = null;             // 미리보기 캔버스(아래에서 연결)
     let subBoxes = [];                // 자막 드래그 판정용
+    let overlayBoxes = [];            // 오버레이 드래그 판정용
     let rafId = 0;
     let lastTick = 0;
     let audioCtx = null;
@@ -107,9 +128,16 @@ const module = {
     const clipOf = (id) => project.clips.find((clip) => clip.id === id) || null;
     const subtitleOf = (id) => project.subtitles.find((item) => item.id === id) || null;
     const audioOf = (id) => project.audios.find((item) => item.id === id) || null;
+    const overlayOf = (id) => project.overlays.find((item) => item.id === id) || null;
 
     function snapshot() {
-      return JSON.stringify({ aspect: project.aspect, clips: project.clips, subtitles: project.subtitles, audios: project.audios });
+      return JSON.stringify({
+        aspect: project.aspect,
+        clips: project.clips,
+        subtitles: project.subtitles,
+        audios: project.audios,
+        overlays: project.overlays,
+      });
     }
 
     function restore(text) {
@@ -118,11 +146,13 @@ const module = {
       project.clips = parsed.clips;
       project.subtitles = parsed.subtitles;
       project.audios = parsed.audios;
+      project.overlays = parsed.overlays || [];
       if (state.selected) {
         const still = {
           clip: clipOf,
           subtitle: subtitleOf,
           audio: audioOf,
+          overlay: overlayOf,
         }[state.selected.kind];
         if (!still || !still(state.selected.id)) state.selected = null;
       }
@@ -148,6 +178,361 @@ const module = {
       undoStack.push(snapshot());
       restore(redoStack.pop());
       say('다시 했습니다');
+    }
+
+    /* ------------------------------ 프로젝트 저장 (IndexedDB) ------------------------------ */
+
+    // 작업 중인 타임라인은 브라우저 저장소(IndexedDB)에 0.7초 쉬었다가 조용히 저장한다.
+    // 미디어 파일 자체는 저장하지 않는다(웹은 파일 핸들을 오래 둘 수 없고, Mac 은 원본 경로만 기억).
+    const DB_NAME = 'tip-video-editor';
+    const DB_STORE = 'projects';
+    const DB_KEY = 'current';
+    const PROJECT_FORMAT = 'tip-video-project';
+    const PROJECT_VERSION = 1;
+
+    function openDb() {
+      return new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') { reject(new Error('저장소를 쓸 수 없습니다')); return; }
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error('저장소를 열지 못했습니다'));
+      });
+    }
+
+    function idbPut(value) {
+      return openDb().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, 'readwrite');
+        tx.objectStore(DB_STORE).put(value, DB_KEY);
+        tx.oncomplete = () => { db.close(); resolve(true); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+        tx.onabort = () => { db.close(); reject(tx.error); };
+      }));
+    }
+
+    function idbGet() {
+      return openDb().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, 'readonly');
+        const request = tx.objectStore(DB_STORE).get(DB_KEY);
+        request.onsuccess = () => { db.close(); resolve(request.result || null); };
+        request.onerror = () => { db.close(); reject(request.error); };
+      }));
+    }
+
+    function idbDelete() {
+      return openDb().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, 'readwrite');
+        tx.objectStore(DB_STORE).delete(DB_KEY);
+        tx.oncomplete = () => { db.close(); resolve(true); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+      }));
+    }
+
+    function mediaManifest() {
+      return [...media.values()].map((item) => ({
+        id: item.id,
+        name: item.name,
+        kind: item.kind,
+        path: item.path || null,
+        width: item.width || 0,
+        height: item.height || 0,
+        duration: item.duration || 0,
+        hasAudio: !!item.hasAudio,
+        size: item.size || 0,
+        missing: !!item.missing,
+      }));
+    }
+
+    function projectPayload() {
+      return {
+        format: PROJECT_FORMAT,
+        version: PROJECT_VERSION,
+        savedAt: Date.now(),
+        project: {
+          aspect: project.aspect,
+          clips: project.clips,
+          subtitles: project.subtitles,
+          audios: project.audios,
+          overlays: project.overlays,
+        },
+        media: mediaManifest(),
+      };
+    }
+
+    function projectItemCount(data) {
+      const source = data || {};
+      return ['clips', 'subtitles', 'audios', 'overlays']
+        .reduce((sum, key) => sum + (Array.isArray(source[key]) ? source[key].length : 0), 0);
+    }
+
+    /** 미디어 목록을 지운다 — 미리보기 요소와 blob 주소도 함께 정리. */
+    function clearMedia() {
+      for (const entry of elements.values()) {
+        if (entry && entry.node) {
+          if (entry.node.pause) entry.node.pause();
+          if (entry.node instanceof HTMLVideoElement && entry.node.parentNode) entry.node.remove();
+        }
+      }
+      elements.clear();
+      for (const item of media.values()) {
+        if (item.url && String(item.url).startsWith('blob:')) URL.revokeObjectURL(item.url);
+      }
+      media.clear();
+    }
+
+    /** 매니페스트로 미디어를 되살린다 — Mac 은 경로로, 웹은 '다시 연결' 자리로. */
+    function restoreMedia(list) {
+      (list || []).forEach((item) => {
+        if (!item || !item.id) return;
+        const path = item.path || null;
+        const usable = !!path && IS_MAC;
+        media.set(item.id, {
+          id: item.id,
+          name: item.name || '파일',
+          kind: item.kind || 'video',
+          url: usable ? fileSrc(path) : null,
+          path,
+          width: item.width || 0,
+          height: item.height || 0,
+          duration: item.duration || 0,
+          hasAudio: !!item.hasAudio,
+          size: item.size || 0,
+          file: null,
+          missing: !usable,
+        });
+      });
+    }
+
+    /** 클립·오버레이·오디오가 가리키는 미디어가 없으면 이름만 있는 빈 항목을 만든다. */
+    function ensureMediaStubs() {
+      const add = (mediaId, name, kind) => {
+        if (!mediaId || media.has(mediaId)) return;
+        media.set(mediaId, {
+          id: mediaId,
+          name: name || '파일',
+          kind: kind || 'video',
+          url: null,
+          path: null,
+          width: 0,
+          height: 0,
+          duration: 0,
+          hasAudio: false,
+          file: null,
+          missing: true,
+        });
+      };
+      project.clips.forEach((clip) => add(clip.mediaId, clip.name, clip.kind === 'image' ? 'image' : 'video'));
+      project.overlays.forEach((item) => add(item.mediaId, item.name, item.kind || 'video'));
+      project.audios.forEach((item) => add(item.mediaId, item.name, 'audio'));
+    }
+
+    /** 저장된 프로젝트(자동 저장본·.tipproj)를 화면에 올린다. */
+    function applyProject(payload) {
+      const data = (payload && payload.project) || payload || {};
+      project.aspect = data.aspect || '16:9';
+      project.clips = Array.isArray(data.clips) ? data.clips : [];
+      project.subtitles = Array.isArray(data.subtitles) ? data.subtitles : [];
+      project.audios = Array.isArray(data.audios) ? data.audios : [];
+      project.overlays = Array.isArray(data.overlays) ? data.overlays : [];
+      clearMedia();
+      restoreMedia(payload && payload.media);
+      ensureMediaStubs();
+      state.selected = null;
+      state.playhead = Math.min(state.playhead, totalDuration(project.clips));
+      undoStack.length = 0;
+      redoStack.length = 0;
+      refreshAll();
+    }
+
+    let saveTimer = 0;
+    let savedHint = null;
+
+    function renderSavedHint() {
+      if (!savedHint) return;
+      if (!state.lastSavedAt) { savedHint.textContent = ''; return; }
+      const at = new Date(state.lastSavedAt);
+      savedHint.textContent = `자동 저장 ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    }
+
+    async function saveNow() {
+      try {
+        if (!projectItemCount(project)) {
+          await idbDelete();
+          return;
+        }
+        const payload = projectPayload();
+        await idbPut(payload);
+        state.lastSavedAt = payload.savedAt;
+        renderSavedHint();
+      } catch (error) {
+        console.warn('[TIP video] 자동 저장', error);
+      }
+    }
+
+    /** 타임라인이 바뀔 때마다 부른다 — 0.7초 쉬었다가 한 번만 저장한다. */
+    function scheduleSave() {
+      if (state.exporting) return;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => { saveNow(); }, 700);
+    }
+
+    /** 미디어가 없다는 안내 — 웹 저장본을 다시 열었거나 파일을 못 찾았을 때. */
+    function missingNotice() {
+      const missing = [...media.values()].filter((item) => item.missing);
+      if (!missing.length) return null;
+      const row = el('div', { class: 've-notice is-warn' });
+      row.append(el('div', {
+        class: 've-notice-text',
+        text: IS_MAC
+          ? `원본 파일 ${missing.length}개를 찾지 못했습니다. 미디어 탭에서 '다시 연결'로 골라 주세요.`
+          : `브라우저는 파일을 기억하지 못합니다. 미디어 탭에서 ${missing.length}개를 '다시 연결'해 주세요.`,
+      }));
+      return row;
+    }
+
+    /** 자동 저장본이 있으면 이어서 편집할지 묻는다. */
+    async function offerResume() {
+      let saved = null;
+      try { saved = await idbGet(); } catch { saved = null; }
+      if (state.resumeAsked) return;
+      state.resumeAsked = true;
+      if (!saved || !saved.project || !projectItemCount(saved.project)) return;
+      const when = saved.savedAt ? new Date(saved.savedAt) : null;
+      const stamp = when
+        ? `${when.getMonth() + 1}월 ${when.getDate()}일 ${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`
+        : '이전';
+      const data = saved.project;
+      const overlay = el('div', { class: 've-modal-overlay' });
+      const dialog = el('div', { class: 've-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': '이어서 편집' });
+      const close = () => overlay.remove();
+      const resume = el('button', { class: 've-btn ve-btn-primary', type: 'button', text: '이어서 편집' });
+      resume.addEventListener('click', () => {
+        try {
+          applyProject(saved);
+          say('이어서 편집합니다');
+        } catch (error) {
+          console.warn('[TIP video] 이어서 편집', error);
+          say('저장본을 열지 못했습니다');
+        }
+        close();
+      });
+      const fresh = el('button', { class: 've-btn', type: 'button', text: '새로 시작' });
+      fresh.addEventListener('click', () => {
+        idbDelete().catch(() => {});
+        close();
+        say('새 프로젝트를 시작합니다');
+      });
+      dialog.append(
+        el('div', { class: 've-modal-head' }, [el('h2', { text: '이어서 편집할까요?' })]),
+        el('div', { class: 've-modal-body' }, [
+          el('p', { class: 've-hint', text: `${stamp}에 자동 저장한 작업이 있습니다.` }),
+          el('div', { class: 've-stat' }, [
+            el('div', { class: 've-stat-row' }, [el('span', { text: '클립' }), el('b', { text: `${(data.clips || []).length}개` })]),
+            el('div', { class: 've-stat-row' }, [el('span', { text: '자막' }), el('b', { text: `${(data.subtitles || []).length}개` })]),
+            el('div', { class: 've-stat-row' }, [el('span', { text: '오버레이' }), el('b', { text: `${(data.overlays || []).length}개` })]),
+            el('div', { class: 've-stat-row' }, [el('span', { text: '오디오' }), el('b', { text: `${(data.audios || []).length}개` })]),
+          ]),
+          el('p', { class: 've-hint', text: '새로 시작하면 저장본은 지워집니다.' }),
+        ]),
+        el('div', { class: 've-modal-actions' }, [fresh, resume]),
+      );
+      overlay.append(dialog);
+      document.body.append(overlay);
+      resume.focus();
+    }
+
+    /* ------------------------------ 프로젝트 파일(.tipproj) ------------------------------ */
+
+    function projectFileName() {
+      const stamp = new Date();
+      return `TIP-프로젝트-${stamp.getFullYear()}${String(stamp.getMonth() + 1).padStart(2, '0')}${String(stamp.getDate()).padStart(2, '0')}-${String(stamp.getHours()).padStart(2, '0')}${String(stamp.getMinutes()).padStart(2, '0')}.tipproj`;
+    }
+
+    async function saveProjectFile() {
+      const text = JSON.stringify(projectPayload());
+      if (IS_MAC) {
+        try {
+          const saved = await invoke('save_backup_file', { name: projectFileName(), content: text });
+          if (saved && saved.path) say('프로젝트 파일을 저장했습니다');
+        } catch (error) {
+          console.warn('[TIP video] 프로젝트 저장', error);
+          say(typeof error === 'string' ? error : '프로젝트를 저장하지 못했습니다');
+        }
+        return;
+      }
+      const blob = new Blob([text], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = projectFileName();
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 20000);
+      say('프로젝트 파일을 저장했습니다');
+    }
+
+    function pickTextFile() {
+      return new Promise((resolve) => {
+        const input = el('input', { type: 'file', accept: '.tipproj,application/json', style: 'display:none' });
+        input.addEventListener('change', async () => {
+          const file = (input.files || [])[0];
+          input.remove();
+          if (!file) { resolve(null); return; }
+          try { resolve(await file.text()); } catch { resolve(null); }
+        });
+        document.body.append(input);
+        input.click();
+      });
+    }
+
+    /** .tipproj 를 읽어 타임라인을 되살린다. Mac 은 원본 경로를 다시 허용 목록에 넣는다. */
+    async function openProjectFile() {
+      let text = null;
+      try {
+        if (IS_MAC) {
+          const opened = await invoke('open_backup_file');
+          if (!opened) return;
+          text = opened.content;
+        } else {
+          text = await pickTextFile();
+        }
+      } catch (error) {
+        console.warn('[TIP video] 프로젝트 열기', error);
+        say(typeof error === 'string' ? error : '프로젝트를 열지 못했습니다');
+        return;
+      }
+      if (!text) return;
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        say('프로젝트 파일을 읽지 못했습니다');
+        return;
+      }
+      if (!payload || (payload.format && payload.format !== PROJECT_FORMAT)) {
+        say('TIP 프로젝트 파일이 아닙니다');
+        return;
+      }
+      commit();
+      applyProject(payload);
+      if (IS_MAC) {
+        const paths = [...media.values()].map((item) => item.path).filter(Boolean);
+        if (paths.length) {
+          try {
+            await invoke('video_project_media', { paths });
+            const missing = [...media.values()].filter((item) => item.missing);
+            if (missing.length) say(`원본 ${missing.length}개를 찾지 못했습니다`);
+          } catch (error) {
+            console.warn('[TIP video] 프로젝트 미디어', error);
+          }
+        }
+      }
+      say('프로젝트를 열었습니다');
+      scheduleSave();
     }
 
     /* ------------------------------ 뼈대 ------------------------------ */
@@ -187,7 +572,8 @@ const module = {
     const ruler = el('div', { class: 've-ruler' });
     const trackArea = el('div', { class: 've-tracks' });
     const playheadEl = el('div', { class: 've-playhead' });
-    const timelineInner = el('div', { class: 've-tl-inner' }, [ruler, trackArea, playheadEl]);
+    const snapGuide = el('div', { class: 've-snap-guide', 'aria-hidden': 'true' });
+    const timelineInner = el('div', { class: 've-tl-inner' }, [ruler, trackArea, playheadEl, snapGuide]);
     const timelineScroll = el('div', { class: 've-tl-scroll' }, [timelineInner]);
     const timeline = el('section', { class: 've-timeline' }, [timelineToolbar, timelineScroll]);
 
@@ -216,10 +602,44 @@ const module = {
         duration: 0,
         hasAudio: kind === 'video',
         file,
+        missing: false,
       };
       media.set(item.id, item);
       probeLocal(item);
       return item;
+    }
+
+    /** 웹에서 저장본을 열었을 때 — 같은 파일을 다시 골라 미디어 항목에 이어 붙인다. */
+    function relinkMedia(item) {
+      if (!item) return;
+      const input = el('input', {
+        type: 'file',
+        accept: item.kind === 'audio' ? AUDIO_ACCEPT : MEDIA_ACCEPT,
+        style: 'display:none',
+      });
+      input.addEventListener('change', () => {
+        const file = (input.files || [])[0];
+        input.remove();
+        if (!file) return;
+        commit();
+        if (item.url && String(item.url).startsWith('blob:')) URL.revokeObjectURL(item.url);
+        item.url = URL.createObjectURL(file);
+        item.file = file;
+        item.name = file.name || item.name;
+        item.kind = mediaKindOf(file) === 'audio' ? 'audio' : (mediaKindOf(file) === 'image' ? 'image' : 'video');
+        item.missing = false;
+        const entry = elements.get(item.id);
+        if (entry && entry.node) {
+          if (entry.node.pause) entry.node.pause();
+          if (entry.node instanceof HTMLVideoElement && entry.node.parentNode) entry.node.remove();
+        }
+        elements.delete(item.id);
+        probeLocal(item);
+        refreshAll();
+        say(`${item.name}을(를) 다시 연결했습니다`);
+      });
+      document.body.append(input);
+      input.click();
     }
 
     function probeLocal(item) {
@@ -282,6 +702,7 @@ const module = {
             hasAudio: file.kind === 'video',
             file: null,
             size: file.size,
+            missing: false,
           };
           media.set(item.id, item);
           added.push(item);
@@ -346,6 +767,7 @@ const module = {
         fadeOut: 0,
         filter: { brightness: 1, contrast: 1, saturation: 1 },
         transition: { kind: 'fade', duration: project.clips.length ? 0.5 : 0 },
+        motion: createMotion(),
         sourceDuration: isImage ? 0 : (Number(item.duration) || span),
         hasAudio: !!item.hasAudio && !isImage,
       };
@@ -364,6 +786,178 @@ const module = {
       commit();
       pushClip(item);
       say(`${item.name}을(를) 타임라인에 넣었습니다`);
+    }
+
+    /* ------------------------------ 오버레이(PIP) ------------------------------ */
+
+    /** 오버레이 기본 길이 — 영상은 원본 길이(최대 15초), 이미지는 4초. */
+    function overlaySpan(item) {
+      if (!item) return 4;
+      const seconds = Number(item.duration) || 4;
+      return Math.max(1, Math.min(seconds, item.kind === 'image' ? 6 : 15));
+    }
+
+    /** 오버레이를 타임라인에 얹는다 — start 를 주면 그 자리에, 아니면 플레이헤드 뒤 빈 자리에. */
+    function addOverlay(item, start) {
+      if (!item) return null;
+      const span = overlaySpan(item);
+      const at = start === undefined
+        ? freeSpan(project.overlays, Math.max(0, state.playhead), span, 0)
+        : Math.max(0, start);
+      const overlay = createOverlay(item.id, item.name, item.kind, at, at + span);
+      project.overlays.push(overlay);
+      state.selected = { kind: 'overlay', id: overlay.id };
+      return overlay;
+    }
+
+    function addOverlayFromMedia(item) {
+      if (!item) return;
+      if (item.kind === 'audio') { say('오디오는 오버레이로 얹을 수 없습니다'); return; }
+      commit();
+      addOverlay(item);
+      refreshAll();
+      say(`${item.name}을(를) 오버레이로 얹었습니다`);
+    }
+
+    /* ------------------------------ 복사·붙여넣기·복제 ------------------------------ */
+
+    const KIND_LABEL = { clip: '클립', subtitle: '자막', audio: '오디오', overlay: '오버레이' };
+    const itemOf = (kind, id) => ({
+      clip: clipOf,
+      subtitle: subtitleOf,
+      audio: audioOf,
+      overlay: overlayOf,
+    }[kind] || (() => null))(id);
+
+    function copySelected() {
+      const selected = state.selected;
+      if (!selected) { say('복사할 것을 고르세요'); return false; }
+      const item = itemOf(selected.kind, selected.id);
+      if (!item) { say('복사할 것을 고르세요'); return false; }
+      state.clipboard = { kind: selected.kind, data: JSON.parse(JSON.stringify(item)) };
+      say(`${KIND_LABEL[selected.kind]}을(를) 복사했습니다`);
+      return true;
+    }
+
+    /** 붙여넣을 자리 — 자막·오버레이·오디오는 플레이헤드에서, 이미 겹치면 그 뒤로. */
+    function pasteAt(kind, span) {
+      const items = kind === 'subtitle' ? project.subtitles
+        : kind === 'overlay' ? project.overlays
+          : kind === 'audio' ? project.audios.map((item) => ({ start: item.start, end: item.start + Number(item.duration || 0), id: item.id }))
+            : [];
+      return freeSpan(items, Math.max(0, state.playhead), Math.max(0.2, span), 0);
+    }
+
+    function pasteClipboard() {
+      const board = state.clipboard;
+      if (!board || !board.data) { say('복사한 것이 없습니다'); return; }
+      const data = board.data;
+      if (board.kind === 'clip') {
+        const source = mediaOf(data.mediaId);
+        if (!source) { say('복사한 클립의 원본이 없습니다'); return; }
+        commit();
+        const clip = cloneClip(data);
+        const at = state.selected && state.selected.kind === 'clip'
+          ? project.clips.findIndex((item) => item.id === state.selected.id) + 1
+          : project.clips.length;
+        project.clips.splice(Math.max(0, at), 0, clip);
+        state.selected = { kind: 'clip', id: clip.id };
+        refreshAll();
+        say('클립을 붙여넣었습니다');
+        return;
+      }
+      if (board.kind === 'subtitle') {
+        commit();
+        const span = Math.max(0.2, Number(data.end) - Number(data.start));
+        const subtitle = cloneSubtitle(data, pasteAt('subtitle', span));
+        project.subtitles.push(subtitle);
+        state.selected = { kind: 'subtitle', id: subtitle.id };
+        seek(subtitle.start);
+        refreshAll();
+        say('자막을 붙여넣었습니다');
+        return;
+      }
+      if (board.kind === 'audio') {
+        commit();
+        const audio = cloneAudio(data, pasteAt('audio', Number(data.duration) || 1));
+        project.audios.push(audio);
+        state.selected = { kind: 'audio', id: audio.id };
+        refreshAll();
+        say('오디오를 붙여넣었습니다');
+        return;
+      }
+      if (board.kind === 'overlay') {
+        commit();
+        const span = Math.max(0.2, Number(data.end) - Number(data.start));
+        const overlay = cloneOverlay(data, pasteAt('overlay', span));
+        project.overlays.push(overlay);
+        state.selected = { kind: 'overlay', id: overlay.id };
+        refreshAll();
+        say('오버레이를 붙여넣었습니다');
+      }
+    }
+
+    /** 속성 패널의 '복제' 버튼 — 고른 항목 바로 뒤에 같은 모양으로 하나 더. */
+    function duplicateSelected() {
+      const selected = state.selected;
+      if (!selected) { say('복제할 것을 고르세요'); return; }
+      const item = itemOf(selected.kind, selected.id);
+      if (!item) { say('복제할 것을 고르세요'); return; }
+      commit();
+      if (selected.kind === 'clip') {
+        const index = project.clips.findIndex((clip) => clip.id === item.id);
+        const copy = cloneClip(item);
+        project.clips.splice(index < 0 ? project.clips.length : index + 1, 0, copy);
+        state.selected = { kind: 'clip', id: copy.id };
+      } else if (selected.kind === 'subtitle') {
+        const span = Math.max(0.2, Number(item.end) - Number(item.start));
+        const copy = cloneSubtitle(item, freeSpan(project.subtitles.filter((sub) => sub.id !== item.id), item.end, span, 0));
+        project.subtitles.push(copy);
+        state.selected = { kind: 'subtitle', id: copy.id };
+      } else if (selected.kind === 'audio') {
+        const span = Math.max(0.2, Number(item.duration) || 1);
+        const start = freeSpan(project.audios.map((audio) => ({ start: audio.start, end: audio.start + Number(audio.duration || 0) })), item.start + span, span, 0);
+        const copy = cloneAudio(item, start);
+        project.audios.push(copy);
+        state.selected = { kind: 'audio', id: copy.id };
+      } else if (selected.kind === 'overlay') {
+        const span = Math.max(0.2, Number(item.end) - Number(item.start));
+        const copy = cloneOverlay(item, freeSpan(project.overlays.filter((ov) => ov.id !== item.id), item.end, span, 0));
+        project.overlays.push(copy);
+        state.selected = { kind: 'overlay', id: copy.id };
+      }
+      refreshAll();
+      say(`${KIND_LABEL[selected.kind]}을(를) 복제했습니다`);
+    }
+
+    /* ------------------------------ 일괄 적용 ------------------------------ */
+
+    /** 고른 자막의 스타일(프리셋·글꼴·크기·색·외곽선·배경·애니메이션·y)을 모든 자막에. */
+    function applySubtitleToAll() {
+      const selected = state.selected && state.selected.kind === 'subtitle' ? subtitleOf(state.selected.id) : null;
+      if (!selected) { say('기준이 될 자막을 고르세요'); return; }
+      if (project.subtitles.length < 2) { say('적용할 다른 자막이 없습니다'); return; }
+      commit();
+      const style = subtitleStyle(selected);
+      project.subtitles.forEach((subtitle) => {
+        if (subtitle.id !== selected.id) applySubtitleStyle(subtitle, style);
+      });
+      refreshAll();
+      say(`자막 ${project.subtitles.length}개에 같은 스타일을 입혔습니다`);
+    }
+
+    /** 고른 클립의 포맷(필터·배속·볼륨·페이드·줌/팬)을 모든 클립에 — 소스·트림은 그대로. */
+    function applyClipToAll() {
+      const selected = state.selected && state.selected.kind === 'clip' ? clipOf(state.selected.id) : null;
+      if (!selected) { say('기준이 될 클립을 고르세요'); return; }
+      if (project.clips.length < 2) { say('적용할 다른 클립이 없습니다'); return; }
+      commit();
+      const format = clipFormat(selected);
+      project.clips.forEach((clip) => {
+        if (clip.id !== selected.id) applyClipFormat(clip, format);
+      });
+      refreshAll();
+      say(`클립 ${project.clips.length}개에 같은 포맷을 입혔습니다`);
     }
 
     /* ------------------------------ 오디오 ------------------------------ */
@@ -537,6 +1131,11 @@ const module = {
         if (index < 0) return;
         commit();
         project.audios.splice(index, 1);
+      } else if (selected.kind === 'overlay') {
+        const index = project.overlays.findIndex((item) => item.id === selected.id);
+        if (index < 0) return;
+        commit();
+        project.overlays.splice(index, 1);
       }
       state.selected = null;
       state.playhead = Math.min(state.playhead, totalDuration(project.clips));
@@ -603,8 +1202,8 @@ const module = {
       return `brightness(${brightness}) contrast(${contrast}) saturate(${sat})`;
     }
 
-    /** 한 장면을 그린다 — 비율 유지(cover)로 캔버스를 채운다. */
-    function drawMedia(context, width, height, item, sourceTime, filter) {
+    /** 한 장면을 그린다 — 비율 유지(cover)로 캔버스를 채우고, 줌/팬은 그 위에 배율로 얹는다. */
+    function drawMedia(context, width, height, item, sourceTime, filter, motion, progress) {
       const entry = elementFor(item);
       const node = entry && entry.node;
       context.save();
@@ -631,6 +1230,13 @@ const module = {
           }
         }
       }
+      // 줌/팬 — 중심점을 기준으로 배율만큼 당겨 그린다(내보내기의 zoompan 과 같은 뜻).
+      if (motion && motion.kind && motion.kind !== 'none') {
+        const moved = motionAt(motion, progress);
+        context.translate(width * moved.cx, height * moved.cy);
+        context.scale(moved.scale, moved.scale);
+        context.translate(-width * moved.cx, -height * moved.cy);
+      }
       const x = (width - drawWidth) / 2;
       const y = (height - drawHeight) / 2;
       if (node) {
@@ -651,11 +1257,50 @@ const module = {
       void natural;
     }
 
-    function drawSubtitleBox(context, width, height, subtitle) {
+    /** 오버레이(PIP) — 메인 영상 위에 크기·위치·불투명도대로 얹는다. */
+    function drawOverlay(context, width, height, overlay) {
+      const item = mediaOf(overlay.mediaId);
+      const entry = elementFor(item);
+      const node = entry && entry.node;
+      const scale = Math.min(1, Math.max(0.05, Number(overlay.scale) || 0.32));
+      const boxWidth = Math.max(24, width * scale);
+      let boxHeight = boxWidth * 0.5625;
+      if (node) {
+        const naturalWidth = node instanceof HTMLVideoElement ? node.videoWidth : (node.naturalWidth || 0);
+        const naturalHeight = node instanceof HTMLVideoElement ? node.videoHeight : (node.naturalHeight || 0);
+        if (naturalWidth && naturalHeight) boxHeight = boxWidth * (naturalHeight / naturalWidth);
+      }
+      const x = overlay.x * width - boxWidth / 2;
+      const y = overlay.y * height - boxHeight / 2;
+      const opacity = Math.min(1, Math.max(0, overlay.opacity === undefined ? 1 : Number(overlay.opacity)));
+      context.save();
+      context.globalAlpha = opacity;
+      if (node && boxHeight > 0) {
+        try {
+          context.drawImage(node, x, y, boxWidth, boxHeight);
+        } catch { /* 아직 디코드되지 않은 프레임 */ }
+      } else {
+        context.fillStyle = 'rgba(40, 44, 42, 0.9)';
+        context.fillRect(x, y, boxWidth, boxHeight);
+        context.fillStyle = '#9AA3A0';
+        context.font = `${Math.round(height * 0.028)}px Pretendard, system-ui, sans-serif`;
+        context.textAlign = 'center';
+        context.fillText(overlay.name || '오버레이', x + boxWidth / 2, y + boxHeight / 2);
+        context.textAlign = 'start';
+      }
+      context.restore();
+      return { x, y, width: boxWidth, height: Math.max(12, boxHeight), overlay };
+    }
+
+    /** 자막 하나 — 등장 애니메이션(투명도·배율·아래서 위로)을 반영해 그린다. */
+    function drawSubtitleBox(context, width, height, subtitle, time) {
       const scale = height / 1080;
       const size = Math.max(12, subtitle.size * scale);
       const family = fontFamilyFor(subtitle);
+      const local = (Number(time) || 0) - Number(subtitle.start || 0);
+      const anim = animationAt(subtitle.animation, local, subtitle.size);
       context.save();
+      context.globalAlpha = Math.max(0, Math.min(1, anim.alpha));
       context.font = `600 ${size}px ${family}`;
       context.textAlign = 'center';
       context.textBaseline = 'middle';
@@ -664,7 +1309,13 @@ const module = {
       const lineHeight = size * 1.28;
       const blockHeight = lines.length * lineHeight;
       const centerX = subtitle.x * width;
-      const centerY = subtitle.y * height;
+      const baseY = subtitle.y * height;
+      if (anim.scale !== 1) {
+        context.translate(centerX, baseY);
+        context.scale(anim.scale, anim.scale);
+        context.translate(-centerX, -baseY);
+      }
+      const centerY = baseY + anim.offsetY * scale;
       const top = centerY - blockHeight / 2 + lineHeight / 2;
 
       if (Number(subtitle.background) > 0) {
@@ -731,6 +1382,8 @@ const module = {
       context.clearRect(0, 0, width, height);
       context.fillStyle = '#000000';
       context.fillRect(0, 0, width, height);
+      const items = layout(project.clips);
+      const ratioOf = (item) => (item ? Math.min(1, Math.max(0, (time - item.start) / Math.max(0.001, item.duration))) : 0);
       const frame = frameAt(project.clips, time);
       if (frame) {
         if (frame.kind === 'transition') {
@@ -740,21 +1393,33 @@ const module = {
             fromItem: mediaOf(fromClip.mediaId),
             fromClip,
             fromTime: frame.from.local,
+            fromRatio: ratioOf(items[frame.from.index]),
             toItem: mediaOf(toClip.mediaId),
             toClip,
             toTime: frame.to.local,
+            toRatio: ratioOf(items[frame.to.index]),
             progress: frame.progress,
             transition: frame.transition,
           });
         } else {
           const clip = project.clips[frame.index];
-          drawMedia(context, width, height, mediaOf(clip.mediaId), frame.local, clip.filter);
+          drawMedia(context, width, height, mediaOf(clip.mediaId), frame.local, clip.filter,
+            clip.motion, ratioOf(items[frame.index]));
         }
       }
+
+      // 오버레이(PIP) — 메인 영상 위, 자막 아래.
+      overlayBoxes = [];
+      project.overlays.forEach((overlay) => {
+        if (time + 0.001 >= Number(overlay.start) && time < Number(overlay.end)) {
+          overlayBoxes.push(drawOverlay(context, width, height, overlay));
+        }
+      });
+
       const boxes = [];
       for (const subtitle of project.subtitles) {
         if (time + 0.001 >= subtitle.start && time < subtitle.end) {
-          boxes.push(drawSubtitleBox(context, width, height, subtitle));
+          boxes.push(drawSubtitleBox(context, width, height, subtitle, time));
         }
       }
       return boxes;
@@ -762,7 +1427,7 @@ const module = {
 
     /** 전환 — 브라우저는 ffmpeg 의 xfade 를 흉내 낸다(가장 비슷한 방식). */
     function drawTransition(context, width, height, options) {
-      const { fromItem, fromClip, fromTime, toItem, toClip, toTime, progress, transition } = options;
+      const { fromItem, fromClip, fromTime, fromRatio, toItem, toClip, toTime, toRatio, progress, transition } = options;
       const t = Math.max(0, Math.min(1, progress));
       const meta = transitionById(transition.kind);
       const family = meta.family;
@@ -771,13 +1436,13 @@ const module = {
       const drawA = (alpha = 1) => {
         context.save();
         context.globalAlpha = alpha;
-        drawMedia(context, width, height, fromItem, fromTime, fromClip.filter);
+        drawMedia(context, width, height, fromItem, fromTime, fromClip.filter, fromClip.motion, fromRatio);
         context.restore();
       };
       const drawB = (alpha = 1) => {
         context.save();
         context.globalAlpha = alpha;
-        drawMedia(context, width, height, toItem, toTime, toClip.filter);
+        drawMedia(context, width, height, toItem, toTime, toClip.filter, toClip.motion, toRatio);
         context.restore();
       };
 
@@ -1102,7 +1767,7 @@ const module = {
         list.append(el('p', { class: 've-empty', text: '아직 넣은 파일이 없습니다' }));
       }
       items.forEach((item) => {
-        const row = el('div', { class: 've-media-row' });
+        const row = el('div', { class: `ve-media-row${item.missing ? ' is-missing' : ''}` });
         const thumb = el('div', { class: 've-media-thumb' });
         if (item.kind === 'image' && item.url) {
           thumb.append(el('img', { src: item.url, alt: '' }));
@@ -1111,14 +1776,36 @@ const module = {
         }
         const body = el('div', { class: 've-media-body' }, [
           el('div', { class: 've-media-name', text: item.name }),
-          el('div', { class: 've-media-meta', text: `${item.kind === 'image' ? '이미지' : '영상'} · ${item.duration ? friendlyDuration(item.duration) : '길이 확인 중'}` }),
+          el('div', { class: 've-media-meta', text: item.missing ? '파일 없음 · 다시 연결하세요' : `${item.kind === 'image' ? '이미지' : '영상'} · ${item.duration ? friendlyDuration(item.duration) : '길이 확인 중'}` }),
         ]);
-        const add = el('button', { class: 've-mini-btn', type: 'button', text: '넣기', 'aria-label': `${item.name} 타임라인에 넣기` });
-        add.addEventListener('click', () => addMediaToTimeline(item));
-        row.append(thumb, body, add);
+        const actions = el('div', { class: 've-media-actions' });
+        if (item.missing) {
+          const relink = el('button', { class: 've-mini-btn', type: 'button', text: '다시 연결', 'aria-label': `${item.name} 다시 연결` });
+          relink.addEventListener('click', () => relinkMedia(item));
+          actions.append(relink);
+        } else {
+          const add = el('button', { class: 've-mini-btn', type: 'button', text: '넣기', 'aria-label': `${item.name} 타임라인에 넣기` });
+          add.addEventListener('click', () => addMediaToTimeline(item));
+          actions.append(add);
+          if (item.kind !== 'audio') {
+            const pip = el('button', { class: 've-mini-btn', type: 'button', text: 'PIP', 'aria-label': `${item.name} 오버레이로 얹기` });
+            pip.addEventListener('click', () => addOverlayFromMedia(item));
+            actions.append(pip);
+          }
+        }
+        row.append(thumb, body, actions);
         list.append(row);
       });
       wrap.append(list);
+
+      // 프로젝트 파일 — 다른 브라우저·다른 날로 옮기거나 보관할 때.
+      const projectRow = el('div', { class: 've-btn-row' });
+      const saveProject = el('button', { class: 've-btn', type: 'button', text: '프로젝트 저장' });
+      saveProject.addEventListener('click', saveProjectFile);
+      const openProject = el('button', { class: 've-btn', type: 'button', text: '프로젝트 열기' });
+      openProject.addEventListener('click', openProjectFile);
+      projectRow.append(saveProject, openProject);
+      wrap.append(projectRow, el('p', { class: 've-hint', text: '작업은 자동으로 저장됩니다. .tipproj 파일로 보관하면 다른 기기에서도 이어서 열 수 있습니다.' }));
       return wrap;
     }
 
@@ -1177,6 +1864,7 @@ const module = {
         const start = Math.max(0, state.playhead);
         const end = start + Math.min(3, Math.max(1.2, totalDuration(project.clips) - start || 2));
         const subtitle = createSubtitle(text, start, end);
+        applySubtitlePreset(subtitle, state.defaultPreset);
         project.subtitles.push(subtitle);
         state.selected = { kind: 'subtitle', id: subtitle.id };
         area.value = '';
@@ -1184,6 +1872,48 @@ const module = {
       });
       row.append(add);
       wrap.append(area, row, el('p', { class: 've-hint', text: '미리보기에서 자막을 끌어 위치를 바꿀 수 있습니다. 글꼴·색은 오른쪽 속성에서.' }));
+
+      // 스타일 프리셋 — 고른 자막에 바로 입히고, 다음에 만드는 자막에도 같은 프리셋을 쓴다.
+      wrap.append(el('p', { class: 've-field-label', text: '스타일 프리셋' }));
+      const presetGrid = el('div', { class: 've-preset-grid' });
+      SUBTITLE_PRESETS.forEach((preset) => {
+        const selectedSub = state.selected && state.selected.kind === 'subtitle' ? subtitleOf(state.selected.id) : null;
+        const on = selectedSub
+          ? matchSubtitlePreset(selectedSub) === preset.id
+          : state.defaultPreset === preset.id;
+        const button = el('button', {
+          class: `ve-preset${on ? ' is-on' : ''}`,
+          type: 'button',
+          text: preset.label,
+          'aria-label': `${preset.label} 자막 프리셋`,
+        });
+        button.addEventListener('click', () => {
+          state.defaultPreset = preset.id;
+          const subtitle = state.selected && state.selected.kind === 'subtitle' ? subtitleOf(state.selected.id) : null;
+          if (!subtitle) { renderLeft(); say(`${preset.label} 프리셋을 다음 자막에 씁니다`); return; }
+          commit();
+          applySubtitlePreset(subtitle, preset.id);
+          refreshAll();
+          say(`${preset.label} 프리셋을 입혔습니다`);
+        });
+        presetGrid.append(button);
+      });
+      wrap.append(presetGrid);
+
+      // 자동 자막 — Mac 앱의 whisper.cpp 로 소리를 받아 적는다.
+      const autoRow = el('div', { class: 've-btn-row' });
+      const auto = el('button', {
+        class: 've-btn',
+        type: 'button',
+        text: IS_MAC ? '음성으로 자동 자막' : '자동 자막 (Mac 앱)',
+        'aria-label': '음성으로 자동 자막',
+      });
+      auto.addEventListener('click', () => {
+        if (!IS_MAC) { say('자동 자막은 Mac 앱에서 됩니다(whisper.cpp)'); return; }
+        whisperDialog();
+      });
+      autoRow.append(auto);
+      wrap.append(autoRow);
 
       const list = el('div', { class: 've-sub-list' });
       if (!project.subtitles.length) list.append(el('p', { class: 've-empty', text: '아직 자막이 없습니다' }));
@@ -1327,6 +2057,9 @@ const module = {
           el('div', { class: 've-keys' }, [
             el('div', { class: 've-key' }, [el('kbd', { text: 'Space' }), el('span', { text: '재생·정지' })]),
             el('div', { class: 've-key' }, [el('kbd', { text: 'S' }), el('span', { text: '클립 나누기' })]),
+            el('div', { class: 've-key' }, [el('kbd', { text: '← →' }), el('span', { text: '1프레임 이동' })]),
+            el('div', { class: 've-key' }, [el('kbd', { text: '⇧ ← →' }), el('span', { text: '0.5초 이동' })]),
+            el('div', { class: 've-key' }, [el('kbd', { text: '⌘C / ⌘V' }), el('span', { text: '복사·붙여넣기' })]),
             el('div', { class: 've-key' }, [el('kbd', { text: '⌘Z' }), el('span', { text: '되돌리기' })]),
             el('div', { class: 've-key' }, [el('kbd', { text: '⌫' }), el('span', { text: '고른 것 지우기' })]),
           ]),
@@ -1390,6 +2123,57 @@ const module = {
           onInput: (value) => { clip.transition = { ...(clip.transition || { kind: 'fade' }), duration: value }; },
         })));
 
+        // 줌/팬 — 프리셋을 고르면 시작·끝 배율과 중심점이 채워지고, '직접 설정'은 슬라이더로 맞춘다.
+        const motionSelect = el('select', { class: 've-select', 'aria-label': '줌/팬' });
+        MOTIONS.forEach((motion) => {
+          const option = el('option', { value: motion.id, text: motion.label });
+          if (((clip.motion && clip.motion.kind) || 'none') === motion.id) option.selected = true;
+          motionSelect.append(option);
+        });
+        motionSelect.addEventListener('change', () => {
+          commit();
+          if (!clip.motion) clip.motion = createMotion();
+          applyMotionPreset(clip.motion, motionSelect.value);
+          refreshAll();
+          say(`${motionById(motionSelect.value).label} 효과를 넣었습니다`);
+        });
+        wrap.append(field('줌/팬', motionSelect));
+
+        if (clip.motion && clip.motion.kind && clip.motion.kind !== 'none') {
+          wrap.append(field('시작 배율', slider({
+            min: 1, max: 2.5, step: 0.01, value: clip.motion.startScale,
+            format: (value) => `${value.toFixed(2)}x`,
+            onInput: (value) => { clip.motion.startScale = value; drawPreview(); },
+          })));
+          wrap.append(field('끝 배율', slider({
+            min: 1, max: 2.5, step: 0.01, value: clip.motion.endScale,
+            format: (value) => `${value.toFixed(2)}x`,
+            onInput: (value) => { clip.motion.endScale = value; drawPreview(); },
+          })));
+          if (clip.motion.kind === 'custom') {
+            wrap.append(field('시작 중심 가로', slider({
+              min: 0, max: 1, step: 0.01, value: clip.motion.startX,
+              format: (value) => `${Math.round(value * 100)}%`,
+              onInput: (value) => { clip.motion.startX = value; drawPreview(); },
+            })));
+            wrap.append(field('끝 중심 가로', slider({
+              min: 0, max: 1, step: 0.01, value: clip.motion.endX,
+              format: (value) => `${Math.round(value * 100)}%`,
+              onInput: (value) => { clip.motion.endX = value; drawPreview(); },
+            })));
+            wrap.append(field('시작 중심 세로', slider({
+              min: 0, max: 1, step: 0.01, value: clip.motion.startY,
+              format: (value) => `${Math.round(value * 100)}%`,
+              onInput: (value) => { clip.motion.startY = value; drawPreview(); },
+            })));
+            wrap.append(field('끝 중심 세로', slider({
+              min: 0, max: 1, step: 0.01, value: clip.motion.endY,
+              format: (value) => `${Math.round(value * 100)}%`,
+              onInput: (value) => { clip.motion.endY = value; drawPreview(); },
+            })));
+          }
+        }
+
         if (!item || !item.path) {
           wrap.append(el('p', { class: 've-hint', text: '브라우저에서 넣은 파일은 화면으로 미리 보며 편집하고, Mac 앱에서는 같은 작업을 ffmpeg 로 한 번에 내보냅니다.' }));
         }
@@ -1397,10 +2181,18 @@ const module = {
         const actions = el('div', { class: 've-btn-row' });
         const split = el('button', { class: 've-btn', type: 'button', text: '나누기 (S)' });
         split.addEventListener('click', splitAtPlayhead);
+        const duplicate = el('button', { class: 've-btn', type: 'button', text: '클립 복제', 'aria-label': '클립 복제' });
+        duplicate.addEventListener('click', duplicateSelected);
         const remove = el('button', { class: 've-btn ve-btn-danger', type: 'button', text: '클립 지우기' });
         remove.addEventListener('click', deleteSelected);
-        actions.append(split, remove);
+        actions.append(split, duplicate, remove);
         wrap.append(actions);
+
+        const applyRow = el('div', { class: 've-btn-row' });
+        const applyAll = el('button', { class: 've-btn', type: 'button', text: '모든 클립에 적용', 'aria-label': '모든 클립에 적용' });
+        applyAll.addEventListener('click', applyClipToAll);
+        applyRow.append(applyAll);
+        wrap.append(applyRow, el('p', { class: 've-hint', text: '필터·배속·볼륨·페이드·줌/팬을 모든 클립에 그대로 입힙니다(소스·자르기 구간은 그대로).' }));
         propsBody.append(wrap);
         return;
       }
@@ -1496,11 +2288,48 @@ const module = {
           onInput: (value) => { subtitle.end = Math.max(value, subtitle.start + 0.2); drawPreview(); },
         })));
 
+        // 스타일 프리셋 — 한 번에 글꼴·크기·색·외곽선·배경·세로 위치· 애니메이션.
+        const presetSelect = el('select', { class: 've-select', 'aria-label': '자막 프리셋' });
+        SUBTITLE_PRESETS.forEach((preset) => {
+          const option = el('option', { value: preset.id, text: preset.label });
+          if (matchSubtitlePreset(subtitle) === preset.id) option.selected = true;
+          presetSelect.append(option);
+        });
+        presetSelect.addEventListener('change', () => {
+          commit();
+          applySubtitlePreset(subtitle, presetSelect.value);
+          state.defaultPreset = presetSelect.value;
+          refreshAll();
+          say(`${subtitlePresetById(presetSelect.value).label} 프리셋을 입혔습니다`);
+        });
+        wrap.append(field('프리셋', presetSelect));
+
+        const animSelect = el('select', { class: 've-select', 'aria-label': '등장 애니메이션' });
+        SUBTITLE_ANIMATIONS.forEach((animation) => {
+          const option = el('option', { value: animation.id, text: animation.label });
+          if ((subtitle.animation || 'none') === animation.id) option.selected = true;
+          animSelect.append(option);
+        });
+        animSelect.addEventListener('change', () => {
+          commit();
+          subtitle.animation = animSelect.value;
+          refreshAll();
+        });
+        wrap.append(field('등장 애니메이션', animSelect));
+
         const actions = el('div', { class: 've-btn-row' });
+        const duplicate = el('button', { class: 've-btn', type: 'button', text: '자막 복제', 'aria-label': '자막 복제' });
+        duplicate.addEventListener('click', duplicateSelected);
         const remove = el('button', { class: 've-btn ve-btn-danger', type: 'button', text: '자막 지우기' });
         remove.addEventListener('click', deleteSelected);
-        actions.append(remove);
+        actions.append(duplicate, remove);
         wrap.append(actions);
+
+        const applyRow = el('div', { class: 've-btn-row' });
+        const applyAll = el('button', { class: 've-btn', type: 'button', text: '모든 자막에 적용', 'aria-label': '모든 자막에 적용' });
+        applyAll.addEventListener('click', applySubtitleToAll);
+        applyRow.append(applyAll);
+        wrap.append(applyRow, el('p', { class: 've-hint', text: '프리셋·글꼴·크기·색·외곽선·배경·애니메이션·세로 위치를 다른 자막에도 그대로 입힙니다(글자·시간은 그대로).' }));
         propsBody.append(wrap);
         return;
       }
@@ -1536,11 +2365,60 @@ const module = {
           onInput: (value) => { audio.fadeOut = value; },
         })));
         const actions = el('div', { class: 've-btn-row' });
+        const duplicate = el('button', { class: 've-btn', type: 'button', text: '오디오 복제', 'aria-label': '오디오 복제' });
+        duplicate.addEventListener('click', duplicateSelected);
         const remove = el('button', { class: 've-btn ve-btn-danger', type: 'button', text: '오디오 지우기' });
         remove.addEventListener('click', deleteSelected);
-        actions.append(remove);
+        actions.append(duplicate, remove);
         wrap.append(actions);
         propsBody.append(wrap);
+        return;
+      }
+
+      if (selected.kind === 'overlay') {
+        const overlay = overlayOf(selected.id);
+        if (!overlay) { state.selected = null; renderProps(); return; }
+        const wrap = el('div', { class: 've-stack' });
+        wrap.append(el('h3', { class: 've-prop-title', text: `오버레이 · ${overlay.name}` }));
+        wrap.append(field('시작', slider({
+          min: 0, max: Math.max(1, totalDuration(project.clips)), step: 0.05, value: overlay.start,
+          format: (value) => timecode(value),
+          onInput: (value) => { overlay.start = Math.min(value, overlay.end - 0.2); renderTimeline(); drawPreview(); },
+        })));
+        wrap.append(field('끝', slider({
+          min: 0, max: Math.max(1, totalDuration(project.clips) + 5), step: 0.05, value: overlay.end,
+          format: (value) => timecode(value),
+          onInput: (value) => { overlay.end = Math.max(value, overlay.start + 0.2); renderTimeline(); drawPreview(); },
+        })));
+        wrap.append(field('크기', slider({
+          min: 0.05, max: 1, step: 0.01, value: overlay.scale,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { overlay.scale = value; drawPreview(); },
+        }), '가로 폭 기준입니다. 미리보기에서 끌어 옮길 수 있습니다'));
+        wrap.append(field('가로 위치', slider({
+          min: 0, max: 1, step: 0.01, value: overlay.x,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { overlay.x = value; drawPreview(); },
+        })));
+        wrap.append(field('세로 위치', slider({
+          min: 0, max: 1, step: 0.01, value: overlay.y,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { overlay.y = value; drawPreview(); },
+        })));
+        wrap.append(field('불투명도', slider({
+          min: 0, max: 1, step: 0.01, value: overlay.opacity === undefined ? 1 : overlay.opacity,
+          format: (value) => `${Math.round(value * 100)}%`,
+          onInput: (value) => { overlay.opacity = value; drawPreview(); },
+        })));
+        const actions = el('div', { class: 've-btn-row' });
+        const duplicate = el('button', { class: 've-btn', type: 'button', text: '오버레이 복제', 'aria-label': '오버레이 복제' });
+        duplicate.addEventListener('click', duplicateSelected);
+        const remove = el('button', { class: 've-btn ve-btn-danger', type: 'button', text: '오버레이 지우기' });
+        remove.addEventListener('click', deleteSelected);
+        actions.append(duplicate, remove);
+        wrap.append(actions);
+        propsBody.append(wrap);
+        return;
       }
     }
 
@@ -1556,6 +2434,8 @@ const module = {
       playheadEl.style.transform = `translateX(${left}px)`;
       const rulerTime = timeNow.textContent;
       playheadEl.dataset.time = rulerTime;
+      // 화면에는 0.1초까지 보이지만, 자동 검사는 정밀한 위치를 읽는다.
+      playheadEl.dataset.seconds = Number(state.playhead).toFixed(3);
       renderTimelineMeta();
     }
 
@@ -1594,6 +2474,7 @@ const module = {
           block.style.left = `${item.start * state.zoom}px`;
           block.style.width = `${Math.max(18, item.duration * state.zoom)}px`;
           block.dataset.clipId = clip.id;
+          block.dataset.start = Number(item.start).toFixed(3);
           const mediaItem = mediaOf(clip.mediaId);
           if (mediaItem && mediaItem.kind === 'image' && mediaItem.url) {
             block.style.backgroundImage = `linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), url("${mediaItem.url}")`;
@@ -1634,7 +2515,31 @@ const module = {
           block.style.left = `${subtitle.start * state.zoom}px`;
           block.style.width = `${Math.max(16, (subtitle.end - subtitle.start) * state.zoom)}px`;
           block.dataset.subId = subtitle.id;
+          block.dataset.start = Number(subtitle.start).toFixed(3);
           block.append(el('span', { class: 've-sub-block-text', text: subtitle.text }));
+          block.append(el('span', { class: 've-trim ve-trim-left', 'data-trim': 'left' }));
+          block.append(el('span', { class: 've-trim ve-trim-right', 'data-trim': 'right' }));
+          track.append(block);
+        });
+      }
+
+      if (kind === 'overlay') {
+        if (!project.overlays.length) {
+          track.append(el('p', { class: 've-track-empty', text: '오버레이(PIP) 트랙' }));
+        }
+        project.overlays.forEach((overlay) => {
+          const on = state.selected && state.selected.kind === 'overlay' && state.selected.id === overlay.id;
+          const block = el('div', {
+            class: `ve-overlay-block${on ? ' is-on' : ''}`,
+            role: 'button',
+            tabindex: '0',
+            'aria-label': `오버레이 ${overlay.name}`,
+          });
+          block.style.left = `${overlay.start * state.zoom}px`;
+          block.style.width = `${Math.max(16, (overlay.end - overlay.start) * state.zoom)}px`;
+          block.dataset.overlayId = overlay.id;
+          block.dataset.start = Number(overlay.start).toFixed(3);
+          block.append(el('span', { class: 've-sub-block-text', text: `PIP · ${overlay.name}` }));
           block.append(el('span', { class: 've-trim ve-trim-left', 'data-trim': 'left' }));
           block.append(el('span', { class: 've-trim ve-trim-right', 'data-trim': 'right' }));
           track.append(block);
@@ -1656,6 +2561,7 @@ const module = {
           block.style.left = `${audio.start * state.zoom}px`;
           block.style.width = `${Math.max(16, audio.duration * state.zoom)}px`;
           block.dataset.audioId = audio.id;
+          block.dataset.start = Number(audio.start).toFixed(3);
           block.append(el('span', { class: 've-sub-block-text', text: audio.name }));
           block.append(el('span', { class: 've-trim ve-trim-left', 'data-trim': 'left' }));
           block.append(el('span', { class: 've-trim ve-trim-right', 'data-trim': 'right' }));
@@ -1669,7 +2575,7 @@ const module = {
       const width = timelineWidth();
       renderRuler(width);
       trackArea.innerHTML = '';
-      ['video', 'subtitle', 'audio'].forEach((kind) => trackArea.append(renderTrack(kind, width)));
+      ['video', 'overlay', 'subtitle', 'audio'].forEach((kind) => trackArea.append(renderTrack(kind, width)));
       timelineInner.style.width = `${width}px`;
       updatePlayhead();
     }
@@ -1699,12 +2605,53 @@ const module = {
       zoomIn.addEventListener('click', () => { state.zoom = Math.min(240, state.zoom * 1.4); renderTimeline(); });
       const zoomValue = el('span', { class: 've-zoom', text: `${Math.round(state.zoom)}px/초` });
 
+      const snapBtn = el('button', {
+        class: `ve-icon-btn${state.snap ? ' is-on' : ''}`,
+        type: 'button',
+        html: ICON_SNAP,
+        'aria-label': '자석 스냅',
+        'aria-pressed': state.snap ? 'true' : 'false',
+        title: `자석 스냅 ${state.snap ? '켜짐' : '꺼짐'}`,
+      });
+      snapBtn.addEventListener('click', () => {
+        state.snap = !state.snap;
+        if (!state.snap) hideSnapGuide();
+        renderToolbar();
+        say(state.snap ? '자석 스냅을 켰습니다' : '자석 스냅을 껐습니다');
+      });
+
+      savedHint = el('span', { class: 've-saved' });
+      renderSavedHint();
+
       timelineToolbar.append(
         timelineMeta,
         el('div', { class: 've-tl-group' }, [split, remove]),
         el('div', { class: 've-tl-group' }, [undoBtn, redoBtn]),
+        el('div', { class: 've-tl-group' }, [snapBtn]),
         el('div', { class: 've-tl-group ve-zoom-group' }, [zoomOut, zoomValue, zoomIn]),
+        savedHint,
       );
+    }
+
+    /* ------------------------------ 자석 스냅 ------------------------------ */
+
+    /** 스냅 판정 거리 — 화면 8px 를 초로 바꾼 값. */
+    function snapTolerance() {
+      return SNAP_PIXELS / Math.max(1, state.zoom);
+    }
+
+    function showSnapGuide(time) {
+      snapGuide.style.left = `${Number(time) * state.zoom}px`;
+      snapGuide.classList.add('is-on');
+    }
+
+    function hideSnapGuide() {
+      snapGuide.classList.remove('is-on');
+    }
+
+    /** 끌고 있는 항목(kind·id)을 뺀 스냅 후보. */
+    function snapCandidates(kind, id) {
+      return snapTargets(project, state.playhead, id);
     }
 
     /* ------------------------------ 비율 막대 ------------------------------ */
@@ -1735,6 +2682,8 @@ const module = {
 
     function engineNotice() {
       noticeHost.innerHTML = '';
+      const missing = missingNotice();
+      if (missing) noticeHost.append(missing);
       if (!IS_MAC) {
         noticeHost.append(el('div', { class: 've-notice' }, [
           el('span', { class: 've-notice-text', text: '웹에서는 브라우저로 HD·FHD까지 저장합니다. 2K·4K와 빠른 인코딩은 Mac 앱에서.' }),
@@ -1773,7 +2722,11 @@ const module = {
     }
 
     async function loadEngine() {
-      if (!IS_MAC) return;
+      if (!IS_MAC) {
+        // 웹에서도 상단 안내를 그린다 — v1.23.0 은 여기서 그냥 돌아가 안내 띠가 사라졌다.
+        engineNotice();
+        return;
+      }
       try {
         state.engine = await invoke('video_engine_status');
       } catch (error) {
@@ -1856,6 +2809,9 @@ const module = {
         const missing = project.clips.find((clip) => {
           const item = mediaOf(clip.mediaId);
           return !item || !item.path;
+        }) || project.overlays.find((overlay) => {
+          const item = mediaOf(overlay.mediaId);
+          return !item || !item.path;
         });
         if (missing) {
           say('Mac 에서는 파일 선택 창으로 넣은 파일만 내보낼 수 있습니다');
@@ -1891,12 +2847,34 @@ const module = {
               brightness: (Number(clip.filter.brightness) || 1) - 1,
               contrast: Number(clip.filter.contrast) || 1,
               saturation: clip.filter.saturation === undefined ? 1 : Number(clip.filter.saturation),
+              motion: clip.motion && clip.motion.kind && clip.motion.kind !== 'none' ? {
+                kind: clip.motion.kind,
+                startScale: Number(clip.motion.startScale) || 1,
+                endScale: Number(clip.motion.endScale) || 1,
+                startX: clip.motion.startX === undefined ? 0.5 : Number(clip.motion.startX),
+                startY: clip.motion.startY === undefined ? 0.5 : Number(clip.motion.startY),
+                endX: clip.motion.endX === undefined ? 0.5 : Number(clip.motion.endX),
+                endY: clip.motion.endY === undefined ? 0.5 : Number(clip.motion.endY),
+              } : null,
               transition: clip.transition ? {
                 kind: clip.transition.kind,
                 duration: Number(clip.transition.duration) || 0,
               } : null,
             };
           }),
+          overlays: project.overlays.map((overlay) => {
+            const item = mediaOf(overlay.mediaId);
+            return {
+              path: item ? item.path : '',
+              kind: overlay.kind === 'image' ? 'image' : 'video',
+              start: Number(overlay.start) || 0,
+              end: Number(overlay.end) || 0,
+              x: overlay.x,
+              y: overlay.y,
+              scale: overlay.scale,
+              opacity: overlay.opacity === undefined ? 1 : Number(overlay.opacity),
+            };
+          }).filter((overlay) => overlay.path),
           subtitles: project.subtitles.map((subtitle) => ({
             text: subtitle.text,
             start: subtitle.start,
@@ -1908,6 +2886,7 @@ const module = {
             outlineColor: subtitle.outlineColor,
             outlineWidth: subtitle.outlineWidth,
             background: subtitle.background,
+            animation: subtitle.animation || 'none',
             x: subtitle.x,
             y: subtitle.y,
           })),
@@ -1984,6 +2963,184 @@ const module = {
       document.body.append(overlay);
       document.addEventListener('keydown', onKey, true);
       start.focus();
+    }
+
+    /* ------------------------------ 자동 자막(whisper.cpp) ------------------------------ */
+
+    const WHISPER_LANGUAGES = [
+      { id: 'auto', label: '자동 감지' },
+      { id: 'ko', label: '한국어' },
+      { id: 'en', label: '영어' },
+      { id: 'ja', label: '일본어' },
+      { id: 'zh', label: '중국어' },
+    ];
+
+    /** 받아 적을 클립 목록 — 전체 타임라인 또는 고른 클립 하나. 음성이 없는 이미지는 뻐긴다. */
+    function transcribeClips(scope) {
+      const source = scope === 'clip' && state.selected && state.selected.kind === 'clip'
+        ? [clipOf(state.selected.id)].filter(Boolean)
+        : project.clips;
+      return source
+        .filter((clip) => clip.kind !== 'image')
+        .map((clip) => {
+          const item = mediaOf(clip.mediaId);
+          return item && item.path ? {
+            path: item.path,
+            trimStart: Number(clip.trimStart) || 0,
+            trimEnd: Number(clip.trimEnd) || 0,
+            speed: Number(clip.speed) || 1,
+          } : null;
+        })
+        .filter(Boolean);
+    }
+
+    function whisperDialog() {
+      const overlay = el('div', { class: 've-modal-overlay' });
+      const dialog = el('div', { class: 've-modal ve-whisper', role: 'dialog', 'aria-modal': 'true', 'aria-label': '음성으로 자동 자막' });
+      const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+      const onKey = (event) => {
+        if (event.key === 'Escape' && !state.whisperBusy) { event.preventDefault(); close(); }
+      };
+
+      const language = el('select', { class: 've-select', 'aria-label': '언어' });
+      WHISPER_LANGUAGES.forEach((item) => {
+        const option = el('option', { value: item.id, text: item.label });
+        if (item.id === 'ko') option.selected = true;
+        language.append(option);
+      });
+
+      const scope = el('select', { class: 've-select', 'aria-label': '범위' });
+      const whole = el('option', { value: 'all', text: `타임라인 전체 (${transcribeClips('all').length}개 클립)` });
+      scope.append(whole);
+      const selectedClip = state.selected && state.selected.kind === 'clip' ? clipOf(state.selected.id) : null;
+      if (selectedClip && selectedClip.kind !== 'image') {
+        const one = el('option', { value: 'clip', text: `고른 클립: ${selectedClip.name}` });
+        scope.append(one);
+      }
+
+      const ready = !!(state.whisper && state.whisper.available);
+      const sizeMb = Math.round(((state.whisper && state.whisper.downloadSize) || 150 * 1024 * 1024) / (1024 * 1024));
+      const status = el('p', {
+        class: 've-hint',
+        text: ready
+          ? `받아 적기 엔진 준비됨. ${(state.whisper && state.whisper.model) || 'ggml-base'} 모델을 Mac 안에서만 씁니다.`
+          : `처음 한 번 whisper.cpp 엔진과 한국어 모델(약 ${sizeMb}MB)을 내려받습니다. 내려받은 뒤에는 인터넷 없이도 됩니다.`,
+      });
+      const bar = el('div', { class: 've-progress' }, [el('span', { style: 'width:0%' })]);
+      const progressText = el('p', { class: 've-hint', text: '' });
+
+      const actions = el('div', { class: 've-modal-actions' });
+      const cancel = el('button', { class: 've-btn', type: 'button', text: '취소' });
+      cancel.addEventListener('click', () => {
+        if (state.whisperBusy) {
+          invoke('video_cancel_transcribe').catch(() => {});
+          progressText.textContent = '취소하는 중…';
+          return;
+        }
+        close();
+      });
+      const download = el('button', { class: 've-btn', type: 'button', text: `엔진 받기 (약 ${sizeMb}MB)` });
+      download.hidden = ready;
+      download.addEventListener('click', async () => {
+        download.disabled = true;
+        progressText.textContent = '내려받는 중…';
+        try {
+          state.whisper = await invoke('video_whisper_download');
+          say('자동 자막 엔진을 준비했습니다');
+          progressText.textContent = '준비되었습니다';
+          status.textContent = '받아 적기 엔진 준비됨. ggml-base 모델을 Mac 안에서만 씁니다.';
+          start.disabled = false;
+        } catch (error) {
+          console.warn('[TIP video] whisper 다운로드', error);
+          progressText.textContent = typeof error === 'string' ? error : '엔진을 내려받지 못했습니다';
+        } finally {
+          download.disabled = false;
+        }
+      });
+      const start = el('button', { class: 've-btn ve-btn-primary', type: 'button', text: '자막 만들기' });
+      start.disabled = !ready;
+      actions.append(cancel, download, start);
+
+      const run = async () => {
+        const clips = transcribeClips(scope.value);
+        if (!clips.length) { progressText.textContent = '받아 적을 영상이 없습니다'; return; }
+        state.whisperBusy = true;
+        start.disabled = true;
+        cancel.textContent = '중단';
+        progressText.textContent = '소리를 뽑는 중…';
+        bar.firstChild.style.width = '2%';
+        try {
+          const result = await invoke('video_transcribe', {
+            spec: { clips, language: language.value },
+          });
+          const segments = (result && result.segments) || [];
+          if (!segments.length) {
+            progressText.textContent = '알아들은 말이 없습니다'; return;
+          }
+          commit();
+          const offset = project.clips.length ? layout(project.clips)[0].start : 0;
+          const created = segments.map((segment) => {
+            const subtitle = createSubtitle(String(segment.text || '').trim(), offset + Number(segment.start || 0), offset + Number(segment.end || 0));
+            applySubtitlePreset(subtitle, state.defaultPreset);
+            subtitle.animation = 'none';
+            return subtitle;
+          }).filter((subtitle) => subtitle.text && subtitle.end > subtitle.start + 0.05);
+          created.forEach((subtitle) => project.subtitles.push(subtitle));
+          if (created.length) {
+            state.selected = { kind: 'subtitle', id: created[0].id };
+            seek(created[0].start);
+          }
+          refreshAll();
+          bar.firstChild.style.width = '100%';
+          progressText.textContent = `자막 ${created.length}개를 만들었습니다`;
+          say(`자막 ${created.length}개를 만들었습니다`);
+          start.textContent = '닫기';
+          start.disabled = false;
+          start.removeEventListener('click', run);
+          start.addEventListener('click', close);
+        } catch (error) {
+          console.warn('[TIP video] 자동 자막', error);
+          progressText.textContent = typeof error === 'string' ? error : '자막을 만들지 못했습니다';
+          start.disabled = false;
+        } finally {
+          state.whisperBusy = false;
+          cancel.textContent = '취소';
+        }
+      };
+      start.addEventListener('click', run);
+
+      dialog.append(
+        el('div', { class: 've-modal-head' }, [
+          el('h2', { text: '음성으로 자동 자막' }),
+          (() => {
+            const button = el('button', { class: 've-icon-btn', type: 'button', html: icons.close, 'aria-label': '닫기' });
+            button.addEventListener('click', () => { if (!state.whisperBusy) close(); });
+            return button;
+          })(),
+        ]),
+        el('div', { class: 've-modal-body' }, [
+          field('언어', language),
+          field('범위', scope),
+          status,
+          bar,
+          progressText,
+        ]),
+        actions,
+      );
+      overlay.append(dialog);
+      document.body.append(overlay);
+      document.addEventListener('keydown', onKey, true);
+      start.focus();
+    }
+
+    async function loadWhisper() {
+      if (!IS_MAC) return;
+      try {
+        state.whisper = await invoke('video_whisper_status');
+      } catch (error) {
+        console.warn('[TIP video] whisper 상태', error);
+        state.whisper = { available: false, downloadSize: 150 * 1024 * 1024 };
+      }
     }
 
     /* ------------------------------ 웹 내보내기 ------------------------------ */
@@ -2093,6 +3250,8 @@ const module = {
       renderAspects();
       renderTimeline();
       drawPreview();
+      engineNotice();
+      scheduleSave();
     }
 
     /* ------------------------------ 입력 ------------------------------ */
@@ -2119,22 +3278,27 @@ const module = {
       const clipBlock = target.closest('[data-clip-id]');
       const subBlock = target.closest('[data-sub-id]');
       const audioBlock = target.closest('[data-audio-id]');
+      const overlayBlock = target.closest('[data-overlay-id]');
       const trim = target.closest('[data-trim]');
 
-      if (clipBlock || subBlock || audioBlock) {
-        const kind = clipBlock ? 'clip' : subBlock ? 'subtitle' : 'audio';
-        const id = clipBlock ? clipBlock.dataset.clipId : subBlock ? subBlock.dataset.subId : audioBlock.dataset.audioId;
+      if (clipBlock || subBlock || audioBlock || overlayBlock) {
+        const kind = clipBlock ? 'clip' : subBlock ? 'subtitle' : audioBlock ? 'audio' : 'overlay';
+        const id = clipBlock ? clipBlock.dataset.clipId
+          : subBlock ? subBlock.dataset.subId
+            : audioBlock ? audioBlock.dataset.audioId
+              : overlayBlock.dataset.overlayId;
         state.selected = { kind, id };
-        const blockEl = clipBlock || subBlock || audioBlock;
+        const blockEl = clipBlock || subBlock || audioBlock || overlayBlock;
         if (trim) {
           const side = trim.dataset.trim;
           const clip = kind === 'clip' ? clipOf(id) : null;
           const subtitle = kind === 'subtitle' ? subtitleOf(id) : null;
           const audio = kind === 'audio' ? audioOf(id) : null;
-          drag = { mode: 'trim', kind, id, side, startX: event.clientX, clip, subtitle, audio };
+          const overlay = kind === 'overlay' ? overlayOf(id) : null;
+          drag = { mode: 'trim', kind, id, side, startX: event.clientX, clip, subtitle, audio, overlay };
           commit();
         } else {
-          const item = clipBlock ? clipOf(id) : subBlock ? subtitleOf(id) : audioOf(id);
+          const item = itemOf(kind, id);
           drag = {
             mode: 'move',
             kind,
@@ -2146,8 +3310,11 @@ const module = {
           };
         }
         blockEl.setPointerCapture?.(event.pointerId);
+        // 여기서 타임라인을 통째로 다시 그리면 방금 잡은 포인터가 붙어 있던 요소가 사라져
+        // 끌기가 첫 줌에 끊긴다. 선택 표시만 바꾸고 다시 그리기는 pointermove 에 맡긴다.
+        timelineScroll.querySelectorAll('.is-on').forEach((node) => node.classList.remove('is-on'));
+        blockEl.classList.add('is-on');
         renderProps();
-        renderTimeline();
         drawPreview();
         event.preventDefault();
         return;
@@ -2161,7 +3328,9 @@ const module = {
       }
     });
 
-    timelineScroll.addEventListener('pointermove', (event) => {
+    // 끌기는 window 에서 받는다 — 움직일 때마다 타임라인을 다시 그리므로(블록이 새로 만들어짐)
+    // timelineScroll 에만 걸어 두면 포인터 캡처가 붙은 요소가 사라져 이벤트가 끊긴다.
+    window.addEventListener('pointermove', (event) => {
       if (!drag) return;
       if (drag.mode === 'seek') {
         seek(timeFromEvent(event));
@@ -2171,7 +3340,11 @@ const module = {
       const deltaSeconds = deltaX / state.zoom;
 
       if (drag.mode === 'move') {
-        if (Math.abs(deltaX) > 3) drag.moved = true;
+        if (Math.abs(deltaX) > 3 && !drag.moved) {
+          drag.moved = true;
+          // 처음 움직이는 순간의 모습을 남긴다 — 끌어 옮긴 것도 ⌘Z 로 되돌린다.
+          commit();
+        }
         if (drag.kind === 'clip' && drag.moved) {
           // 순서 바꾸기 — 옮긴 x 가 이웃 클립의 가운데를 넘으면 자리를 바꾼다.
           const items = layout(project.clips);
@@ -2198,15 +3371,52 @@ const module = {
           const subtitle = subtitleOf(drag.id);
           if (subtitle) {
             const span = drag.original.end - drag.original.start;
-            subtitle.start = Math.max(0, drag.original.start + deltaSeconds);
-            subtitle.end = subtitle.start + span;
+            let start = Math.max(0, drag.original.start + deltaSeconds);
+            if (state.snap) {
+              const result = snapRange(start, start + span, snapCandidates('subtitle', drag.id), snapTolerance());
+              if (result.snapped !== null && result.snapped !== undefined) {
+                start = Math.max(0, result.start);
+                showSnapGuide(result.snapped);
+              } else hideSnapGuide();
+            } else hideSnapGuide();
+            subtitle.start = start;
+            subtitle.end = start + span;
+            renderTimeline();
+            drawPreview();
+          }
+        } else if (drag.kind === 'overlay') {
+          const overlay = overlayOf(drag.id);
+          if (overlay) {
+            const span = drag.original.end - drag.original.start;
+            let start = Math.max(0, drag.original.start + deltaSeconds);
+            if (state.snap) {
+              const result = snapRange(start, start + span, snapCandidates('overlay', drag.id), snapTolerance());
+              if (result.snapped !== null && result.snapped !== undefined) {
+                start = Math.max(0, result.start);
+                showSnapGuide(result.snapped);
+              } else hideSnapGuide();
+            } else hideSnapGuide();
+            overlay.start = start;
+            overlay.end = start + span;
             renderTimeline();
             drawPreview();
           }
         } else if (drag.kind === 'audio') {
           const audio = audioOf(drag.id);
-          if (audio) audio.start = Math.max(0, drag.original.start + deltaSeconds);
+          if (audio) {
+            let start = Math.max(0, drag.original.start + deltaSeconds);
+            const span = Number(drag.original.duration) || 1;
+            if (state.snap) {
+              const result = snapRange(start, start + span, snapCandidates('audio', drag.id), snapTolerance());
+              if (result.snapped !== null && result.snapped !== undefined) {
+                start = Math.max(0, result.start);
+                showSnapGuide(result.snapped);
+              } else hideSnapGuide();
+            } else hideSnapGuide();
+            audio.start = start;
+          }
           renderTimeline();
+          drawPreview();
         }
         return;
       }
@@ -2228,14 +3438,63 @@ const module = {
           drawPreview();
         } else if (drag.kind === 'subtitle' && drag.subtitle) {
           const subtitle = drag.subtitle;
-          if (drag.side === 'left') subtitle.start = Math.max(0, Math.min(subtitle.end - 0.2, drag.original.start + deltaSeconds));
-          else subtitle.end = Math.max(subtitle.start + 0.2, drag.original.end + deltaSeconds);
+          const targets = snapCandidates('subtitle', drag.id);
+          const tolerance = snapTolerance();
+          if (drag.side === 'left') {
+            let start = Math.max(0, Math.min(subtitle.end - 0.2, drag.original.start + deltaSeconds));
+            if (state.snap) {
+              const result = snapTime(start, targets, tolerance);
+              if (result.snapped) { start = Math.max(0, Math.min(subtitle.end - 0.2, result.value)); showSnapGuide(result.value); }
+              else hideSnapGuide();
+            }
+            subtitle.start = start;
+          } else {
+            let end = Math.max(subtitle.start + 0.2, drag.original.end + deltaSeconds);
+            if (state.snap) {
+              const result = snapTime(end, targets, tolerance);
+              if (result.snapped) { end = Math.max(subtitle.start + 0.2, result.value); showSnapGuide(result.value); }
+              else hideSnapGuide();
+            }
+            subtitle.end = end;
+          }
+          renderTimeline();
+          drawPreview();
+        } else if (drag.kind === 'overlay' && drag.overlay) {
+          const overlay = drag.overlay;
+          const targets = snapCandidates('overlay', drag.id);
+          const tolerance = snapTolerance();
+          if (drag.side === 'left') {
+            let start = Math.max(0, Math.min(overlay.end - 0.2, drag.original.start + deltaSeconds));
+            if (state.snap) {
+              const result = snapTime(start, targets, tolerance);
+              if (result.snapped) { start = Math.max(0, Math.min(overlay.end - 0.2, result.value)); showSnapGuide(result.value); }
+              else hideSnapGuide();
+            }
+            overlay.start = start;
+          } else {
+            let end = Math.max(overlay.start + 0.2, drag.original.end + deltaSeconds);
+            if (state.snap) {
+              const result = snapTime(end, targets, tolerance);
+              if (result.snapped) { end = Math.max(overlay.start + 0.2, result.value); showSnapGuide(result.value); }
+              else hideSnapGuide();
+            }
+            overlay.end = end;
+          }
           renderTimeline();
           drawPreview();
         } else if (drag.kind === 'audio' && drag.audio) {
           const audio = drag.audio;
-          if (drag.side === 'right') audio.duration = Math.max(0.3, drag.original.duration + deltaSeconds);
+          if (drag.side === 'right') {
+            let end = Math.max(0.3, drag.original.duration + deltaSeconds);
+            if (state.snap) {
+              const result = snapTime(audio.start + end, snapCandidates('audio', drag.id), snapTolerance());
+              if (result.snapped) { end = Math.max(0.3, result.value - audio.start); showSnapGuide(result.value); }
+              else hideSnapGuide();
+            }
+            audio.duration = end;
+          }
           renderTimeline();
+          drawPreview();
         }
       }
     });
@@ -2244,6 +3503,7 @@ const module = {
       if (!drag) return;
       // 클립을 끌지 않고 그냥 눌렀으면 그 자리로 플레이헤드를 옮긴다(캡컷과 같은 감각).
       const tapped = drag.mode === 'move' && !drag.moved;
+      hideSnapGuide();
       if (drag.mode !== 'seek') {
         renderLeft();
         renderProps();
@@ -2253,15 +3513,33 @@ const module = {
       }
       drag = null;
     };
-    timelineScroll.addEventListener('pointerup', (event) => endDrag(event));
-    timelineScroll.addEventListener('pointercancel', (event) => endDrag(event));
+    window.addEventListener('pointerup', (event) => endDrag(event), { signal });
+    window.addEventListener('pointercancel', (event) => endDrag(event), { signal });
 
-    // 미리보기에서 자막 끌기
+    // 미리보기에서 자막·오버레이 끌기
     let subDrag = null;
+    let overlayDrag = null;
     canvas.addEventListener('pointerdown', (event) => {
       const rect = canvas.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
       const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+      const overlayHit = overlayBoxes.find((box) => x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height);
+      if (overlayHit) {
+        state.selected = { kind: 'overlay', id: overlayHit.overlay.id };
+        overlayDrag = {
+          overlay: overlayHit.overlay,
+          offsetX: x - (overlayHit.x + overlayHit.width / 2),
+          offsetY: y - (overlayHit.y + overlayHit.height / 2),
+          width: canvas.width,
+          height: canvas.height,
+        };
+        commit();
+        renderProps();
+        drawPreview();
+        canvas.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+        return;
+      }
       const hit = subBoxes.find((box) => Math.abs(x - box.x) < box.width / 2 && Math.abs(y - box.y) < box.height / 2);
       if (!hit) return;
       state.selected = { kind: 'subtitle', id: hit.subtitle.id };
@@ -2279,17 +3557,24 @@ const module = {
       event.preventDefault();
     });
     canvas.addEventListener('pointermove', (event) => {
-      if (!subDrag) return;
+      if (!subDrag && !overlayDrag) return;
       const rect = canvas.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
       const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+      if (overlayDrag) {
+        overlayDrag.overlay.x = Math.min(1, Math.max(0, (x - overlayDrag.offsetX) / overlayDrag.width));
+        overlayDrag.overlay.y = Math.min(1, Math.max(0, (y - overlayDrag.offsetY) / overlayDrag.height));
+        drawPreview();
+        return;
+      }
       subDrag.subtitle.x = Math.min(1, Math.max(0, (x - subDrag.offsetX) / subDrag.width));
       subDrag.subtitle.y = Math.min(1, Math.max(0, (y - subDrag.offsetY) / subDrag.height));
       drawPreview();
     });
     canvas.addEventListener('pointerup', () => {
-      if (!subDrag) return;
+      if (!subDrag && !overlayDrag) return;
       subDrag = null;
+      overlayDrag = null;
       renderProps();
       renderTimeline();
     });
@@ -2322,10 +3607,36 @@ const module = {
         else undo();
         return;
       }
+      if (meta && event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        copySelected();
+        return;
+      }
+      if (meta && event.key.toLowerCase() === 'v') {
+        event.preventDefault();
+        pasteClipboard();
+        return;
+      }
+      if (meta && event.key.toLowerCase() === 'd') {
+        event.preventDefault();
+        duplicateSelected();
+        return;
+      }
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         event.preventDefault();
-        const step = event.shiftKey ? 1 : 0.1;
+        // ←/→ 는 한 프레임(1/30초), ⇧를 누르면 0.5초.
+        const step = event.shiftKey ? 0.5 : FRAME_STEP;
         seek(state.playhead + (event.key === 'ArrowRight' ? step : -step));
+        return;
+      }
+      if (event.key === 'Home') {
+        event.preventDefault();
+        seek(0);
+        return;
+      }
+      if (event.key === 'End') {
+        event.preventDefault();
+        seek(totalDuration(project.clips));
       }
     };
     document.addEventListener('keydown', onKeyDown, { signal });
@@ -2346,6 +3657,15 @@ const module = {
         const payload = event && event.payload ? event.payload : {};
         const bar = noticeHost.querySelector('.ve-progress span');
         if (bar && typeof payload.percent === 'number') bar.style.width = `${Math.min(100, payload.percent)}%`;
+      });
+      EVENT.listen('tip://video-whisper-progress', (event) => {
+        const payload = event && event.payload ? event.payload : {};
+        const bar = document.querySelector('.ve-whisper .ve-progress span');
+        if (bar && typeof payload.percent === 'number') bar.style.width = `${Math.max(0, Math.min(100, payload.percent))}%`;
+        const hints = document.querySelectorAll('.ve-whisper .ve-hint');
+        if (hints.length && payload.stage === 'transcribe') {
+          hints[hints.length - 1].textContent = `받아 적는 중… ${Math.round(payload.percent || 0)}%`;
+        }
       });
       EVENT.listen('tip://video-export-done', (event) => {
         const payload = event && event.payload ? event.payload : {};
@@ -2371,10 +3691,13 @@ const module = {
     renderAspects();
     refreshAll();
     loadEngine();
+    loadWhisper();
+    offerResume();
 
     return () => {
       controller.abort();
       cancelAnimationFrame(rafId);
+      clearTimeout(saveTimer);
       state.playing = false;
       for (const entry of elements.values()) {
         if (entry && entry.node) {
