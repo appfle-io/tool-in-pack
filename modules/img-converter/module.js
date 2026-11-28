@@ -3,7 +3,8 @@
  * 이미지 포맷 변환 — 100% 클라이언트 사이드. 파일은 기기 밖으로 나가지 않는다.
  *
  * 입력: JPG/JPEG · PNG · WebP · GIF · BMP · SVG · AVIF · ICO · HEIC/HEIF
- *   (HEIC은 브라우저 디코더 실패 시 self-hosted heic2any로 디코딩)
+ *   (v1.29.0 — Mac 앱은 macOS 의 sips 로 HEIC 를 먼저 PNG 로 바꾼다. 웹은 브라우저 디코더가
+ *    실패하면 self-hosted heic2any 로 디코딩한다.)
  * 출력: PNG · JPG · WebP · ICO · BMP · PDF
  *   (WebP 인코딩은 브라우저 의존 — 미지원 브라우저에서는 명확히 안내)
  */
@@ -11,6 +12,9 @@
 import { formatBytes, icons } from '../../js/ui.js';
 import { appendContinueBar } from '../../js/continue.js';
 import { encodeBMP, encodeICO, encodePDF, canvasToBlob, browserEncodes } from './encoders.js';
+
+const TAURI = !!(window.__TAURI__ && window.__TAURI__.core);
+const C = TAURI ? window.__TAURI__.core : null;
 
 const ACCEPT = '.jpg,.jpeg,.png,.webp,.gif,.bmp,.svg,.avif,.ico,.heic,.heif';
 const FORMATS = [
@@ -67,8 +71,31 @@ async function decodeHEIC(file) {
   return Array.isArray(blob) ? blob[0] : blob;
 }
 
+/** v1.29.0 — Mac 앱: macOS 기본 sips 로 HEIC → PNG (추가 설치·다운로드 없음). */
+async function decodeHEICOnMac(file) {
+  if (!C) throw new Error('Mac 앱에서만 됩니다');
+  const buffer = await file.arrayBuffer();
+  let text = '';
+  const bytes = new Uint8Array(buffer);
+  const step = 0x8000;
+  for (let index = 0; index < bytes.length; index += step) {
+    text += String.fromCharCode.apply(null, bytes.subarray(index, index + step));
+  }
+  const raw = await C.invoke('img_heic_to_png', { data: btoa(text) });
+  const png = raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(raw || 0);
+  if (!png.length) throw new Error('바꾼 이미지가 비어 있습니다');
+  return new Blob([png], { type: 'image/png' });
+}
+
 async function decodeFile(file) {
   if (HEIC_RE.test(file.name) || file.type === 'image/heic' || file.type === 'image/heif') {
+    if (TAURI) {
+      try {
+        return await decodeNative(await decodeHEICOnMac(file));
+      } catch (error) {
+        console.warn('[TIP img-converter] sips 로 HEIC 를 바꾸지 못해 브라우저 디코더로 다시 시도합니다', error);
+      }
+    }
     try {
       return await decodeNative(file); // Safari can decode HEIC natively on recent versions
     } catch {
@@ -153,7 +180,7 @@ const module = {
   name: '이미지 컨버터',
   kind: 'tool',
   category: 'media',
-  version: '1.0.0',
+  version: '1.29.0',
   subtitle: '포맷 변환과 크기 조절',
   description: '이미지 포맷을 바로 바꾸고 크기를 조절합니다. 여러 장을 한 번에 할 수 있습니다.',
   icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-4.5-4.5L6 21"/></svg>`,
@@ -172,7 +199,7 @@ const module = {
         <div class="dr-empty" id="ic-empty">
           <div class="dz-icon">${module.icon}</div>
           <button class="primary-btn" type="button" id="ic-browse">${icons.upload} 이미지 선택</button>
-          <p>JPG·PNG·WebP·GIF·BMP·SVG·AVIF·ICO·HEIC 이미지를 여러 장 고르거나 여기로 끌어다 놓으세요.</p>
+          <p>JPG·PNG·WebP·GIF·BMP·SVG·AVIF·ICO·HEIC 이미지를 여러 장 고르거나 여기로 끌어다 놓으세요.${TAURI ? ' HEIC 는 macOS 기본 변환기로 바꿉니다.' : ' HEIC 변환은 Mac 앱에서 더 확실합니다.'}</p>
         </div>
         <input type="file" id="ic-input" class="sr-only" accept="${ACCEPT}" multiple>
         <div id="ic-main" hidden>

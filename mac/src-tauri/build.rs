@@ -141,11 +141,82 @@ const APP_COMMANDS: &[&str] = &[
     "video_save_png",
     // v1.26.0 — 문서 리더: 구형 .doc(textutil) 변환
     "doc_convert_html",
+    // v1.29.0 — 회의록(화자 분리·받아 적기)·Apple Vision 글자 추출·HEIC 변환
+    "voice_engine_status",
+    "voice_engine_download",
+    "voice_transcribe",
+    "voice_transcript",
+    "ocr_vision",
+    "img_heic_to_png",
 ];
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    // v1.29.0 — macOS 네이티브 도우미(Vision 글자 추출·ScreenCaptureKit 시스템 오디오).
+    build_native_tool();
     let attributes = tauri_build::Attributes::new()
         .app_manifest(tauri_build::AppManifest::new().commands(APP_COMMANDS));
     tauri_build::try_build(attributes).expect("tauri-build 실패 — 커맨드 권한·capabilities 를 확인하세요");
+}
+
+/// native/tip-native.swift 를 지금 빌드의 아키텍처로 컴파일해 OUT_DIR/tip-native 에 둔다.
+///
+/// · macOS 호스트에서만 컴파일한다. 다른 OS(문법 검사용 cargo check)에서는 **빈 파일**을
+///   두어 include_bytes! 가 통과하게 한다 — 그 화면은 실행되지 않는다.
+/// · Universal 빌드는 아키텍처마다 따로 도므로, 각 조각이 제 아키텍처의 도우미를 들고
+///   lipo 로 합쳐진다.
+/// · swiftc 가 없으면 경고만 남기고 빈 파일을 둔다(앱은 '지원하지 않음'으로 안내).
+/// · swiftc 가 있는데 컴파일이 실패하면 빌드를 세운다 — 조용히 넘기면 기능이 죽은 채 배포된다.
+fn build_native_tool() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    let target = out_dir.join("tip-native");
+    let _ = std::fs::remove_file(&target);
+
+    println!("cargo:rerun-if-changed=native/tip-native.swift");
+
+    if !cfg!(target_os = "macos") {
+        let _ = std::fs::write(&target, b"");
+        return;
+    }
+
+    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default().as_str() {
+        "aarch64" => "arm64",
+        "x86_64" => "x86_64",
+        other => {
+            println!("cargo:warning=tip-native: 알 수 없는 아키텍처 {other} — 도우미 없이 빌드합니다");
+            let _ = std::fs::write(&target, b"");
+            return;
+        }
+    };
+
+    let swiftc = Command::new("/usr/bin/xcrun")
+        .args(["--find", "swiftc"])
+        .output();
+    match swiftc {
+        Ok(output) if output.status.success() => {}
+        _ => {
+            println!("cargo:warning=tip-native: swiftc 를 찾지 못해 도우미 없이 빌드합니다");
+            let _ = std::fs::write(&target, b"");
+            return;
+        }
+    }
+
+    let triple = format!("{arch}-apple-macos11.0");
+    let result = Command::new("/usr/bin/xcrun")
+        .args(["--sdk", "macosx", "swiftc", "-O", "-target", &triple, "-o"])
+        .arg(&target)
+        .arg("native/tip-native.swift")
+        .output()
+        .expect("swiftc 를 실행하지 못했습니다");
+    if !result.status.success() {
+        panic!(
+            "tip-native 컴파일 실패 —\n{}\n{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    println!("cargo:warning=tip-native: {triple} 도우미를 컴파일했습니다");
 }

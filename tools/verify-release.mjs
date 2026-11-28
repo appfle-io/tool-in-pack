@@ -1576,11 +1576,11 @@ check('녹음 단축키 기본 R', /export const VOICE_ACTION_KEY = 'voice:recor
 check('녹음 단축키는 한 글자·중복 검사를 그대로', /ensureVoiceLetter\(\);/.test(voiceFeature)
   && /const owner = shortcutOwner\(acceleratorForLetter\(VOICE_LETTER\), VOICE_ACTION_KEY\);/.test(voiceFeature));
 check('설정 → 모듈 → 녹음에 시작/중지 단축키', /'voice-recorder': \{/.test(voiceFeature)
-  && /key: VOICE_ACTION_KEY/.test(voiceFeature) && /label: '녹음 시작 \/ 중지'/.test(voiceFeature));
+  && /key: VOICE_ACTION_KEY/.test(voiceFeature) && /label: '일반 녹음 시작 \/ 중지'/.test(voiceFeature));
 check('Rust 단축키는 토글', /const VOICE_ACTION_KEY: &str = "voice:record";/.test(voiceRs)
-  && /voice::VOICE_ACTION_KEY =>/.test(voiceLib) && /voice::voice_toggle\(app\.clone\(\)\)/.test(voiceLib));
-check('단축키를 다시 누르면 중지·저장', /pub fn voice_toggle\(app: AppHandle\)/.test(voiceRs)
-  && /if phase == Phase::Idle \{\s*\n\s*begin\(&app\)\?;/.test(voiceRs.replace(/\r/g, '')));
+  && /voice::VOICE_ACTION_KEY =>/.test(voiceLib) && /voice::voice_toggle\(app\.clone\(\), Some\("normal"\.to_string\(\)\)\)/.test(voiceLib));
+check('단축키를 다시 누르면 중지·저장', /pub fn voice_toggle\(app: AppHandle, mode: Option<String>\)/.test(voiceRs)
+  && /if phase == Phase::Idle \{\s*\n\s*begin\(&app, requested\)\?;/.test(voiceRs.replace(/\r/g, '')));
 
 // ③ 마이크 권한 — Entitlements · Info.plist · Rust(AVCaptureDevice) · 설정 → 권한 탭
 check('Entitlements audio-input', read('mac/src-tauri/Entitlements.plist').includes('<key>com.apple.security.device.audio-input</key>'));
@@ -2333,6 +2333,161 @@ check('v1.28.0 — settings-e2e 가 실제로 눌러 본다', /v1\.28\.0 — 검
   && /v1\.28\.0 — 새로고침 뒤 필터·접힘이 남는다/.test(settingsE2e)
   && /v1\.28\.0 — 쿠키와 localStorage 양쪽에 저장/.test(settingsE2e)
   && /v1\.28\.0 — 390px 가로 넘침 없음/.test(settingsE2e));
+
+
+/* ================================================================
+   34. v1.29.0 — 녹음 3모드 · 화자 분리 · 숫자 단축키 · Apple Vision OCR · HEIC
+   ================================================================ */
+
+const v129Voice = read('modules/voice-recorder/module.js');
+const v129VoiceJs = read('js/voice.js');
+const v129Feature = read('js/feature-settings.js');
+const v129App = read('js/app.js');
+const v129Ocr = read('modules/ocr-reader/module.js');
+const v129Img = read('modules/img-converter/module.js');
+const v129Native = read('mac/src-tauri/src/native.rs');
+const v129Swift = read('mac/src-tauri/native/tip-native.swift');
+const v129Build = read('mac/src-tauri/build.rs');
+const v129E2e = exists('tools/v129-e2e.mjs') ? read('tools/v129-e2e.mjs') : '';
+
+check('v1.29.0 — 버전', (([major, minor]) => major > 1 || (major === 1 && minor >= 29))(VERSION.split('.').map(Number)), VERSION);
+
+// ① 녹음 3모드 — 화면
+MODES_CHECK: {
+  check('v1.29.0 — 녹음 모드 3개(일반·대면·화상)', /id: 'normal',/.test(v129Voice) && /id: 'inperson',/.test(v129Voice)
+    && /id: 'online',/.test(v129Voice) && /label: '일반 녹음'/.test(v129Voice) && /label: '대면 회의'/.test(v129Voice)
+    && /label: '화상 회의'/.test(v129Voice));
+  check('v1.29.0 — 모드 탭은 tablist/tab', /class="ic-segment vr-modes" id="vr-modes" role="tablist"/.test(v129Voice)
+    && /setAttribute\('role', 'tab'\)/.test(v129Voice) && /aria-selected/.test(v129Voice));
+  check('v1.29.0 — 모드는 녹음 중에 바꾸지 않는다', /if \(busy \|\| live\(\)\) return;/.test(v129Voice));
+  check('v1.29.0 — 녹음 시작에 모드를 넘긴다', /export async function voiceStart\(mode\)/.test(v129VoiceJs)
+    && /invoke\('voice_start', mode \? \{ mode \} : \{\}\)/.test(v129VoiceJs)
+    && /export async function voiceToggle\(mode\)/.test(v129VoiceJs));
+  check('v1.29.0 — 상태에 mode·partner·notice', /mode: String\(state\.mode \|\| 'normal'\)/.test(v129VoiceJs)
+    && /partner: state\.partner \? String\(state\.partner\) : null/.test(v129VoiceJs)
+    && /notice: state\.notice \? String\(state\.notice\) : null/.test(v129VoiceJs));
+  check('v1.29.0 — 모듈이 voiceStart\(mode\) 로 시작', /return voiceStart\(mode\);/.test(v129Voice));
+  check('v1.29.0 — 웹에서는 화자 분리·받아 적기를 Mac 안내', /화자 분리와 받아 적기는 Mac 앱에서 됩니다/.test(v129Voice));
+  check('v1.29.0 — 모듈 판올림', /version: '1\.29\.0',/.test(v129Voice) && /version: '1\.29\.0',/.test(v129Ocr)
+    && /version: '1\.29\.0',/.test(v129Img));
+}
+
+// ② Rust — 모드·시스템 오디오·대화록
+check('v1.29.0 — Rust Mode enum', /pub enum Mode \{/.test(voiceRs) && /Mode::InPerson => "inperson"/.test(voiceRs)
+  && /Mode::Online => "online"/.test(voiceRs) && /fn parse\(value: &str\) -> Mode/.test(voiceRs));
+check('v1.29.0 — 상태에 mode·partner·notice', /mode: voice\.mode\.as_str\(\)\.to_string\(\)/.test(voiceRs)
+  && /partner: voice\.system_name\.clone\(\)/.test(voiceRs) && /notice: voice\.notice\.clone\(\)/.test(voiceRs));
+check('v1.29.0 — 화상 회의는 마이크를 (나) 로 저장', /base = format!\("\{base\} \(나\)"\);/.test(voiceRs));
+check('v1.29.0 — 시스템 오디오는 (상대방).wav', /let file_name = format!\("\{base\} \(상대방\)\.wav"\);/.test(voiceRs));
+check('v1.29.0 — 시스템 오디오 도우미를 띄우고 SIGTERM 으로 끝낸다', /crate::native::start_audio\(app, &path\)/.test(voiceRs)
+  && /Command::new\("\/bin\/kill"\)/.test(voiceRs) && /arg\("-TERM"\)/.test(voiceRs)
+  && /fn stop_system\(app: &AppHandle\)/.test(voiceRs));
+check('v1.29.0 — 화면 기록 권한을 먼저 확인', /crate::capture::ensure_screen_access\(\)/.test(voiceRs));
+check('v1.29.0 — 저장이 끝나면 회의록 작업을 이어서', /if mode\.meeting\(\) \{\s*\n\s*start_job\(app, name, mode\);/.test(voiceRs));
+check('v1.29.0 — 대화록은 녹음 옆에 .json·.txt', /fn transcript_files/.test(voiceRs)
+  && /dir\.join\(format!\("\{base\}\.json"\)\)/.test(voiceRs) && /dir\.join\(format!\("\{base\}\.txt"\)\)/.test(voiceRs)
+  && /fn transcript_text/.test(voiceRs));
+check('v1.29.0 — 녹음을 지우면 대화록·상대방 트랙도 지운다', /if let Ok\(\(json, text\)\) = transcript_files\(&app, &name\)/.test(voiceRs)
+  && /let partner = folder\(&app\)\.join\(format!\("\{base\} \(상대방\)\.wav"\)\);/.test(voiceRs));
+check('v1.29.0 — 화자 이름은 화면이 기억(localStorage)', /const SPEAKER_KEY = 'tip\.voice\.speakers\.v1'/.test(v129Voice)
+  && /function renameSpeaker/.test(v129Voice));
+
+// ③ 화자 분리 — sherpa-onnx (Apache-2.0) 를 받아 100% 로컬로
+check('v1.29.0 — sherpa-onnx 내려받기 주소', /sherpa-onnx\/releases\/download\/v2\.0\.3\/sherpa-onnx-v2\.0\.3-osx-universal2-shared-no-tts\.tar\.bz2/.test(voiceRs)
+  && /speaker-segmentation-models\/sherpa-onnx-pyannote-segmentation-3-0\.tar\.bz2/.test(voiceRs)
+  && /speaker-recongition-models\/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced\.onnx/.test(voiceRs));
+check('v1.29.0 — 내려받은 자산은 크기와 SHA-256 을 함께 본다', /fn check_asset\(path: &Path, size: u64, hash: &str\)/.test(voiceRs)
+  && /actual_size != size/.test(voiceRs) && /crate::sha256_file\(path\)\?/.test(voiceRs)
+  && (voiceRs.match(/"[0-9a-f]{64}"/g) || []).length >= 3);
+check('v1.29.0 — tar.bz2 는 macOS 기본 tar 로 푼다', /Command::new\("\/usr\/bin\/tar"\)/.test(voiceRs)
+  && /arg\("-xjf"\)/.test(voiceRs));
+check('v1.29.0 — @rpath 라이브러리를 위해 rpath 를 넣고 다시 서명', /install_name_tool/.test(voiceRs)
+  && /"-add_rpath", "@executable_path\/lib"/.test(voiceRs) && /fn sign\(path: &Path\)/.test(voiceRs));
+check('v1.29.0 — 화자 분리 실행 인자', /--clustering\.num-clusters=\{\}/.test(voiceRs)
+  && /--segmentation\.pyannote-model=\{\}/.test(voiceRs) && /--embedding\.model=\{\}/.test(voiceRs)
+  && /\.env\("DYLD_LIBRARY_PATH", &lib\)/.test(voiceRs));
+check('v1.29.0 — 화자 구간은 "0.00 -- 3.00 speaker_0" 꼴을 읽는다', /split\(" -- "\)/.test(voiceRs)
+  && /name\.strip_prefix\("speaker_"\)/.test(voiceRs));
+check('v1.29.0 — 화자 1·2… 이름을 붙인다', /format!\("화자 \{\}", labels\.len\(\) \+ 1\)/.test(voiceRs));
+check('v1.29.0 — 음성 인식은 영상 편집과 같은 whisper 엔진', /crate::video::whisper_paths\(app\)/.test(voiceRs)
+  && /\("-oj"\)/.test(voiceRs) && /"transcription"/.test(voiceRs));
+check('v1.29.0 — 16kHz 모노 WAV 는 afconvert', /Command::new\("\/usr\/bin\/afconvert"\)/.test(voiceRs)
+  && /"LEI16@16000", "-c", "1"/.test(voiceRs));
+check('v1.29.0 — 화상 회의는 나/상대방 두 트랙을 시간순으로', /let me = "나"\.to_string\(\);/.test(voiceRs)
+  && /let them = "상대방"\.to_string\(\);/.test(voiceRs) && /fn merge_utterances/.test(voiceRs));
+
+// ④ 명령 등록·단축키
+check('v1.29.0 — 회의록 커맨드 4종 등록', ['voice_engine_status', 'voice_engine_download', 'voice_transcribe', 'voice_transcript']
+  .every((name) => v129Build.includes(`"${name}"`) && read('mac/src-tauri/capabilities/default.json').includes(`"allow-${name.replace(/_/g, '-')}"`)
+    && voiceLib.includes(`${name},`)));
+check('v1.29.0 — 네이티브 커맨드 2종 등록', ['ocr_vision', 'img_heic_to_png']
+  .every((name) => v129Build.includes(`"${name}"`) && read('mac/src-tauri/capabilities/default.json').includes(`"allow-${name.replace(/_/g, '-')}"`)));
+check('v1.29.0 — 모드별 단축키 3개를 설정에', /export const VOICE_INPERSON_KEY = 'voice:meeting-inperson';/.test(v129Feature)
+  && /export const VOICE_ONLINE_KEY = 'voice:meeting-online';/.test(v129Feature)
+  && /export const VOICE_INPERSON_LETTER = 'M';/.test(v129Feature)
+  && /export const VOICE_ONLINE_LETTER = 'O';/.test(v129Feature)
+  && /tip\.shortcutMigration\.v1290/.test(v129Feature));
+check('v1.29.0 — 세 단축키가 모두 토글', /voice::VOICE_INPERSON_KEY =>/.test(voiceLib)
+  && /voice::VOICE_ONLINE_KEY =>/.test(voiceLib)
+  && /voice_toggle\(app\.clone\(\), Some\("inperson"\.to_string\(\)\)\)/.test(voiceLib)
+  && /voice_toggle\(app\.clone\(\), Some\("online"\.to_string\(\)\)\)/.test(voiceLib));
+check('v1.29.0 — 설정 화면에 모드별 단축키·화자 수', /label: '대면 회의 녹음 시작 \/ 중지'/.test(v129Feature)
+  && /label: '화상 회의 녹음 시작 \/ 중지'/.test(v129Feature) && /key: 'voice\.speakers'/.test(v129Feature));
+
+// ⑤ 숫자 단축키(0~9 · Numpad0~9)
+check('v1.29.0 — 숫자 키패드도 DigitN 으로', /if \(\/\^Numpad\[0-9\]\$\/\.test\(event\.code \|\| ''\)\)/.test(v129App)
+  && /input\.value = String\(event\.code\)\.slice\(6\);/.test(v129App));
+check('v1.29.0 — 검색 단축키도 Numpad→Digit', /if \(\/\^Numpad\[0-9\]\$\/\.test\(code\)\) code = `Digit\$\{code\.slice\(6\)\}`;/.test(v129App));
+check('v1.29.0 — 단축키 칸 안내는 영문·숫자', /placeholder: 'A~Z·0~9'/.test(v129App)
+  && /영문 A~Z 또는 숫자 0~9 중 한 글자만 쓸 수 있습니다/.test(v129App)
+  && /영문·숫자 한 글자\(A~Z, 0~9\)/.test(v129App));
+
+// ⑥ Apple Vision OCR — Mac
+check('v1.29.0 — Mac 은 Vision 으로 읽는다', /ocr_vision/.test(v129Ocr) && /async function recognizeWithVision\(lang\)/.test(v129Ocr)
+  && /languages: lang\.vision/.test(v129Ocr));
+check('v1.29.0 — Vision 이 안 되면 Tesseract 로 물러난다', /recognizeWithTesseract/.test(v129Ocr)
+  && /Vision 으로 읽지 못해 Tesseract 로 다시 시도합니다/.test(v129Ocr));
+check('v1.29.0 — 언어는 Vision 언어 코드로', /vision: \['ko-KR', 'en-US'\]/.test(v129Ocr) && /vision: \['ja-JP'\]/.test(v129Ocr));
+check('v1.29.0 — Mac 은 내려받는 것이 없다고 안내', /내려받는 것이 없고, 사진은 기기 밖으로 나가지 않습니다/.test(v129Ocr));
+check('v1.29.0 — Swift 도우미가 Vision 을 부른다', /import Vision/.test(v129Swift)
+  && /VNRecognizeTextRequest\(\)/.test(v129Swift) && /recognitionLevel = \.accurate/.test(v129Swift)
+  && /supportedRecognitionLanguages/.test(v129Swift) && /VNImageRequestHandler\(url: url/.test(v129Swift));
+check('v1.29.0 — Rust 는 임시 파일로만 Vision 에 넘긴다', /fn ocr\(app: &AppHandle, bytes: &\[u8\], languages: &\[String\]\)/.test(v129Native)
+  && /let _ = fs::remove_dir_all\(&dir\);/.test(v129Native) && /MAX_IMAGE_BYTES/.test(v129Native));
+
+// ⑦ HEIC — Mac 은 sips
+check('v1.29.0 — HEIC 는 sips 로 PNG', /fn img_heic_to_png\(data: String\)/.test(v129Native)
+  && /Command::new\("\/usr\/bin\/sips"\)/.test(v129Native) && /"format", "png"/.test(v129Native)
+  && /b"heic" \| b"heix"/.test(v129Native));
+check('v1.29.0 — Mac 이미지 컨버터가 HEIC 를 먼저 sips 로', /async function decodeHEICOnMac\(file\)/.test(v129Img)
+  && /invoke\('img_heic_to_png', \{ data: btoa\(text\) \}\)/.test(v129Img));
+check('v1.29.0 — 웹에는 Mac 안내', /HEIC 변환은 Mac 앱에서 더 확실합니다/.test(v129Img));
+
+// ⑧ 도우미 빌드·설치
+check('v1.29.0 — build.rs 가 swiftc 로 컴파일', /xcrun/.test(v129Build) && /swiftc/.test(v129Build)
+  && /-apple-macos11\.0/.test(v129Build) && /native\/tip-native\.swift/.test(v129Build));
+check('v1.29.0 — macOS 가 아니면 빈 파일로 통과', /if !cfg!\(target_os = "macos"\) \{/.test(v129Build)
+  && /cargo:rerun-if-changed=native\/tip-native\.swift/.test(v129Build));
+check('v1.29.0 — 도우미는 include_bytes 로 들어가 처음 쓸 때 꺼낸다', /include_bytes!\(concat!\(env!\("OUT_DIR"\), "\/tip-native"\)\)/.test(v129Native)
+  && /dir\.join\("tip-native"\)/.test(v129Native) && /from_mode\(0o755\)/.test(v129Native));
+check('v1.29.0 — Swift 는 ScreenCaptureKit 시스템 오디오', /import ScreenCaptureKit/.test(v129Swift)
+  && /config\.capturesAudio = true/.test(v129Swift) && /config\.excludesCurrentProcessAudio = true/.test(v129Swift)
+  && /addStreamOutput\(sink, type: \.audio/.test(v129Swift) && /SIGTERM/.test(v129Swift));
+check('v1.29.0 — 시스템 오디오는 48kHz 모노 WAV 로', /sampleRate: 48000/.test(v129Swift) && /u16\(1\); u16\(channels\)/.test(v129Swift));
+
+// ⑨ 화면·접근성
+check('v1.29.0 — 대화록 CSS(12px 이상·줄바꿈)', /\.vr-lines \{/.test(appCss) && /\.vr-line \{/.test(appCss)
+  && /\.vr-speaker \{/.test(appCss) && /\.vr-text \{ color: var\(--text\); overflow-wrap: anywhere; \}/.test(appCss));
+check('v1.29.0 — 작은 화면에서 한 줄로', /@media \(max-width: 420px\) \{\s*\.vr-line \{ grid-template-columns: 1fr;/.test(appCss));
+check('v1.29.0 — 화자 칩은 --accent-ink 글자', /\.vr-speaker \{[\s\S]{0,200}color: var\(--accent-ink\);/.test(appCss));
+
+// ⑩ 문서·검사
+check('v1.29.0 — README 버전·기능', read('README.md').includes('| v1.29.0 |')
+  && read('README.md').includes('대면 회의') && read('README.md').includes('화상 회의')
+  && read('README.md').includes('화자 분리'));
+check('v1.29.0 — 전용 E2E 가 실제로 눌러 본다', /v1\.29\.0 — 모드 탭 세 개/.test(v129E2e)
+  && /v1\.29\.0 — 숫자 1 이 Digit1 로 등록/.test(v129E2e) && /v1\.29\.0 — Vision OCR 호출/.test(v129E2e)
+  && /v1\.29\.0 — HEIC/.test(v129E2e) && /v1\.29\.0 — 390px/.test(v129E2e));
 
 /* ------------------------------ 결과 ------------------------------ */
 

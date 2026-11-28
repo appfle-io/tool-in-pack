@@ -138,7 +138,7 @@ pub struct ExportResult {
 
 /* ------------------------------ 경로 도우미 ------------------------------ */
 
-fn arch_name() -> String {
+pub(crate) fn arch_name() -> String {
     match std::env::consts::ARCH {
         "aarch64" => "arm64".to_string(),
         other => other.to_string(),
@@ -146,7 +146,7 @@ fn arch_name() -> String {
 }
 
 /// 앱 전용 엔진 폴더.
-fn binary_dir(app: &AppHandle) -> Option<PathBuf> {
+pub(crate) fn binary_dir(app: &AppHandle) -> Option<PathBuf> {
     let dir = app.path().app_data_dir().ok()?.join(BIN_DIR);
     let _ = fs::create_dir_all(&dir);
     Some(dir)
@@ -778,7 +778,7 @@ pub struct TranscribeResult {
 }
 
 /// whisper-cli 와 모델의 자리 — bin/whisper-cli, bin/models/ggml-base.bin.
-fn whisper_paths(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
+pub(crate) fn whisper_paths(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
     let dir = binary_dir(app)?;
     Some((dir.join("whisper-cli"), dir.join("models").join(MODEL_NAME)))
 }

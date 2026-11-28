@@ -694,13 +694,16 @@ check('모듈 — 검색으로 거르기', (await page.locator('.sheet-module-ro
 await moduleSearch.fill('');
 await page.waitForTimeout(150);
 
-// v1.22.0 — 기본 단축키는 녹음(R) 하나다(노치 숨기기 H 는 모듈이 아니라 목록에 없다).
+// v1.22.0 — 기본 단축키는 녹음(R) 하나였다. v1.29.0 부터 대면(M)·화상(O)까지 세 줄이지만,
+// 목록 줄에는 대표 칩 하나 + '+2' 로 보인다. (노치 숨기기 H 는 모듈이 아니라 목록에 없다.)
 const defaultShortcuts = await page.locator('.sheet-module-row .module-shortcut').count();
 check('모듈 — 기본 단축키는 녹음 하나', defaultShortcuts === 1, String(defaultShortcuts));
+const voiceChip = await page.locator('.sheet-module-row:has-text("녹음") .module-shortcut').first().textContent();
+check('모듈 — 녹음 줄에 대표 칩 +2', (voiceChip || '').includes('+2'), voiceChip);
 await page.click('.sheet-chip:has-text("단축키 있음만")');
 await page.waitForTimeout(150);
 const defaultFiltered = await page.locator('.sheet-module-row').count();
-check('모듈 — 단축키 있음만 필터(기본 1개)', defaultFiltered === 1, String(defaultFiltered));
+check('모듈 — 단축키 있음만 필터(녹음 모듈 1개)', defaultFiltered === 1, String(defaultFiltered));
 check('모듈 — 기본 단축키 모듈은 녹음', (await page.locator('.sheet-module-row').first().textContent()).includes('녹음'), (await page.locator('.sheet-module-row').first().textContent()).trim().slice(0, 20));
 await page.click('.sheet-chip:has-text("단축키 있음만")');
 await page.waitForTimeout(150);
@@ -806,14 +809,20 @@ check('녹음 — 처음은 대기', (await page.locator('#vr-clock').textConten
 check('녹음 — 저장 위치 안내', (await page.locator('#vr-dir').textContent()).includes('TIP Recordings'), await page.locator('#vr-dir').textContent());
 check('녹음 — 기본 단축키 안내(⇧R)', (await page.locator('#vr-hint').textContent()).includes('⇧R'), await page.locator('#vr-hint').textContent());
 check('녹음 — 저장한 녹음 1개', (await page.locator('.vr-item').count()) === 1, String(await page.locator('.vr-item').count()));
-check('녹음 — 마이크 권한 상태', (await page.locator('#vr-perm').textContent()) === '허용됨', await page.locator('#vr-perm').textContent());
+check('녹음 — 마이크 권한 상태', (await page.locator('#vr-perm').textContent()) === '마이크 허용됨', await page.locator('#vr-perm').textContent());
+check('녹음 — 모드 탭 3개', (await page.locator('#vr-modes .ic-seg').count()) === 3, String(await page.locator('#vr-modes .ic-seg').count()));
 
 // 시작 → 녹음 중
 await page.click('#vr-main');
 await page.waitForTimeout(1600);
 check('녹음 — 시작 호출', (await calls('voice_start')).length === 1);
 check('녹음 — 녹음 중 표시', (await page.locator('#vr-tag').textContent()).includes('녹음 중'), await page.locator('#vr-tag').textContent());
-const liveClock = await page.locator('#vr-clock').textContent();
+// 배속(TIP_E2E_SPEED)에서도 시간이 흐르는지 보도록 1초가 될 때까지 기다린다.
+let liveClock = await page.locator('#vr-clock').textContent();
+for (let i = 0; i < 12 && !/^00:0[1-9]$/.test(liveClock); i += 1) {
+  await page.waitForTimeout(250);
+  liveClock = await page.locator('#vr-clock').textContent();
+}
 check('녹음 — 경과 시간이 흐름', /^00:0[1-9]$/.test(liveClock), liveClock);
 check('녹음 — 파일 이름 표시', (await page.locator('#vr-meta').textContent()).includes('.m4a'), await page.locator('#vr-meta').textContent());
 check('녹음 — 주 버튼이 중지로', (await page.locator('#vr-main').textContent()) === '중지하고 저장', await page.locator('#vr-main').textContent());

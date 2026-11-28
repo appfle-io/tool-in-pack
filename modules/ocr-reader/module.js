@@ -4,7 +4,9 @@
  * v1.16.0 에서 예전 이미지 글자 인식과 Mac 전용 화면 글자 읽기(drag-ocr)를 하나로 합쳤다.
  *   · 화면에서 — 화면의 한 영역을 드래그해 찍고 바로 읽는다. (Mac 앱 전용, 화면 기록 권한)
  *   · 이미지에서 — PNG·JPG·WebP·BMP 이미지를 고르거나 끌어다 놓는다. (웹·Mac 공통)
- * 인식은 tesseract.js(vendor 셀프호스팅)로 기기 안에서만 한다. 이미지는 어디로도 전송되지 않는다.
+ * 인식은 기기 안에서만 한다. 이미지는 어디로도 전송되지 않는다.
+ *   · Mac 앱(v1.29.0) — macOS 내장 Vision(VNRecognizeTextRequest). 추가 다운로드 0MB.
+ *   · 웹(PWA) — tesseract.js(vendor 셀프호스팅). 처음 한 번 언어 데이터를 받는다.
  *
  * 예전 주소 #/drag-ocr 은 js/app.js 가 이 모듈의 '화면에서' 모드로 보낸다.
  * 예전 드래그 OCR 전역 단축키(feature key 'drag-ocr')와 OCR 언어 설정도 그대로 쓴다.
@@ -20,11 +22,21 @@ const C = TAURI ? window.__TAURI__.core : null;
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M20 8V5a1 1 0 0 0-1-1h-3M4 16v3a1 1 0 0 0 1 1h3M20 16v3a1 1 0 0 1-1 1h-3"/><path d="M8 9h8M12 9v7M10 16h4"/></svg>`;
 
 const LANGS = [
-  { id: 'kor+eng', label: '한국어 + 영어', data: ['kor', 'eng'], size: '약 3MB' },
-  { id: 'kor', label: '한국어', data: ['kor'], size: '약 1.1MB' },
-  { id: 'eng', label: '영어', data: ['eng'], size: '약 2.0MB' },
-  { id: 'jpn', label: '일본어', data: ['jpn'], size: '약 3MB' },
+  { id: 'kor+eng', label: '한국어 + 영어', data: ['kor', 'eng'], size: '약 3MB', vision: ['ko-KR', 'en-US'] },
+  { id: 'kor', label: '한국어', data: ['kor'], size: '약 1.1MB', vision: ['ko-KR'] },
+  { id: 'eng', label: '영어', data: ['eng'], size: '약 2.0MB', vision: ['en-US'] },
+  { id: 'jpn', label: '일본어', data: ['jpn'], size: '약 3MB', vision: ['ja-JP'] },
 ];
+
+/** 이미지 바이트 → base64 (한 번에 넘기지 않게 나눠 붙인다). */
+function toBase64(bytes) {
+  let text = '';
+  const step = 0x8000;
+  for (let index = 0; index < bytes.length; index += step) {
+    text += String.fromCharCode.apply(null, bytes.subarray(index, index + step));
+  }
+  return btoa(text);
+}
 
 const STATUS_KO = {
   'loading tesseract core': '인식 엔진 불러오는 중',
@@ -90,7 +102,7 @@ const module = {
   shortName: '글자 추출',
   kind: 'tool',
   category: 'docs',
-  version: '1.16.0',
+  version: '1.29.0',
   subtitle: '화면이나 이미지에서 글자만',
   description: '화면의 한 영역을 드래그해 찍거나 이미지를 골라 한국어, 영어, 일본어 글자를 읽습니다. 추출한 글자는 고쳐서 복사하거나 TXT 로 저장하고, 텍스트 비교나 마크다운으로 이어서 보낼 수 있습니다.',
   icon: ICON,
@@ -149,7 +161,9 @@ const module = {
             <button class="v16-btn" type="button" id="ocr-again">다시 찍기</button>
             <button class="v16-btn" type="button" id="ocr-clear">비우기</button>
           </div>
-          <p class="v16-note" id="ocr-note">처음 실행할 때 인식 언어 데이터를 한 번만 기기에 저장합니다. 이후에는 오프라인에서도 동작합니다.</p>
+          <p class="v16-note" id="ocr-note">${TAURI
+            ? 'Mac 앱은 macOS 내장 Vision 으로 읽습니다 — 내려받는 것이 없고, 사진은 기기 밖으로 나가지 않습니다.'
+            : '처음 실행할 때 인식 언어 데이터를 한 번만 기기에 저장합니다. 이후에는 오프라인에서도 동작합니다.'}</p>
 
           <div class="ocr-progress" id="ocr-progress" hidden>
             <div class="ocr-bar"><span id="ocr-fill"></span></div>
@@ -212,7 +226,9 @@ const module = {
         ? `${icons.fit || ''} 화면 영역 드래그해서 찍기`
         : `${icons.upload} 이미지 선택`;
       emptyNote.textContent = mode === 'screen'
-        ? '찍은 영역의 글자를 기기 안에서 읽습니다. 처음 한 번은 화면 기록 권한을 물어봅니다.'
+        ? (TAURI
+          ? '찍은 영역의 글자를 macOS 내장 Vision 으로 읽습니다. 처음 한 번은 화면 기록 권한을 물어봅니다.'
+          : '찍은 영역의 글자를 기기 안에서 읽습니다. 처음 한 번은 화면 기록 권한을 물어봅니다.')
         : 'PNG·JPG·WebP·BMP 이미지를 고르거나 끌어다 놓으세요. 글자가 또렷할수록 잘 읽습니다.';
       root.querySelector('#ocr-again').textContent = mode === 'screen' ? '다시 찍기' : '다른 이미지';
     }
@@ -257,7 +273,9 @@ const module = {
         langId = lang.id;
         langsEl.querySelectorAll('.ic-seg').forEach((el) => el.setAttribute('aria-checked', 'false'));
         button.setAttribute('aria-checked', 'true');
-        noteEl.textContent = `처음 실행할 때 ${lang.label} 인식 데이터(${lang.size})를 한 번만 기기에 저장합니다. 이후에는 오프라인에서도 동작합니다.`;
+        noteEl.textContent = TAURI
+          ? `macOS 내장 Vision 으로 ${lang.label} 글자를 읽습니다. 내려받는 것이 없습니다.`
+          : `처음 실행할 때 ${lang.label} 인식 데이터(${lang.size})를 한 번만 기기에 저장합니다. 이후에는 오프라인에서도 동작합니다.`;
       }, { signal });
       langsEl.appendChild(button);
     });
@@ -337,6 +355,24 @@ const module = {
       return worker;
     }
 
+    /** v1.29.0 — Mac 은 Apple Vision(추가 다운로드 0MB). 안 되면 Tesseract 로 물러난다. */
+    async function recognizeWithVision(lang) {
+      if (!C) throw new Error('Mac 앱에서만 쓸 수 있습니다');
+      const buffer = await file.arrayBuffer();
+      const data = toBase64(new Uint8Array(buffer));
+      setProgress(0.4, '글자 읽는 중');
+      const result = await C.invoke('ocr_vision', { data, languages: lang.vision });
+      return { text: String(result?.text || ''), confidence: Number(result?.confidence) || 0 };
+    }
+
+    /** 웹(PWA)과 Vision 이 안 될 때 — tesseract.js 로 기기 안에서. */
+    async function recognizeWithTesseract(lang) {
+      await ensureLangData(lang);
+      const instance = await getWorker(lang);
+      const { data } = await instance.recognize(file);
+      return { text: String(data?.text || ''), confidence: Number(data?.confidence) || 0 };
+    }
+
     async function run() {
       if (!file || busy) return;
       const lang = LANGS.find((item) => item.id === langId) || LANGS[0];
@@ -347,10 +383,17 @@ const module = {
       resultEl.hidden = true;
 
       try {
-        await ensureLangData(lang);
-        const instance = await getWorker(lang);
-        const { data } = await instance.recognize(file);
-        const text = (data.text || '').replace(/\n{4,}/g, '\n\n\n').trim();
+        let outcome = null;
+        if (TAURI) {
+          try {
+            outcome = await recognizeWithVision(lang);
+          } catch (error) {
+            console.warn('[TIP ocr-reader] Vision 으로 읽지 못해 Tesseract 로 다시 시도합니다', error);
+          }
+        }
+        if (!outcome) outcome = await recognizeWithTesseract(lang);
+
+        const text = outcome.text.replace(/\n{4,}/g, '\n\n\n').trim();
         lastText = text;
         textEl.value = text;
         updateCount();
@@ -365,7 +408,7 @@ const module = {
         if (!text) {
           setError('글자를 찾지 못했습니다. 이미지가 흐리거나 글자가 너무 작으면 인식되지 않을 수 있습니다.');
         } else {
-          const confidence = Math.round(data.confidence || 0);
+          const confidence = Math.round(outcome.confidence || 0);
           setProgress(1, `완료, 평균 신뢰도 ${confidence}%`);
           paintContinue();
         }

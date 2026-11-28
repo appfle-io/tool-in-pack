@@ -211,7 +211,7 @@ pub struct Capture {
 }
 
 /// 화면 기록 권한이 없으면 macOS 에 한 번 물어보고, 없으면 [permission] 으로 알린다.
-fn ensure_screen_access() -> Result<(), String> {
+pub(crate) fn ensure_screen_access() -> Result<(), String> {
     if unsafe { CGPreflightScreenCaptureAccess() } {
         return Ok(());
     }

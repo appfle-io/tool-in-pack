@@ -1366,7 +1366,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.28.0';
+const APP_VERSION = '1.29.0';
 
 let updateBusy = false;
 
@@ -1825,7 +1825,9 @@ const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Alt', 'Shift', 'CapsLock', 'F
 /** 키 이벤트 → Tauri accelerator ('Alt+Space', 'CmdOrCtrl+Shift+KeyK'). */
 function acceleratorOf(event) {
   if (MODIFIER_KEYS.has(event.key)) return null;
-  const code = event.code || '';
+  let code = event.code || '';
+  // v1.29.0 — 숫자 키패드도 같은 숫자로 본다(Numpad0~9 → Digit0~9).
+  if (/^Numpad[0-9]$/.test(code)) code = `Digit${code.slice(6)}`;
   const allowed = /^(Key[A-Z]|Digit[0-9]|F[1-9]|F1[0-2]|Space|Enter|Backslash|Slash|Comma|Period|Semicolon|Quote|BracketLeft|BracketRight|Minus|Equal|Backquote)$/;
   if (!allowed.test(code)) return null;
   const parts = [];
@@ -2727,7 +2729,7 @@ function moduleTab(moduleId, render) {
     el('h3', { text: '전역 단축키' }),
     el('p', {
       class: 'mb-note',
-      text: `공통 조합(${prettyShortcut(getShortcutPrefix())}) + 한 글자입니다. 글자를 바꾸면 바로 등록되고, 다른 모듈이 쓰는 글자는 등록되지 않습니다.`,
+      text: `공통 조합(${prettyShortcut(getShortcutPrefix())}) + 영문·숫자 한 글자(A~Z, 0~9)입니다. 글자를 바꾸면 바로 등록되고, 다른 모듈이 쓰는 글자는 등록되지 않습니다.`,
     }),
     ...shortcutRows,
   ]));
@@ -2807,8 +2809,9 @@ function shortcutRow(action, render) {
     maxlength: '1',
     autocomplete: 'off',
     spellcheck: 'false',
-    placeholder: '–',
-    'aria-label': `${action.label} 단축키 글자`,
+    placeholder: 'A~Z·0~9',
+    'aria-label': `${action.label} 단축키 (영문·숫자 A~Z 0~9)`,
+    title: '영문 A~Z 또는 숫자 0~9 한 글자',
   });
   input.value = letter;
 
@@ -2827,7 +2830,7 @@ function shortcutRow(action, render) {
       return;
     }
     if (!validShortcutLetter(value)) {
-      toast('알파벳 한 글자 또는 숫자 하나만 쓸 수 있습니다');
+      toast('영문 A~Z 또는 숫자 0~9 중 한 글자만 쓸 수 있습니다');
       input.value = letter;
       return;
     }
@@ -2840,7 +2843,7 @@ function shortcutRow(action, render) {
       if (result.reason === 'duplicate') {
         toast(`${result.accelerator.replace(/^.*\+/, '')} 는 ${actionLabel(result.owner)} 이(가) 이미 씁니다`);
       } else {
-        toast('알파벳 한 글자 또는 숫자 하나만 쓸 수 있습니다');
+        toast('영문 A~Z 또는 숫자 0~9 중 한 글자만 쓸 수 있습니다');
       }
       input.value = letter;
       return;
@@ -2860,13 +2863,30 @@ function shortcutRow(action, render) {
     render();
   };
 
+  // 한 글자만 받는 칸이라, 눌렀을 때 기존 글자를 골라 두어야 새 글자가 바로 덮어쓴다.
+  input.addEventListener('focus', () => input.select());
   input.addEventListener('input', () => {
     input.value = input.value.replace(/[^0-9a-zA-Z]/g, '').toUpperCase().slice(0, 1);
     if (input.value) commit();
   });
+  // v1.29.0 — 숫자 키패드(Numpad0~9)도 받는다. NumLock 이 꺼져 있으면 key 는 'End'·'Home' 이라
+  // event.code 로 읽어 DigitN 으로 바꾼 뒤 그대로 저장한다.
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
+      commit();
+      return;
+    }
+    if (/^Numpad[0-9]$/.test(event.code || '')) {
+      event.preventDefault();
+      input.value = String(event.code).slice(6);
+      commit();
+      return;
+    }
+    if (/^Digit[0-9]$/.test(event.code || '') && !/[0-9]/.test(event.key || '')) {
+      // 일부 키보드 배열에서 숫자 키가 다른 글자를 낼 때
+      event.preventDefault();
+      input.value = String(event.code).slice(5);
       commit();
     }
   });

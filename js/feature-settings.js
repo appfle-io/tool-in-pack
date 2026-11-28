@@ -119,6 +119,34 @@ export const VOICE_ACTION_KEY = 'voice:record';
 export const VOICE_LETTER = 'R';
 const VOICE_MIGRATION_KEY = 'tip.shortcutMigration.v1220';
 
+/* v1.29.0 — 회의 모드 단축키(기본 대면 M, 화상 O).
+ * 녹음(R)처럼 공통 조합 + 한 글자다. 이미 다른 기능이 쓰는 글자면 비워 두고 설정 화면에서 고른다. */
+export const VOICE_INPERSON_KEY = 'voice:meeting-inperson';
+export const VOICE_ONLINE_KEY = 'voice:meeting-online';
+export const VOICE_INPERSON_LETTER = 'M';
+export const VOICE_ONLINE_LETTER = 'O';
+const VOICE_MODE_MIGRATION_KEY = 'tip.shortcutMigration.v1290';
+
+function ensureVoiceModeLetters() {
+  try {
+    if (localStorage.getItem(VOICE_MODE_MIGRATION_KEY) === '1') return;
+  } catch {
+    return;
+  }
+  const pairs = [[VOICE_INPERSON_KEY, VOICE_INPERSON_LETTER], [VOICE_ONLINE_KEY, VOICE_ONLINE_LETTER]];
+  for (const [key, letter] of pairs) {
+    const letters = readJson(LETTERS_KEY, {});
+    if (letters[key]) continue;
+    const owner = shortcutOwner(acceleratorForLetter(letter), key);
+    if (owner) continue;
+    letters[key] = letter;
+    writeJson(LETTERS_KEY, letters);
+  }
+  try {
+    localStorage.setItem(VOICE_MODE_MIGRATION_KEY, '1');
+  } catch { /* 다음 실행에 다시 시도한다 */ }
+}
+
 function ensureVoiceLetter() {
   try {
     if (localStorage.getItem(VOICE_MIGRATION_KEY) === '1') return;
@@ -307,6 +335,8 @@ migrateShortcuts();
 ensureNotchToggleLetter();
 // v1.22.0 — 녹음 기본 글자(R)도 같은 때 한 번 채운다.
 ensureVoiceLetter();
+// v1.29.0 — 대면 회의(M)·화상 회의(O) 기본 글자.
+ensureVoiceModeLetters();
 
 /** 지금 실제로 등록할 단축키 — 글자(공통 조합과 합침) + 그대로 쓴 조합. */
 export function shortcutEntries() {
@@ -504,13 +534,33 @@ export const MODULE_SETTINGS = {
     actions: [],
   },
   // v1.22.0 — 녹음: 한 번 누르면 시작, 다시 누르면 중지·저장(같은 단축키 토글).
+  // v1.29.0 — 모드별 단축키(일반·대면 회의·화상 회의)와 화자 수.
   'voice-recorder': {
-    values: [],
+    values: [
+      {
+        key: 'voice.speakers',
+        label: '대면 회의 화자 수',
+        type: 'select',
+        fallback: '2',
+        options: [['2', '2명'], ['3', '3명'], ['4', '4명']],
+        hint: '대면 회의 녹음을 화자 분리할 때 씁니다. 실제 인원과 다르면 대화록의 화자 표시가 어긋납니다.',
+      },
+    ],
     actions: [
       {
         key: VOICE_ACTION_KEY,
-        label: '녹음 시작 / 중지',
+        label: '일반 녹음 시작 / 중지',
         hint: '한 번 누르면 바로 녹음이 시작되고, 한 번 더 누르면 중지해 저장합니다. 창을 닫아도 녹음은 이어집니다.',
+      },
+      {
+        key: VOICE_INPERSON_KEY,
+        label: '대면 회의 녹음 시작 / 중지',
+        hint: '마이크로 담고, 멈추면 화자 분리와 받아 적기로 대화록을 만듭니다.',
+      },
+      {
+        key: VOICE_ONLINE_KEY,
+        label: '화상 회의 녹음 시작 / 중지',
+        hint: '내 마이크(나)와 Mac 의 시스템 오디오(상대방)를 함께 담습니다. 화면 기록 권한이 필요합니다.',
       },
     ],
   },

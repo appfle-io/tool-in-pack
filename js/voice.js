@@ -53,7 +53,7 @@ export function voiceIsMac() {
 
 const EMPTY = {
   status: VOICE_STATUS.idle, elapsedMs: 0, level: 0, name: null, mime: '',
-  error: null, dir: '', bytes: 0,
+  error: null, dir: '', bytes: 0, mode: 'normal', partner: null, notice: null,
 };
 
 function normalize(state) {
@@ -67,6 +67,10 @@ function normalize(state) {
     error: state.error ? String(state.error) : null,
     dir: String(state.dir || ''),
     bytes: Number(state.bytes) || 0,
+    // v1.29.0 — 일반·대면·화상 3모드
+    mode: String(state.mode || 'normal'),
+    partner: state.partner ? String(state.partner) : null,
+    notice: state.notice ? String(state.notice) : null,
   };
 }
 
@@ -330,10 +334,10 @@ export async function voiceState() {
   }
 }
 
-export async function voiceStart() {
+export async function voiceStart(mode) {
   if (!TAURI) return webStart();
   try {
-    return normalize(await invoke('voice_start'));
+    return normalize(await invoke('voice_start', mode ? { mode } : {}));
   } catch (error) {
     throw new Error(typeof error === 'string' ? error : (error && error.message) || '녹음을 시작하지 못했습니다');
   }
@@ -349,14 +353,14 @@ export async function voiceStop() {
   }
 }
 
-export async function voiceToggle() {
+export async function voiceToggle(mode) {
   if (!TAURI) {
     const state = webState();
     if (state.status === VOICE_STATUS.recording || state.status === VOICE_STATUS.paused) return webStop();
     return webStart();
   }
   try {
-    return normalize(await invoke('voice_toggle'));
+    return normalize(await invoke('voice_toggle', mode ? { mode } : {}));
   } catch (error) {
     throw new Error(typeof error === 'string' ? error : (error && error.message) || '녹음을 시작하지 못했습니다');
   }
@@ -538,6 +542,90 @@ export function subscribeVoiceLevel(callback) {
     }
   } catch (error) {
     console.warn('[TIP voice] 음량 알림을 듣지 못했습니다', error);
+  }
+  return () => {
+    try { if (typeof stop === 'function') stop(); } catch { /* 이미 놓아 준 리스너 */ }
+  };
+}
+
+/* ------------------------- v1.29.0 · 회의록(화자 분리·받아 적기) ------------------------- */
+
+/** 회의록 엔진 (whisper.cpp + sherpa-onnx) — 준비 여부와 받을 크기. */
+export async function voiceEngineStatus() {
+  if (!TAURI) {
+    return { whisper: false, diarizer: false, ready: false, missing: [], downloadSize: 0, message: '회의록은 Mac 앱에서 만들어집니다' };
+  }
+  try {
+    const value = await invoke('voice_engine_status');
+    return {
+      whisper: !!(value && value.whisper),
+      diarizer: !!(value && value.diarizer),
+      ready: !!(value && value.ready),
+      missing: Array.isArray(value && value.missing) ? value.missing : [],
+      downloadSize: Number(value && value.downloadSize) || 0,
+      message: (value && value.message) || '',
+    };
+  } catch (error) {
+    console.warn('[TIP voice] 회의록 엔진 상태를 읽지 못했습니다', error);
+    return { whisper: false, diarizer: false, ready: false, missing: [], downloadSize: 0, message: '엔진 상태를 확인하지 못했습니다' };
+  }
+}
+
+/** 회의록 엔진 내려받기 — 진행률은 subscribeVoiceEngineProgress 로. */
+export async function voiceEngineDownload() {
+  if (!TAURI) throw new Error('회의록 엔진은 Mac 앱에서 받습니다');
+  return invoke('voice_engine_download');
+}
+
+/** 저장된 대화록 — 없으면 null. */
+export async function voiceTranscript(name) {
+  if (!TAURI) return null;
+  try {
+    return await invoke('voice_transcript', { name });
+  } catch (error) {
+    console.warn('[TIP voice] 대화록을 읽지 못했습니다', error);
+    return null;
+  }
+}
+
+/** 대화록을 다시 만든다 — 화자 수(2~4)를 바꿔 볼 수 있다. */
+export async function voiceTranscribe(name, speakers) {
+  if (!TAURI) throw new Error('대화록은 Mac 앱에서 만듭니다');
+  return invoke('voice_transcribe', { name, speakers: Number(speakers) || 2 });
+}
+
+/** 대화록 준비 상황 — { name, mode, stage, percent, error, transcript }. */
+export function subscribeVoiceTranscript(callback) {
+  if (typeof callback !== 'function' || !TAURI) return () => {};
+  let stop = null;
+  try {
+    const pending = listen('tip://voice-transcript', (event) => {
+      callback((event && event.payload) || {});
+    });
+    if (pending && typeof pending.then === 'function') {
+      pending.then((unlisten) => { if (typeof unlisten === 'function') stop = unlisten; }).catch(() => {});
+    }
+  } catch (error) {
+    console.warn('[TIP voice] 대화록 알림을 듣지 못했습니다', error);
+  }
+  return () => {
+    try { if (typeof stop === 'function') stop(); } catch { /* 이미 놓아 준 리스너 */ }
+  };
+}
+
+/** 엔진 내려받기 진행률 — { stage, percent }. */
+export function subscribeVoiceEngineProgress(callback) {
+  if (typeof callback !== 'function' || !TAURI) return () => {};
+  let stop = null;
+  try {
+    const pending = listen('tip://voice-engine-progress', (event) => {
+      callback((event && event.payload) || {});
+    });
+    if (pending && typeof pending.then === 'function') {
+      pending.then((unlisten) => { if (typeof unlisten === 'function') stop = unlisten; }).catch(() => {});
+    }
+  } catch (error) {
+    console.warn('[TIP voice] 엔진 진행률을 듣지 못했습니다', error);
   }
   return () => {
     try { if (typeof stop === 'function') stop(); } catch { /* 이미 놓아 준 리스너 */ }

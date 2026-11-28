@@ -33,6 +33,7 @@ mod dialogs;
 mod doc;
 mod files;
 mod media;
+mod native;
 mod notch;
 mod video;
 mod video_graph;
@@ -802,7 +803,18 @@ fn shortcut_pressed(app: &AppHandle, shortcut: &tauri_plugin_global_shortcut::Sh
         NOTCH_TOGGLE_KEY => toggle_notch_enabled(app),
         // v1.22.0 — 녹음 단축키: 한 번 누르면 바로 녹음, 다시 누르면 중지·저장.
         voice::VOICE_ACTION_KEY => {
-            if let Err(error) = voice::voice_toggle(app.clone()) {
+            if let Err(error) = voice::voice_toggle(app.clone(), Some("normal".to_string())) {
+                emit_toast(app, &error);
+            }
+        }
+        // v1.29.0 — 모드별 단축키: 대면 회의·화상 회의도 한 번에 켜고 끈다.
+        voice::VOICE_INPERSON_KEY => {
+            if let Err(error) = voice::voice_toggle(app.clone(), Some("inperson".to_string())) {
+                emit_toast(app, &error);
+            }
+        }
+        voice::VOICE_ONLINE_KEY => {
+            if let Err(error) = voice::voice_toggle(app.clone(), Some("online".to_string())) {
                 emit_toast(app, &error);
             }
         }
@@ -2131,6 +2143,13 @@ pub fn run() {
             video::video_save_png,
             // v1.26.0 — 문서 리더: 구형 .doc 을 macOS textutil 로 HTML 로 바꾼다
             doc::doc_convert_html,
+            // v1.29.0 — 회의록(화자 분리·받아 적기)·macOS 네이티브 OCR·HEIC
+            voice::voice_engine_status,
+            voice::voice_engine_download,
+            voice::voice_transcribe,
+            voice::voice_transcript,
+            native::ocr_vision,
+            native::img_heic_to_png,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
