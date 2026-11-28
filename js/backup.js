@@ -38,6 +38,8 @@ export const BACKUP_KEYS = [
   'tip.calendar.selectedIds.v1',
   'tip.recent.v1',
   'tip.recent.enabled.v1',
+  // v1.28.0 — 홈 상단 분류 필터·접힌 분류
+  'tip.home.v1',
 ];
 
 const MAX_CLIPBOARD_BYTES = 6 * 1024 * 1024;

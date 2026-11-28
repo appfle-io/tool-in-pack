@@ -1,6 +1,9 @@
 /* TIP app shell — hash routing, home hub, theme, PWA install/SW plumbing. */
 
 import { listModules, getModule, visibleCategories, categoryOf } from '../modules/registry.js';
+// v1.28.0 — 홈 상단 검색·분류 필터·접힌 분류의 상태(기기 저장)와 모듈 찾기 말뭉치
+import { getHomeView, setHomeFilter, setHomeCollapsed } from './home-view.js';
+import { scoreModuleQuery } from './module-keywords.js';
 import {
   moduleState, setModuleState, getTheme, setTheme, applyTheme, getAccent, setAccent, ACCENTS,
   getSectionOrder, setSectionOrder, hasSectionOrder, resetSectionOrder, resetRadialOrder,
@@ -42,8 +45,41 @@ const view = document.getElementById('view');
  * 상단 [편집] 을 눌렀을 때만 보인다. 모드를 나가면 다시 실행만 남는다. */
 let homeEditing = false;
 
+/* v1.28.0 — 홈 상단 모듈 검색 · 분류 필터 · 분류 접기/펼치기.
+ *   · 분류 필터와 접힌 분류는 기기에 저장한다(js/home-view.js — localStorage + 쿠키).
+ *   · 검색어는 저장하지 않는다. 새로 열면 저장된 필터·접힘 상태로 돌아온다.
+ *   · 검색창과 필터 바는 한 번만 그리고, 입력할 때는 목록(home-sections)만 갈아 끼운다.
+ *     그래야 한 글자 칠 때마다 포커스와 커서가 튀지 않는다. */
+const savedHomeView = getHomeView();
+let homeFilter = savedHomeView.filter;
+let homeQuery = '';
+let filterBeforeEdit = homeFilter;
+const collapsedSections = new Set(savedHomeView.collapsed);
+
+let homeSectionsEl = null;
+let homeSearchInput = null;
+let homeSearchClear = null;
+let homeSearchLive = null;
+
 function renderHome() {
   view.innerHTML = '';
+
+  homeSectionsEl = el('div', { class: `home-sections${homeEditing ? ' is-editing' : ''}` });
+  const shell = el('div', { class: `home-shell${homeEditing ? ' is-editing' : ''}` }, [
+    homeSearchBar(),
+    homeFilterBar(),
+    homeToolbar(),
+  ]);
+
+  view.append(shell, homeSectionsEl);
+  renderHomeSections();
+  syncEditButton();
+}
+
+/** 목록만 다시 그린다 — 검색·필터·접기의 결과가 바뀔 때. */
+function renderHomeSections() {
+  if (!homeSectionsEl) return;
+  homeSectionsEl.className = `home-sections${homeEditing ? ' is-editing' : ''}`;
 
   const mods = listModules().map((mod) => ({ mod, state: moduleState(mod) }));
 
@@ -54,32 +90,189 @@ function renderHome() {
   const pinned = ordered(enabled.filter(({ state }) => state.pinned), 'pinned');
   const rest = enabled.filter(({ state }) => !state.pinned);
 
-  const sections = el('div', { class: `home-sections${homeEditing ? ' is-editing' : ''}` });
+  const query = homeQuery.trim();
+  const categories = visibleCategories();
+  const nodes = [];
 
-  // 고정된 모듈이 있을 때만 맨 위에 '고정됨' 섹션을 만든다.
-  if (pinned.length) sections.append(homeSection('pinned', '고정됨', pinned, true));
+  if (query) {
+    // 검색 중 — 접힌 분류도 결과에 넣는다. 필터를 골라 두었으면 그 분류 안에서만 찾는다.
+    const scope = homeFilter === 'all' ? null : homeFilter;
+    const scopeLabel = scope ? (categories.find(({ id }) => id === scope)?.label || '') : '';
+    const hits = enabled
+      // 이 환경에 없는 분류(웹의 Mac 도구)는 검색에도 올리지 않는다 — 홈에 자리가 없기 때문.
+      .filter(({ mod }) => categories.some(({ id }) => id === categoryOf(mod)))
+      .map((entry, index) => ({ entry, index, score: scope && categoryOf(entry.mod) !== scope ? 99 : scoreModuleQuery(entry.mod, query) }))
+      .filter((item) => item.score < 99)
+      .sort((a, b) => a.score - b.score || a.index - b.index)
+      .map((item) => item.entry);
+    if (homeSearchLive) {
+      homeSearchLive.textContent = hits.length ? `${hits.length}개 모듈을 찾았습니다` : '맞는 모듈이 없습니다';
+    }
+    nodes.push(homeSection('search', scopeLabel ? `${scopeLabel} · 검색 결과` : '검색 결과', hits, {
+      categoryTag: !scope,
+      empty: `‘${query}’에 맞는 모듈이 없습니다`,
+      emptyAction: clearHomeQuery,
+    }));
+  } else if (homeFilter !== 'all') {
+    // 분류를 하나 골랐을 때 — 그 분류만 펼친 채로 보여 준다(고정해 둔 모듈도 이 분류 것이면 함께).
+    const category = categories.find(({ id }) => id === homeFilter);
+    if (category) {
+      const entries = ordered(enabled.filter(({ mod }) => categoryOf(mod) === category.id), category.id);
+      nodes.push(homeSection(category.id, category.label, entries));
+    }
+  } else {
+    // 고정된 모듈이 있을 때만 맨 위에 '고정됨' 섹션을 만든다.
+    if (pinned.length) nodes.push(homeSection('pinned', '고정됨', pinned, { sortable: true }));
 
-  // v1.16.0 — '고정됨' 아래 '최근 사용' 줄. 이미 고정된 모듈은 빼고 최대 6개.
-  // 설정에서 끄거나 [기록 지우기]를 누르면 이 줄이 사라진다.
-  if (getRecentEnabled()) {
-    const recent = recentIds(6)
-      .map((id) => enabled.find(({ mod }) => mod.id === id))
-      .filter((entry) => entry && !entry.state.pinned);
-    if (recent.length) sections.append(homeSection('recent', '최근 사용', recent, false, false));
+    // v1.16.0 — '고정됨' 아래 '최근 사용' 줄. 이미 고정된 모듈은 빼고 최대 6개.
+    if (getRecentEnabled()) {
+      const recent = recentIds(6)
+        .map((id) => enabled.find(({ mod }) => mod.id === id))
+        .filter((entry) => entry && !entry.state.pinned);
+      if (recent.length) nodes.push(homeSection('recent', '최근 사용', recent, { showControls: false }));
+    }
+
+    // 나머지는 registry 의 CATEGORIES 순서대로 묶는다. 웹(PWA)에는 'Mac 화면 도구' 섹션이 없다.
+    visibleCategories().forEach(({ id, label }) => {
+      const entries = ordered(rest.filter(({ mod }) => categoryOf(mod) === id), id);
+      if (!entries.length) return;
+      nodes.push(homeSection(id, label, entries, {
+        collapsible: true,
+        // 편집 중에는 모두 펼친다 — 접힌 곳으로 카드를 끌어 옮길 수 없기 때문. 저장된 접힘은 건드리지 않는다.
+        open: homeEditing || !collapsedSections.has(id),
+      }));
+    });
+
+    // 꺼진 모듈이 1개 이상일 때만 맨 아래에 모은다. 스위치를 켜면 원래 묶음으로 돌아간다.
+    if (off.length) nodes.push(homeSection('off', '꺼진 모듈', off, {
+      collapsible: true,
+      open: homeEditing || !collapsedSections.has('off'),
+    }));
   }
 
-  // 나머지는 registry 의 CATEGORIES 순서(문서·글 → 사진·영상 → 파일 → 계산·조회 → 개발·디자인 → Mac 화면 도구)대로 묶는다.
-  // 웹(PWA)에는 'Mac 화면 도구' 섹션이 아예 나오지 않는다(visibleCategories).
-  visibleCategories().forEach(({ id, label }) => {
-    const entries = ordered(rest.filter(({ mod }) => categoryOf(mod) === id), id);
-    if (entries.length) sections.append(homeSection(id, label, entries, true));
+  homeSectionsEl.replaceChildren(...nodes);
+}
+
+/* ------------------- v1.28.0 — 상단 모듈 검색 ------------------- */
+
+function homeSearchBar() {
+  homeSearchInput = el('input', {
+    class: 'home-search-input',
+    id: 'home-search',
+    type: 'search',
+    placeholder: '모듈 검색',
+    'aria-label': '모듈 검색',
+    autocomplete: 'off',
+    autocapitalize: 'off',
+    spellcheck: 'false',
+    enterkeyhint: 'search',
+  });
+  homeSearchInput.value = homeQuery;
+  homeSearchInput.addEventListener('input', () => {
+    homeQuery = homeSearchInput.value;
+    syncSearchClear();
+    renderHomeSections();
+  });
+  // Esc 로 검색어를 비우면 저장된 필터·접힘 상태 그대로 돌아온다.
+  homeSearchInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && homeQuery) {
+      event.preventDefault();
+      clearHomeQuery();
+    }
   });
 
-  // 꺼진 모듈이 1개 이상일 때만 맨 아래에 모은다. 스위치를 켜면 원래 묶음으로 돌아간다.
-  if (off.length) sections.append(homeSection('off', '꺼진 모듈', off));
+  homeSearchClear = el('button', {
+    class: 'home-search-clear',
+    type: 'button',
+    'aria-label': '검색어 지우기',
+    html: icons.close,
+  });
+  homeSearchClear.addEventListener('click', clearHomeQuery);
+  syncSearchClear();
 
-  view.append(homeToolbar(), sections);
-  syncEditButton();
+  // 검색 결과 개수를 화면 읽기 프로그램에 알리는 자리(보이지 않는다).
+  homeSearchLive = el('span', { class: 'sr-only', id: 'home-search-live', role: 'status', 'aria-live': 'polite' });
+
+  return el('div', { class: 'home-search' }, [
+    el('span', { class: 'home-search-icon', html: icons.search, 'aria-hidden': 'true' }),
+    homeSearchInput,
+    homeSearchClear,
+    homeSearchLive,
+  ]);
+}
+
+function syncSearchClear() {
+  if (homeSearchClear) homeSearchClear.hidden = !homeQuery;
+  if (homeSearchLive && !homeQuery) homeSearchLive.textContent = '';
+}
+
+function clearHomeQuery() {
+  homeQuery = '';
+  if (homeSearchInput) homeSearchInput.value = '';
+  syncSearchClear();
+  renderHomeSections();
+  if (homeSearchInput) homeSearchInput.focus({ preventScroll: true });
+}
+
+/* ------------------- v1.28.0 — 상단 분류 필터 ------------------- */
+
+function homeFilterBar() {
+  // 이 환경에 실제로 보이는 분류의 모듈만 센다 — 웹에는 'Mac 화면 도구' 섹션이 없다.
+  const shownCategories = new Set(visibleCategories().map(({ id }) => id));
+  const enabled = listModules()
+    .filter((mod) => moduleState(mod).enabled && shownCategories.has(categoryOf(mod)));
+  const counts = new Map();
+  enabled.forEach((mod) => {
+    const id = categoryOf(mod);
+    counts.set(id, (counts.get(id) || 0) + 1);
+  });
+
+  // 모듈이 다 꺼진 분류는 탭에서 뺀다(눌러도 빈 화면이라).
+  const tabs = [{ id: 'all', label: '전체', count: enabled.length }]
+    .concat(visibleCategories().map(({ id, label }) => ({ id, label, count: counts.get(id) || 0 })))
+    .filter((tab) => tab.id === 'all' || tab.count > 0);
+
+  // 저장된 필터가 이 환경에 없으면(분류가 비거나 웹에서 Mac 분류) '전체'로 되돌린다.
+  if (!tabs.some((tab) => tab.id === homeFilter)) {
+    homeFilter = 'all';
+    setHomeFilter('all');
+  }
+
+  const bar = el('div', { class: 'home-filters', role: 'group', 'aria-label': '모듈 분류' });
+  tabs.forEach((tab) => {
+    const button = el('button', {
+      class: 'home-filter',
+      type: 'button',
+      'aria-pressed': String(homeFilter === tab.id),
+      'data-filter': tab.id,
+    }, [
+      el('span', { class: 'home-filter-label', text: tab.label }),
+      el('span', { class: 'home-filter-count', text: String(tab.count), 'aria-hidden': 'true' }),
+    ]);
+    button.addEventListener('click', () => {
+      if (homeFilter === tab.id) return;
+      homeFilter = tab.id;
+      setHomeFilter(homeFilter);
+      bar.querySelectorAll('.home-filter').forEach((node) => {
+        node.setAttribute('aria-pressed', String(node.dataset.filter === homeFilter));
+      });
+      centerActiveFilter(bar);
+      renderHomeSections();
+    });
+    bar.append(button);
+  });
+
+  requestAnimationFrame(() => centerActiveFilter(bar));
+  return bar;
+}
+
+/** 고른 탭이 가로 스크롤 밖에 있으면 가운데로 당겨 온다. */
+function centerActiveFilter(bar) {
+  const active = bar.querySelector('.home-filter[aria-pressed="true"]');
+  if (!active || bar.scrollWidth <= bar.clientWidth + 4) return;
+  const barBox = bar.getBoundingClientRect();
+  const box = active.getBoundingClientRect();
+  bar.scrollLeft += (box.left - barBox.left) - (barBox.width - box.width) / 2;
 }
 
 /* ------------------- 홈 파일로 시작하기 · 끌어다 놓기 (v1.16.0) ------------------- */
@@ -326,19 +519,89 @@ function ordered(entries, sectionId) {
   return entries.slice().sort((a, b) => place(a) - place(b));
 }
 
-function homeSection(id, label, entries, sortable = false, showControls = true) {
-  const list = el('div', { class: 'module-list' });
-  entries.forEach(({ mod, state }) => list.append(moduleRow(mod, state, { sectionId: id, sortable, showControls })));
-  return el('section', { class: 'home-section', 'data-section': id, 'aria-label': label }, [
-    el('h2', { class: 'home-section-title' }, [
-      el('span', { text: label }),
-      el('span', { class: 'home-section-count', text: String(entries.length), 'aria-hidden': 'true' }),
-    ]),
-    list,
-  ]);
+function homeSection(id, label, entries, {
+  collapsible = false,
+  open = true,
+  sortable = false,
+  showControls = true,
+  categoryTag = false,
+  empty = '',
+  emptyAction = null,
+} = {}) {
+  const section = el('section', { class: 'home-section', 'data-section': id, 'aria-label': label });
+  const count = el('span', { class: 'home-section-count', text: String(entries.length), 'aria-hidden': 'true' });
+
+  if (collapsible) {
+    // v1.28.0 — 분류 제목 줄이 접기/펼치기 버튼이 된다(화살표 + aria-expanded).
+    // 버튼 안쪽을 한 줄(flex)로 — Chrome 이 button 에 넣는 기본 가운데 정렬을 피한다.
+    const toggle = el('button', {
+      class: 'section-toggle',
+      type: 'button',
+      'aria-expanded': String(open),
+      'aria-controls': `home-body-${id}`,
+      'data-toggle': id,
+    }, el('span', { class: 'section-toggle-row' }, [
+      el('span', { class: 'section-chevron', html: icons.chevron, 'aria-hidden': 'true' }),
+      el('span', { class: 'section-label', text: label }),
+      count,
+    ]));
+    toggle.addEventListener('click', () => toggleHomeSection(id, toggle));
+    section.append(el('h2', { class: 'home-section-title' }, toggle));
+  } else {
+    section.append(el('h2', { class: 'home-section-title is-flat' }, [
+      el('span', { class: 'section-label', text: label }),
+      count,
+    ]));
+  }
+
+  // 접힌 분류의 카드는 그리지 않는다(숨김만 하면 Tab 이 숨은 카드로 들어간다).
+  const body = el('div', { class: 'home-section-body', id: `home-body-${id}` });
+  if (collapsible && !open) {
+    body.classList.add('is-collapsed');
+    body.setAttribute('inert', '');
+    body.setAttribute('aria-hidden', 'true');
+  }
+
+  if (entries.length) {
+    const list = el('div', { class: 'module-list' });
+    entries.forEach(({ mod, state }) => list.append(moduleRow(mod, state, { sectionId: id, sortable, showControls, categoryTag })));
+    body.append(list);
+  } else if (empty) {
+    const box = el('div', { class: 'home-empty' }, el('p', { class: 'home-empty-text', text: empty }));
+    if (emptyAction) {
+      const clear = el('button', { class: 'v16-btn home-empty-btn', type: 'button', text: '검색어 지우기' });
+      clear.addEventListener('click', emptyAction);
+      box.append(clear);
+    }
+    body.append(box);
+  }
+
+  section.append(body);
+  return section;
 }
 
-function moduleRow(mod, state, { sectionId = null, sortable = false, showControls = true } = {}) {
+/** 분류 접기/펼치기 — 화면은 그대로 두고 몸통만 접는다(부드러운 전환은 CSS 가 맡는다). */
+function toggleHomeSection(id, toggle) {
+  if (homeEditing) return;
+  const next = toggle.getAttribute('aria-expanded') !== 'true';
+  const body = document.getElementById(`home-body-${id}`);
+  toggle.setAttribute('aria-expanded', String(next));
+  if (body) {
+    body.classList.toggle('is-collapsed', !next);
+    if (next) {
+      body.removeAttribute('inert');
+      body.removeAttribute('aria-hidden');
+    } else {
+      body.setAttribute('inert', '');
+      body.setAttribute('aria-hidden', 'true');
+    }
+  }
+  if (next) collapsedSections.delete(id);
+  else collapsedSections.add(id);
+  setHomeCollapsed([...collapsedSections]);
+}
+
+function moduleRow(mod, state, { sectionId = null, sortable = false, showControls = true, categoryTag = false } = {}) {
   const row = el('article', {
     class: `module-card${state.enabled ? '' : ' is-off'}`,
     role: 'button',
@@ -418,7 +681,10 @@ function moduleRow(mod, state, { sectionId = null, sortable = false, showControl
         el('span', { class: 'module-name', text: mod.name }),
         mod.badge ? el('span', { class: 'mac-badge', text: mod.badge, title: 'Mac 앱 전용 기능' }) : null,
       ]),
-      el('p', { text: mod.subtitle }),
+      // 검색 결과에서는 어느 분류의 모듈인지 바로 보이게 분류를 앞에 둔다(같은 이름이 여러 분류에 있을 수 있다).
+      el('p', {}, categoryTag
+        ? [el('span', { class: 'module-cat', text: visibleCategories().find(({ id }) => id === categoryOf(mod))?.label || '' }), ` · ${mod.subtitle}`]
+        : [mod.subtitle]),
     ]),
   );
   // v1.16.0 — '최근 사용' 줄은 실행만 한다(같은 모듈의 핀·켜기가 두 번 보이지 않게).
@@ -470,6 +736,14 @@ function syncEditButton() {
 if (editBtn) {
   editBtn.addEventListener('click', () => {
     homeEditing = !homeEditing;
+    if (homeEditing) {
+      // 편집은 목록 전체를 보며 한다 — 검색·분류 필터는 잠시 내려 두고, 나올 때 되돌린다.
+      filterBeforeEdit = homeFilter;
+      homeFilter = 'all';
+      homeQuery = '';
+    } else {
+      homeFilter = filterBeforeEdit;
+    }
     renderHome();
     if (!homeEditing) {
       toast('편집을 마쳤습니다');
@@ -1092,7 +1366,7 @@ function startQuickbarDrag(event, row, handle, save) {
 /* --------------------------- 앱 업데이트 (v1.10.0) --------------------------- */
 
 /** 현재 버전 — sw.js 의 CACHE_VERSION·mac/Cargo.toml 과 함께 올린다. */
-const APP_VERSION = '1.27.1';
+const APP_VERSION = '1.28.0';
 
 let updateBusy = false;
 

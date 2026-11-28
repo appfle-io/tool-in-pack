@@ -1350,8 +1350,9 @@ check('게임 길 색 8종(라이트·다크)', /--gm-path-8/.test(gameCss)
 check('게임 화면 좁은 폭 대응', /@media \(max-width: 560px\) \{[\s\S]{0,400}\.gm-maps \{ grid-template-columns: 1fr; \}/.test(gameCss));
 check('sw.js 가 게임 파일을 캐시', ["'./js/game-kit.js'", "'./modules/draw-lots/module.js'", "'./modules/race-game/module.js'"]
   .every((line) => read('sw.js').includes(line)));
-check('검색 키워드에 게임 3종', /'draw-lots':/.test(read('js/search.js')) && /'ladder-game':/.test(read('js/search.js'))
-  && /'race-game':/.test(read('js/search.js')));
+// v1.28.0 — 키워드 표는 홈 검색과 함께 쓰는 js/module-keywords.js 로 옮겼다(search.js 가 그대로 import 해 쓴다).
+check('검색 키워드에 게임 3종', /'draw-lots':/.test(read('js/module-keywords.js')) && /'ladder-game':/.test(read('js/module-keywords.js'))
+  && /'race-game':/.test(read('js/module-keywords.js')));
 check('README 게임 3종 설명', read('README.md').includes('제비뽑기') && read('README.md').includes('사다리타기')
   && read('README.md').includes('선착순 골인'));
 check('README v1.18.0', read('README.md').includes('| v1.18.0 |'));
@@ -2114,7 +2115,7 @@ check('v1.26.0 — 끌어다 놓기 확장자 매핑', /xlsx: 'application\/vnd\
   && /docx: 'application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document'/.test(docAppJs)
   && /pptx: 'application\/vnd\.openxmlformats-officedocument\.presentationml\.presentation'/.test(docAppJs)
   && /epub: 'application\/epub\+zip'/.test(docAppJs));
-check('v1.26.0 — 찾기 검색어에 새 형식', /doc-reader': 'pdf hwp hwpx xlsx/.test(read('js/search.js')));
+check('v1.26.0 — 찾기 검색어에 새 형식', /doc-reader': 'pdf hwp hwpx xlsx/.test(read('js/module-keywords.js')));
 
 // README
 check('v1.26.0 — README 기능·버전', read('README.md').includes('| v1.26.0 |')
@@ -2252,6 +2253,86 @@ check('v1.27.1 — settings-e2e 가 택시 미터기를 본다', /v1\.27\.1 — 
 check('v1.27.1 — 택시 미터기 E2E 도구', exists('tools/taxi-meter-e2e.mjs')
   && read('tools/taxi-meter-e2e.mjs').includes('390px') && read('tools/taxi-meter-e2e.mjs').includes('오프라인')
   && read('tools/taxi-meter-e2e.mjs').includes('__geo.push') && read('tools/taxi-meter-e2e.mjs').includes('requestFullscreen 이 없어도'));
+
+/* --------------- v1.28.0 — 홈 상단 검색·분류 필터·접기/펼치기·상태 저장 --------------- */
+
+const homeViewJs = read('js/home-view.js');
+const keywordsJs = read('js/module-keywords.js');
+
+// 상태 저장 — localStorage + 쿠키 양쪽, 1년, SameSite=Lax, 막혀도 계속
+check('v1.28.0 — 홈 보기 상태 파일', exists('js/home-view.js'));
+check('v1.28.0 — 저장 키 tip.home.v1 · 쿠키 tip_home', /HOME_VIEW_KEY = 'tip\.home\.v1'/.test(homeViewJs)
+  && /HOME_VIEW_COOKIE = 'tip_home'/.test(homeViewJs));
+check('v1.28.0 — 쿠키 1년 · SameSite=Lax', /HOME_VIEW_COOKIE_MAX_AGE = 60 \* 60 \* 24 \* 365/.test(homeViewJs)
+  && /SameSite=Lax/.test(homeViewJs));
+check('v1.28.0 — localStorage·쿠키 모두 try/catch', /function writeStorage[\s\S]{0,260}catch/.test(homeViewJs)
+  && /function writeCookie[\s\S]{0,400}catch/.test(homeViewJs) && /function readCookie[\s\S]{0,400}catch/.test(homeViewJs));
+check('v1.28.0 — 한쪽이 비면 다른 쪽에서 채운다', /if \(parsed\) writeStorage\(normalize\(parsed\)\)/.test(homeViewJs)
+  && /writeCookie\(normalize\(parsed\)\)/.test(homeViewJs));
+check('v1.28.0 — 저장 값은 필터와 접힌 분류뿐(검색어 저장 없음)', /return \{ filter, collapsed \}/.test(homeViewJs)
+  && !/homeQuery|query:/.test(homeViewJs));
+
+// 상단 검색
+check('v1.28.0 — 홈 검색 입력창', /id: 'home-search'/.test(appJs) && /placeholder: '모듈 검색'/.test(appJs)
+  && /'aria-label': '모듈 검색'/.test(appJs));
+check('v1.28.0 — 지우기(reason ✕) 단추와 Esc', /class: 'home-search-clear'[\s\S]{0,120}'aria-label': '검색어 지우기'/.test(appJs)
+  && /event\.key === 'Escape' && homeQuery/.test(appJs));
+check('v1.28.0 — 검색은 이름·부제·설명·키워드·분류', /moduleSearchText[\s\S]{0,200}subtitle[\s\S]{0,120}KEYWORDS/.test(keywordsJs)
+  && /scoreModuleQuery/.test(appJs));
+check('v1.28.0 — 키워드 표는 검색과 한 곳에서', /import \{ KEYWORDS \} from '\.\/module-keywords\.js'/.test(searchJs)
+  && !/const KEYWORDS = \{/.test(searchJs));
+check('v1.28.0 — 새 모듈도 키워드에 있다', ['video-editor', 'voice-recorder', 'taxi-meter']
+  .every((id) => new RegExp(`'${id}':`).test(keywordsJs)));
+check('v1.28.0 — 접힌 분류 안의 모듈도 검색 결과에', /검색 중 — 접힌 분류도 결과에 넣는다/.test(appJs)
+  && /homeSection\('search'/.test(appJs));
+check('v1.28.0 — 검색 결과 없음 안내와 지우기', /home-empty-text/.test(appJs) && /검색어 지우기/.test(appJs));
+
+// 분류 필터
+check('v1.28.0 — 필터 바(전체 + 보이는 분류 + 개수)', /class: 'home-filters', role: 'group'/.test(appJs)
+  && /\{ id: 'all', label: '전체', count: enabled\.length \}/.test(appJs)
+  && /visibleCategories\(\)\.map\(\(\{ id, label \}\) => \(\{ id, label, count: counts\.get\(id\) \|\| 0 \}\)\)/.test(appJs));
+check('v1.28.0 — 선택 상태 aria-pressed · #2E5E4E 강조', /'aria-pressed': String\(homeFilter === tab\.id\)/.test(appJs)
+  && /\.home-filter\[aria-pressed='true'\] \{[\s\S]{0,120}border-bottom-color: var\(--accent\)/.test(appCss));
+check('v1.28.0 — 분류를 고르면 그 분류만', /else if \(homeFilter !== 'all'\) \{/.test(appJs)
+  && /enabled\.filter\(\(\{ mod \}\) => categoryOf\(mod\) === category\.id\)/.test(appJs));
+check('v1.28.0 — 웹에는 Mac 분류 탭이 없다(동적)', /const shownCategories = new Set\(visibleCategories\(\)/.test(appJs)
+  && /shownCategories\.has\(categoryOf\(mod\)\)/.test(appJs));
+check('v1.28.0 — 필터·검색이 저장된 필터를 따른다', /const savedHomeView = getHomeView\(\)/.test(appJs)
+  && /setHomeFilter\(homeFilter\)/.test(appJs));
+check('v1.28.0 — 가로 스크롤 · 넘침 없음', /\.home-filters \{[\s\S]{0,200}overflow-x: auto/.test(appCss)
+  && /\.home-filters \{[\s\S]{0,200}overscroll-behavior-x: contain/.test(appCss));
+
+// 접기/펼치기
+check('v1.28.0 — 제목 줄이 접기 버튼(aria-expanded · aria-controls)', /class: 'section-toggle'/.test(appJs)
+  && /'aria-expanded': String\(open\)/.test(appJs) && /'aria-controls': `home-body-\$\{id\}`/.test(appJs));
+check('v1.28.0 — 접으면 몸통을 inert 로', /body\.setAttribute\('inert', ''\)/.test(appJs)
+  && /body\.removeAttribute\('inert'\)/.test(appJs));
+check('v1.28.0 — 부드러운 접힘(grid-template-rows 전환)', /\.home-section-body \{[\s\S]{0,180}grid-template-rows: 1fr[\s\S]{0,120}transition: grid-template-rows/.test(appCss)
+  && /\.home-section-body\.is-collapsed \{ grid-template-rows: 0fr; \}/.test(appCss));
+check('v1.28.0 — 움직임 줄이기 설정 존중', /@media \(prefers-reduced-motion: reduce\) \{\s*\.home-section-body \{ transition: none; \}/.test(appCss));
+check('v1.28.0 — 편집 중에는 펼치고 검색·필터는 내린다', /open: homeEditing \|\| !collapsedSections\.has\(id\)/.test(appJs)
+  && /\.home-shell\.is-editing \.home-search,[\s\S]{0,80}\.home-filters \{ display: none; \}/.test(appCss));
+check('v1.28.0 — 접힘도 저장된다', /setHomeCollapsed\(\[\.\.\.collapsedSections\]\)/.test(appJs));
+
+// 접근성 · 반응형
+check('v1.28.0 — 12px 이상 글자', ![...appCss.slice(appCss.indexOf('v1.28.0 — 홈 상단')).matchAll(/font-size:\s*([\d.]+)px/g)].some((m) => Number(m[1]) < 12));
+check('v1.28.0 — 390px 손가락 크기', /@media \(max-width: 640px\) \{[\s\S]{0,320}\.home-filter \{ height: 44px; \}/.test(appCss)
+  && /\.home-search-input \{ height: 44px; \}/.test(appCss));
+check('v1.28.0 — 라이트/다크 토큰만 사용', /\.home-search-input \{[\s\S]{0,220}background: var\(--card\)/.test(appCss)
+  && /\.section-toggle \{[\s\S]{0,400}color: var\(--text\)/.test(appCss));
+check('v1.28.0 — 키보드 초점 표시', /\.home-filter:focus-visible \{ outline: 2px solid var\(--accent\)/.test(appCss)
+  && /\.section-toggle:focus-visible \{ outline: 2px solid var\(--accent\)/.test(appCss));
+
+// 백업 · 오프라인 · 문서
+check('v1.28.0 — 백업에 홈 보기 상태 포함', /'tip\.home\.v1'/.test(read('js/backup.js')));
+check('v1.28.0 — sw.js 프리캐시', read('sw.js').includes("'./js/home-view.js'") && read('sw.js').includes("'./js/module-keywords.js'"));
+check('v1.28.0 — README 버전·기능', read('README.md').includes('| v1.28.0 |')
+  && read('README.md').includes('모듈 검색') && read('README.md').includes('접기'));
+check('v1.28.0 — settings-e2e 가 실제로 눌러 본다', /v1\.28\.0 — 검색창과 분류 필터가 홈 위에 있다/.test(settingsE2e)
+  && /v1\.28\.0 — 접힌 분류 안의 모듈도 검색에 나온다/.test(settingsE2e)
+  && /v1\.28\.0 — 새로고침 뒤 필터·접힘이 남는다/.test(settingsE2e)
+  && /v1\.28\.0 — 쿠키와 localStorage 양쪽에 저장/.test(settingsE2e)
+  && /v1\.28\.0 — 390px 가로 넘침 없음/.test(settingsE2e));
 
 /* ------------------------------ 결과 ------------------------------ */
 

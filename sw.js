@@ -1,6 +1,6 @@
 /* TIP app shell — precache the app shell and bump CACHE_VERSION on each deploy. */
 
-const CACHE_VERSION = 'tip-v1.27.1';
+const CACHE_VERSION = 'tip-v1.28.0';
 const APP_SHELL = [
   './',
   './index.html',
@@ -20,6 +20,9 @@ const APP_SHELL = [
   './css/sticky.css',
   './vendor/fonts/PretendardVariable.woff2',
   './js/app.js',
+  // v1.28.0 — 홈 상단 검색·분류 필터·접힌 분류의 상태 저장과 모듈 찾기 말뭉치
+  './js/home-view.js',
+  './js/module-keywords.js',
   './js/ui.js',
   './js/store.js',
   './js/quickbar.js',

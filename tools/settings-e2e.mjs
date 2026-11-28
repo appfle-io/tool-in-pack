@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * TIP v1.22.0 · 환경설정 5탭 + 노치 + 녹음 + 게임 3종 전수 E2E — 실제로 클릭하며 확인한다.
+ * TIP v1.28.0 · 환경설정 5탭 + 노치 + 녹음 + 게임 + 홈 상단 검색·필터·접기 전수 E2E — 실제로 클릭하며 확인한다.
  *
  *   node tools/settings-e2e.mjs
  *   TIP_CHROME=/path/to/chrome node tools/settings-e2e.mjs     # 직접 고른 브라우저로
@@ -4001,6 +4001,155 @@ check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes
   check('v1.27.1 — 빈 차 표시', (await page.locator('.txm-live').innerText()).includes('빈 차'));
 }
 
+/* ------------------------------ v1.28.0 홈 상단 검색·필터·접기 ------------------------------ */
+
+{
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const home = await ctx.newPage();
+  home.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  home.on('pageerror', (error) => consoleErrors.push(String(error)));
+  await home.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+  // 앞선 시험이 남긴 홈 보기 상태를 지우고 처음부터 본다.
+  await home.evaluate(() => {
+    try { localStorage.removeItem('tip.home.v1'); } catch { /* 저장소가 막혀도 계속 */ }
+    document.cookie = 'tip_home=; max-age=0; path=/';
+  });
+  await home.reload({ waitUntil: 'networkidle' });
+  await home.waitForSelector('.home-search-input');
+
+  const filterCount = async (id) => (await home.locator(`.home-filter[data-filter="${id}"] .home-filter-count`).innerText()).trim();
+  const toggleOf = (section) => `.home-section[data-section="${section}"] .section-toggle`;
+  const bodyBox = async (section) => home.evaluate((id) => {
+    const body = document.querySelector(`.home-section[data-section="${id}"] .home-section-body`);
+    return body ? { h: Math.round(body.getBoundingClientRect().height), inert: body.hasAttribute('inert') } : null;
+  }, section);
+
+  const totalCards = await home.locator('.module-card').count();
+  const tabs = await home.locator('.home-filters .home-filter').count();
+
+  check('v1.28.0 — 검색창과 분류 필터가 홈 위에 있다',
+    await home.locator('.home-search-input').count() === 1 && tabs >= 7, `탭 ${tabs}개`);
+  check('v1.28.0 — 검색·필터가 모듈 목록보다 위에 온다', await home.evaluate(() => {
+    const search = document.querySelector('.home-search');
+    const sections = document.querySelector('.home-sections');
+    return !!search && !!sections && (search.compareDocumentPosition(sections) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  }));
+  check('v1.28.0 — 전체 탭 개수 = 지금 보이는 모듈 수',
+    (await filterCount('all')) === String(totalCards), `${await filterCount('all')} / ${totalCards}`);
+  check('v1.28.0 — 분류마다 모듈 개수 표시', (await filterCount('docs')) === '7' && (await filterCount('game')) === '4',
+    `문서·글 ${await filterCount('docs')} · 게임 ${await filterCount('game')}`);
+  check('v1.28.0 — 웹·Mac 모두 분류 탭이 동적(Mac 은 앱에서만)', await home.evaluate(async () => {
+    const reg = await import('/modules/registry.js');
+    const visible = reg.visibleCategories().map((category) => category.id);
+    const tabs = [...document.querySelectorAll('.home-filter')].map((node) => node.dataset.filter);
+    return tabs.slice(1).every((id) => visible.includes(id)) && tabs.length === visible.length + 1;
+  }));
+
+  /* --- 접기/펼치기 --- */
+  await home.click(toggleOf('game'));
+  // 부드러운 접힘(grid-template-rows)이 끝날 때까지 기다린다 — 시험 상자 속도와 무관하게.
+  await home.waitForFunction(() => {
+    const body = document.querySelector('.home-section[data-section="game"] .home-section-body');
+    return !!body && Math.round(body.getBoundingClientRect().height) === 0;
+  }, { timeout: 4000 }).catch(() => {});
+  const collapsed = await bodyBox('game');
+  check('v1.28.0 — 묶음을 접으면 aria-expanded=false · 카드 숨김',
+    await home.getAttribute(toggleOf('game'), 'aria-expanded') === 'false' && !!collapsed && collapsed.h === 0 && collapsed.inert,
+    JSON.stringify(collapsed));
+  check('v1.28.0 — 접힌 묶음의 카드는 DOM 접근에서 빠진다(inert)',
+    await home.evaluate(() => document.querySelector('.home-section[data-section="game"] .module-card')?.closest('[inert]') !== null));
+
+  const stored = await home.evaluate(() => ({ local: localStorage.getItem('tip.home.v1'), cookie: document.cookie }));
+  check('v1.28.0 — 쿠키와 localStorage 양쪽에 저장',
+    !!stored.local && JSON.parse(stored.local).collapsed.includes('game') && /tip_home=/.test(stored.cookie),
+    `${stored.local} / ${(stored.cookie || '').slice(0, 60)}`);
+
+  /* --- 필터 --- */
+  await home.click('.home-filter[data-filter="game"]');
+  await home.waitForTimeout(260);
+  const gameOnly = await home.evaluate(() => [...document.querySelectorAll('.module-card')].map((node) => node.dataset.moduleId));
+  check('v1.28.0 — 분류를 고르면 그 분류만 보인다',
+    gameOnly.length === 4 && gameOnly.every((id) => ['draw-lots', 'ladder-game', 'race-game', 'taxi-meter'].includes(id))
+    && await home.getAttribute('.home-filter[data-filter="game"]', 'aria-pressed') === 'true', gameOnly.join(','));
+
+  /* --- 새로고침 뒤 유지 --- */
+  await home.reload({ waitUntil: 'networkidle' });
+  await home.waitForSelector('.home-search-input');
+  const filterKept = await home.getAttribute('.home-filter[data-filter="game"]', 'aria-pressed') === 'true'
+    && await home.locator('.module-card').count() === 4;
+  await home.click('.home-filter[data-filter="all"]');
+  await home.waitForTimeout(200);
+  check('v1.28.0 — 새로고침 뒤 필터·접힘이 남는다',
+    filterKept && await home.getAttribute(toggleOf('game'), 'aria-expanded') === 'false',
+    `필터 ${filterKept}`);
+
+  /* --- 검색: 접힌 묶음 안의 모듈도 --- */
+  await home.click('.home-filter[data-filter="all"]');
+  await home.waitForTimeout(200);
+  await home.fill('#home-search', 'pdf');
+  await home.waitForTimeout(260);
+  const hits = await home.evaluate(() => [...document.querySelectorAll('.home-section[data-section="search"] .module-card')].map((node) => node.dataset.moduleId));
+  check('v1.28.0 — 접힌 분류 안의 모듈도 검색에 나온다',
+    hits.includes('pdf-tools') && hits.includes('doc-reader'), hits.join(','));
+  check('v1.28.0 — 검색 결과 카드에 분류 이름', (await home.locator('.home-section[data-section="search"] .module-cat').first().innerText()).trim() === '문서·글');
+  check('v1.28.0 — 검색 중에는 묶음 제목이 사라진다', await home.locator('.home-section[data-section="docs"]').count() === 0);
+
+  await home.click('.home-search-clear');
+  await home.waitForTimeout(260);
+  check('v1.28.0 — ✕ 로 지우면 저장된 접힘으로 복구',
+    (await home.inputValue('#home-search')) === '' && await home.getAttribute(toggleOf('game'), 'aria-expanded') === 'false'
+    && await home.locator('.home-section[data-section="docs"]').count() === 1);
+
+  /* --- Esc 지우기 · 필터 범위 검색 · 결과 없음 --- */
+  await home.fill('#home-search', '제비');
+  await home.waitForTimeout(200);
+  check('v1.28.0 — 검색은 이름으로 바로 찾는다', await home.locator('.home-section[data-section="search"] .module-card').count() === 1);
+  await home.press('#home-search', 'Escape');
+  await home.waitForTimeout(200);
+  check('v1.28.0 — Esc 로 검색어를 비울 수 있다', (await home.inputValue('#home-search')) === '');
+
+  await home.click('.home-filter[data-filter="docs"]');
+  await home.fill('#home-search', '제비');
+  await home.waitForTimeout(240);
+  check('v1.28.0 — 검색은 고른 분류 안에서만',
+    await home.locator('.home-section[data-section="search"] .module-card').count() === 0
+    && await home.locator('.home-empty').count() === 1);
+  await home.click('.home-empty-btn');
+  await home.waitForTimeout(240);
+  check('v1.28.0 — 결과 없음에서 지우면 분류 보기로', (await home.inputValue('#home-search')) === ''
+    && await home.locator('.home-section[data-section="docs"] .module-card').count() === 7);
+
+  /* --- 편집 모드 --- */
+  await home.click('.home-filter[data-filter="all"]');
+  await home.click('#edit-btn');
+  await home.waitForTimeout(240);
+  check('v1.28.0 — 편집 중에는 모두 펼치고 검색·필터를 내린다',
+    await home.locator('.home-search').isVisible() === false && await home.locator('.home-filters').isVisible() === false
+    && await home.getAttribute(toggleOf('game'), 'aria-expanded') === 'true');
+  await home.click('#edit-btn');
+  await home.waitForTimeout(240);
+  check('v1.28.0 — 편집을 마치면 접어 둔 묶음이 다시 접힌다',
+    await home.getAttribute(toggleOf('game'), 'aria-expanded') === 'false'
+    && await home.locator('.home-search').isVisible() === true);
+
+  /* --- 390px · 다크 --- */
+  const small = await home.evaluate(() => ({ doc: document.documentElement.scrollWidth, win: innerWidth, bar: document.querySelector('.home-filters').scrollWidth > document.querySelector('.home-filters').clientWidth }));
+  check('v1.28.0 — 390px 가로 넘침 없음', small.doc <= small.win && small.bar, JSON.stringify(small));
+
+  await home.evaluate(() => { try { localStorage.setItem('tip.theme', 'dark'); } catch { /* */ } });
+  await home.reload({ waitUntil: 'networkidle' });
+  await home.waitForSelector('.home-search-input');
+  const dark = await home.evaluate(() => ({
+    theme: document.documentElement.dataset.theme,
+    accent: getComputedStyle(document.documentElement).getPropertyValue('--accent-ink').trim(),
+    doc: document.documentElement.scrollWidth,
+    win: innerWidth,
+  }));
+  check('v1.28.0 — 다크 모드에서도 검색·필터가 그대로', dark.theme === 'dark' && dark.doc <= dark.win, JSON.stringify(dark));
+
+  await ctx.close();
+}
+
 /* ------------------------------ 결과 ------------------------------ */
 
 const errors = consoleErrors.filter((line) => !/favicon|service worker|ERR_FILE|no sw/i.test(line));
@@ -4010,7 +4159,7 @@ await browser.close();
 server.close();
 
 const failed = results.filter((item) => !item.ok);
-console.log(`\nTIP v1.23.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
+console.log(`\nTIP v1.28.0 환경설정 전수 E2E — 통과 ${results.length - failed.length} / 실패 ${failed.length}`);
 if (failed.length) {
   failed.forEach((item, index) => console.log(`  ${index + 1}. ✗ ${item.name}${item.detail ? ` — ${item.detail}` : ''}`));
   process.exit(1);
