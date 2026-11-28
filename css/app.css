@@ -6863,7 +6863,20 @@ mark.dr-hit.is-current { background: #ffa94d; box-shadow: 0 0 0 1px #b26a00; }
 }
 .txm-board-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .txm-board-label { font-size: 12px; letter-spacing: 0.1em; color: var(--txm-panel-muted); }
-.txm-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.txm-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+
+/* 전체화면 토글 — 전광판 오른쪽, 엄지로 누를 수 있는 44px */
+.txm-fs {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 44px; padding: 0 10px; flex: none;
+  border: 1px solid var(--txm-panel-line); border-radius: 9px; background: #191C21;
+  color: #CDD2D9; font: inherit; font-size: 12px; font-weight: 700;
+}
+.txm-fs svg { width: 16px; height: 16px; flex: none; }
+.txm-fs .txm-fs-off { display: none; }
+.txm-fs[aria-pressed='true'] { color: #FFFFFF; border-color: #3C444F; background: #252A31; }
+.txm-fs[aria-pressed='true'] .txm-fs-on { display: none; }
+.txm-fs[aria-pressed='true'] .txm-fs-off { display: block; }
+.txm-fs:active { background: #2A3038; }
 .txm-live {
   display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 6px;
   border: 1px solid var(--txm-panel-line); color: var(--txm-panel-muted);
@@ -6897,41 +6910,11 @@ mark.dr-hit.is-current { background: #ffa94d; box-shadow: 0 0 0 1px #b26a00; }
 
 @keyframes txm-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-/* ---------- 주행 방식 ---------- */
-
-.txm-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.txm-mode {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; justify-content: center;
-  min-height: 54px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px;
-  background: var(--card); color: var(--text); font: inherit; text-align: left;
-}
-.txm-mode b { font-size: 13.5px; }
-.txm-mode span { font-size: 12px; color: var(--muted); }
-.txm-mode[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); }
-.txm-mode[aria-pressed='true'] b { color: var(--accent-ink); }
-.txm-mode:disabled { opacity: 0.5; }
+/* ---------- 주행 안내 ---------- */
 
 .txm-gps { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
 .txm-gps[data-tone='warn'] { color: var(--warn); }
-
-/* ---------- 시뮬레이션 ---------- */
-
-.txm-sim {
-  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
-  border: 1px solid var(--line); border-radius: 12px; background: var(--card);
-}
-.txm-sim-head { display: flex; align-items: baseline; justify-content: space-between; font-size: 12.5px; color: var(--muted); }
-.txm-sim-head b { font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; }
-.txm-sim-head em { font-style: normal; }
-.txm-range { width: 100%; height: 30px; accent-color: var(--accent); }
-.txm-presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
-.txm-presets button, .txm-cross {
-  min-height: 44px; border: 1px solid var(--line); border-radius: 9px;
-  background: var(--card-2); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 600;
-}
-.txm-presets button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
-.txm-cross { width: 100%; }
-.txm-cross[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.txm-gps[data-tone='ok'] { color: var(--muted); }
 
 /* ---------- 할증 튜너 ---------- */
 
@@ -7047,9 +7030,70 @@ mark.dr-hit.is-current { background: #ffa94d; box-shadow: 0 0 0 1px #b26a00; }
 
 .txm-note { margin: 2px 0 0; font-size: 12px; color: var(--muted-2); line-height: 1.5; }
 
+/* ---------- 전체화면 (v1.27.1) ----------
+   requestFullscreen 이 막힌 iOS 사파리·홈 화면 앱에서도 화면을 꽉 채우도록
+   고정 오버레이로 같은 모양을 그린다. 안전 영역(노치·홈 인디케이터)을 비워 둔다. */
+
+html.txm-fs-open,
+html.txm-fs-open body { overflow: hidden; overscroll-behavior: none; }
+
+.txm.txm-fs {
+  position: fixed; inset: 0; z-index: 88;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: calc(14px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right))
+    calc(10px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+  background: #08090B; color: var(--txm-panel-ink);
+  overflow: hidden;
+}
+
+.txm.txm-fs .txm-top { flex: none; }
+.txm.txm-fs .txm-wake {
+  min-height: 36px; padding: 0 10px; font-size: 12px;
+  border-color: var(--txm-panel-line); background: #14171B; color: var(--txm-panel-muted);
+}
+.txm.txm-fs .txm-wake[data-state='on'] { color: var(--txm-led-green); border-color: #2A4A3A; background: #101C16; }
+.txm.txm-fs .txm-region {
+  min-height: 36px; border-color: var(--txm-panel-line); background: #14171B; color: var(--txm-panel-muted);
+}
+.txm.txm-fs .txm-select { color: var(--txm-panel-ink); }
+
+.txm.txm-fs .txm-board { flex: 1 1 auto; min-height: 0; gap: 8px; padding: 10px 14px 12px; border-radius: 20px; }
+.txm.txm-fs .txm-board-head { flex: none; }
+.txm.txm-fs .txm-digits { flex: none; height: clamp(96px, 18vh, 156px); }
+.txm.txm-fs .txm-horse { flex: 1 1 auto; min-height: 0; height: auto; }
+.txm.txm-fs .txm-metrics { flex: none; padding-top: 10px; }
+.txm.txm-fs .txm-metric b { font-size: 21px; }
+.txm.txm-fs .txm-metric span { font-size: 12px; }
+.txm.txm-fs .txm-metric svg { width: 17px; height: 17px; }
+.txm.txm-fs .txm-surcharge { font-size: 12.5px; }
+.txm.txm-fs .txm-surcharge b { font-size: 17px; }
+
+.txm.txm-fs .txm-gps { flex: none; font-size: 12px; color: var(--txm-panel-muted); }
+.txm.txm-fs .txm-gps[data-tone='warn'] { color: #FFB4A8; }
+.txm.txm-fs .txm-tuner,
+.txm.txm-fs .txm-note { display: none; }
+
+.txm.txm-fs .txm-actions { flex: none; gap: 8px; }
+.txm.txm-fs .txm-btn { min-height: 78px; gap: 6px; }
+.txm.txm-fs .txm-btn svg { width: 22px; height: 22px; }
+.txm.txm-fs .txm-btn b { font-size: 14px; }
+.txm.txm-fs .txm-btn em { font-size: 12px; }
+
+.txm.txm-fs .txm-receipt {
+  position: absolute; z-index: 3;
+  left: calc(12px + env(safe-area-inset-left));
+  right: calc(12px + env(safe-area-inset-right));
+  top: calc(66px + env(safe-area-inset-top));
+  max-height: calc(100vh - 168px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 168px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  border-color: var(--line-strong);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
 /* ---------- 포커스 · 넓은 화면 ---------- */
 
-.txm button:focus-visible, .txm-cross:focus-visible {
+.txm button:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 .txm-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

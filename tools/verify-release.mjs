@@ -2121,7 +2121,7 @@ check('v1.26.0 — README 기능·버전', read('README.md').includes('| v1.26.0
   && read('README.md').includes('스프레드시트') && read('README.md').includes('EPUB')
   && read('README.md').includes('.pptx'));
 
-/* --------------------- v1.27.0 — 택시 미터기 --------------------- */
+/* --------------------- v1.27.1 — 택시 미터기 전체화면·디지털 숫자·GPS 전용 --------------------- */
 
 const fareJs = read('modules/taxi-meter/fare.js');
 const geofenceJs = read('modules/taxi-meter/geofence.js');
@@ -2139,94 +2139,119 @@ const yonginRules = blockOf(fareJs, "id: 'yongin'", "id: 'gyeonggi'");
 const incheonRules = blockOf(fareJs, "id: 'incheon'", "id: 'busan'");
 const busanRules = blockOf(fareJs, "id: 'busan'", 'export const NIGHT_CHOICES');
 
-check('v1.27.0 — registry 에 게임 분류로 등록', /import taxiMeter from '\.\/taxi-meter\/module\.js'/.test(registry)
+check('v1.27.1 — registry 에 게임 분류로 등록', /import taxiMeter from '\.\/taxi-meter\/module\.js'/.test(registry)
   && /^\s{2}taxiMeter,$/m.test(registry));
-check('v1.27.0 — 모듈 정보(택시 미터기 · game · 1.27.0)', /id: 'taxi-meter'/.test(taxiJs)
-  && /name: '택시 미터기'/.test(taxiJs) && /category: 'game'/.test(taxiJs) && /version: '1\.27\.0'/.test(taxiJs));
+check('v1.27.1 — 모듈 정보(택시 미터기 · game · 1.27.1)', /id: 'taxi-meter'/.test(taxiJs)
+  && /name: '택시 미터기'/.test(taxiJs) && /category: 'game'/.test(taxiJs) && /version: '1\.27\.1'/.test(taxiJs));
 ['module.js', 'fare.js', 'geofence.js', 'panel.js'].forEach((file) => {
-  check(`v1.27.0 — sw.js 프리캐시 modules/taxi-meter/${file}`, read('sw.js').includes(`'./modules/taxi-meter/${file}'`));
+  check(`v1.27.1 — sw.js 프리캐시 modules/taxi-meter/${file}`, read('sw.js').includes(`'./modules/taxi-meter/${file}'`));
 });
 
 // 지역 요금표
-check('v1.27.0 — 서울 기본 1.6km 4,800원 · 131m · 30초', /baseFare: 4800/.test(seoulRules)
+check('v1.27.1 — 서울 기본 1.6km 4,800원 · 131m · 30초', /baseFare: 4800/.test(seoulRules)
   && /baseMeters: 1600/.test(seoulRules) && /stepMeters: 131/.test(seoulRules) && /stepSeconds: 30/.test(seoulRules));
-check('v1.27.0 — 서울 심야 3구간(22~23 +20 · 23~02 +40 · 02~04 +20)',
+check('v1.27.1 — 서울 심야 3구간(22~23 +20 · 23~02 +40 · 02~04 +20)',
   /\{ from: 22, to: 23, rate: 0\.2 \}/.test(seoulRules) && /\{ from: 23, to: 2, rate: 0\.4 \}/.test(seoulRules)
   && /\{ from: 2, to: 4, rate: 0\.2 \}/.test(seoulRules));
-check('v1.27.0 — 서울 시계외 +20% · 복합 상한 +60%', /outOfAreaRate: 0\.2/.test(seoulRules) && /maxSurcharge: 0\.6/.test(seoulRules));
-check('v1.27.0 — 경기 표준 1.6km · 131m · 30초 · 심야 30%', /baseMeters: 1600/.test(gyeonggiRules)
+check('v1.27.1 — 서울 시계외 +20% · 복합 상한 +60%', /outOfAreaRate: 0\.2/.test(seoulRules) && /maxSurcharge: 0\.6/.test(seoulRules));
+check('v1.27.1 — 경기 표준 1.6km · 131m · 30초 · 심야 30%', /baseMeters: 1600/.test(gyeonggiRules)
   && /stepMeters: 131/.test(gyeonggiRules) && /\{ from: 23, to: 4, rate: 0\.3 \}/.test(gyeonggiRules));
-check('v1.27.0 — 경기 가형 1.8km · 104m · 25초', /baseMeters: 1800/.test(yonginRules)
+check('v1.27.1 — 경기 가형 1.8km · 104m · 25초', /baseMeters: 1800/.test(yonginRules)
   && /stepMeters: 104/.test(yonginRules) && /stepSeconds: 25/.test(yonginRules));
-check('v1.27.0 — 경기 시계외 +20% · 복합 상한 +50%', /outOfAreaRate: 0\.2/.test(yonginRules) && /maxSurcharge: 0\.5/.test(yonginRules)
+check('v1.27.1 — 경기 시계외 +20% · 복합 상한 +50%', /outOfAreaRate: 0\.2/.test(yonginRules) && /maxSurcharge: 0\.5/.test(yonginRules)
   && /maxSurcharge: 0\.5/.test(gyeonggiRules));
-check('v1.27.0 — 인천 135m · 33초 · 시계외 30%', /stepMeters: 135/.test(incheonRules)
+check('v1.27.1 — 인천 135m · 33초 · 시계외 30%', /stepMeters: 135/.test(incheonRules)
   && /stepSeconds: 33/.test(incheonRules) && /outOfAreaRate: 0\.3/.test(incheonRules));
-check('v1.27.0 — 부산 2.0km · 132m · 33초 · 복합 상한 50%', /baseMeters: 2000/.test(busanRules)
+check('v1.27.1 — 부산 2.0km · 132m · 33초 · 복합 상한 50%', /baseMeters: 2000/.test(busanRules)
   && /stepMeters: 132/.test(busanRules) && /\{ from: 0, to: 2, rate: 0\.3 \}/.test(busanRules) && /maxSurcharge: 0\.5/.test(busanRules));
-check('v1.27.0 — 지역 5곳', (fareJs.match(/^    id: '/gm) || []).length === 5);
+check('v1.27.1 — 지역 5곳', (fareJs.match(/^    id: '/gm) || []).length === 5);
 
 // 계산
-check('v1.27.0 — 100원 단위 · 저속 15.72km/h', /export const UNIT = 100;/.test(fareJs) && /LOW_SPEED_KMH = 15\.72/.test(fareJs));
-check('v1.27.0 — 거리·시간 요금을 100원 단위로 센다', /Math\.floor\(overMeters \/ region\.stepMeters\) \* UNIT/.test(fareJs)
+check('v1.27.1 — 100원 단위 · 저속 15.72km/h', /export const UNIT = 100;/.test(fareJs) && /LOW_SPEED_KMH = 15\.72/.test(fareJs));
+check('v1.27.1 — 거리·시간 요금을 100원 단위로 센다', /Math\.floor\(overMeters \/ region\.stepMeters\) \* UNIT/.test(fareJs)
   && /Math\.floor\(slowSeconds \/ region\.stepSeconds\) \* UNIT/.test(fareJs));
-check('v1.27.0 — 할증은 지역 상한에서 자른다', /Math\.min\(requested, region\.maxSurcharge\)/.test(fareJs)
+check('v1.27.1 — 할증은 지역 상한에서 자른다', /Math\.min\(requested, region\.maxSurcharge\)/.test(fareJs)
   && /capped: requested > rate/.test(fareJs));
-check('v1.27.0 — 자정을 넘는 심야 구간', /hour >= window\.from \|\| hour < window\.to/.test(fareJs));
-check('v1.27.0 — 1/N 정산은 10원 올림', /Math\.ceil\(\(Number\(total\) \|\| 0\) \/ count \/ 10\) \* 10/.test(fareJs));
+check('v1.27.1 — 자정을 넘는 심야 구간', /hour >= window\.from \|\| hour < window\.to/.test(fareJs));
+check('v1.27.1 — 1/N 정산은 10원 올림', /Math\.ceil\(\(Number\(total\) \|\| 0\) \/ count \/ 10\) \* 10/.test(fareJs));
 
 // 시계 외 자동 감지
-check('v1.27.0 — 역지오코딩은 OpenStreetMap(Nominatim) reverse', /REVERSE_ENDPOINT = 'https:\/\/nominatim\.openstreetmap\.org\/reverse'/.test(geofenceJs)
+check('v1.27.1 — 역지오코딩은 OpenStreetMap(Nominatim) reverse', /REVERSE_ENDPOINT = 'https:\/\/nominatim\.openstreetmap\.org\/reverse'/.test(geofenceJs)
   && /zoom=10/.test(geofenceJs));
-check('v1.27.0 — 4초 시간 제한 · 실패는 조용히', /timeoutMs\) > 0 \? Number\(options\.timeoutMs\) : 4000/.test(geofenceJs)
+check('v1.27.1 — 4초 시간 제한 · 실패는 조용히', /timeoutMs\) > 0 \? Number\(options\.timeoutMs\) : 4000/.test(geofenceJs)
   && !/console\.(log|error|warn)/.test(geofenceJs));
-check('v1.27.0 — 500m · 60초마다 확인', /minMoveM = Number\(options\.minMoveM\) > 0 \? Number\(options\.minMoveM\) : 500/.test(geofenceJs)
+check('v1.27.1 — 500m · 60초마다 확인', /minMoveM = Number\(options\.minMoveM\) > 0 \? Number\(options\.minMoveM\) : 500/.test(geofenceJs)
   && /Number\(options\.minIntervalMs\) >= 0/.test(geofenceJs));
-check('v1.27.0 — 세 번 실패하면 수동으로', /this\.failures >= 3/.test(geofenceJs) && /takeManual/.test(geofenceJs));
-check('v1.27.0 — 시·군·구 이름 뽑기', /DISTRICT_KEYS = \['city', 'county'/.test(geofenceJs) && /DISTRICT_SUFFIX/.test(geofenceJs));
-check('v1.27.0 — 수동 설정이 자동 감지를 이긴다', /if \(!this\.manual\) this\.out = out;/.test(geofenceJs));
-check('v1.27.0 — CSP 가 Nominatim 을 허용', read('mac/src-tauri/tauri.conf.json').includes('https://nominatim.openstreetmap.org'));
+check('v1.27.1 — 세 번 실패하면 수동으로', /this\.failures >= 3/.test(geofenceJs) && /takeManual/.test(geofenceJs));
+check('v1.27.1 — 시·군·구 이름 뽑기', /DISTRICT_KEYS = \['city', 'county'/.test(geofenceJs) && /DISTRICT_SUFFIX/.test(geofenceJs));
+check('v1.27.1 — 수동 설정이 자동 감지를 이긴다', /if \(!this\.manual\) this\.out = out;/.test(geofenceJs));
+check('v1.27.1 — CSP 가 Nominatim 을 허용', read('mac/src-tauri/tauri.conf.json').includes('https://nominatim.openstreetmap.org'));
 
 // 모듈 동작
-check('v1.27.0 — 실제 GPS(watchPosition · 현재 위치 재확인)', /navigator\.geolocation\.watchPosition/.test(taxiJs)
+check('v1.27.1 — 실제 GPS(watchPosition · 현재 위치 재확인)', /navigator\.geolocation\.watchPosition/.test(taxiJs)
   && /navigator\.geolocation\.getCurrentPosition/.test(taxiJs));
-check('v1.27.0 — 정지 오차·순간이동 걸러내기', /point\.accuracy > 120/.test(taxiJs) && /implied > 250/.test(taxiJs)
+check('v1.27.1 — 정지 오차·순간이동 걸러내기', /point\.accuracy > 120/.test(taxiJs) && /implied > 250/.test(taxiJs)
   && /Math\.max\(4, point\.accuracy \* 0\.7\)/.test(taxiJs));
-check('v1.27.0 — 화면 꺼짐 방지(Wake Lock) 요청·해제', /navigator\.wakeLock\.request\('screen'\)/.test(taxiJs)
+check('v1.27.1 — 화면 꺼짐 방지(Wake Lock) 요청·해제', /navigator\.wakeLock\.request\('screen'\)/.test(taxiJs)
   && /sentinel\.release\(\)/.test(taxiJs) && /visibilitychange/.test(taxiJs));
-check('v1.27.0 — 시뮬레이션 속도 슬라이더·프리셋·시 경계 통과', /id="txm-range"/.test(taxiJs)
-  && /data-speed="0"/.test(taxiJs) && /시 경계 통과/.test(taxiJs));
-check('v1.27.0 — 할증 튜너(자동/0/20/30/40 · 시계외 · 통행료 · 추가 요금)', ['data-night="auto"', 'data-night="40"', 'id="txm-out"', 'id="txm-toll"', 'id="txm-extra"']
+check('v1.27.1 — GPS 전용(시뮬레이션 모드·슬라이더·프리셋·시 경계 통과 없음)', !/txm-range/.test(taxiJs)
+  && !/txm-presets/.test(taxiJs) && !/txm-cross/.test(taxiJs) && !/txm-mode/.test(taxiJs)
+  && !/시뮬레이션 주행/.test(taxiJs) && !/data-speed=/.test(taxiJs)
+  && !/\.txm-sim\b/.test(taxiCss) && !/\.txm-modes\b/.test(taxiCss));
+check('v1.27.1 — 전체화면 단추(전광판 오른쪽 · 나가기로 바뀜)', /id="txm-fs"/.test(taxiJs)
+  && /전체화면으로 보기/.test(taxiJs) && /전체화면에서 나가기/.test(taxiJs) && /나가기/.test(taxiJs));
+check('v1.27.1 — requestFullscreen 지원 시 네이티브 · 실패해도 오버레이', /typeof target\.requestFullscreen !== 'function'/.test(taxiJs)
+  && /target\.requestFullscreen\(\{ navigationUI: 'hide' \}\)/.test(taxiJs) && /classList\.toggle\('txm-fs', on\)/.test(taxiJs)
+  && /catch \{ \/\* 오버레이가 대신한다 \*\/ \}/.test(taxiJs));
+check('v1.27.1 — Esc·fullscreenchange·나가기로 복귀', /event\.key !== 'Escape'/.test(taxiJs)
+  && /addEventListener\('fullscreenchange'/.test(taxiJs) && /function leaveFullscreen\(\)/.test(taxiJs)
+  && /document\.exitFullscreen\(\)/.test(taxiJs));
+check('v1.27.1 — 전체화면 CSS(고정 오버레이 · 안전 영역 · 하단 단추)', /\.txm\.txm-fs \{[\s\S]{0,200}position: fixed; inset: 0/.test(taxiCss)
+  && /env\(safe-area-inset-top\)/.test(taxiCss) && /env\(safe-area-inset-bottom\)/.test(taxiCss)
+  && /\.txm\.txm-fs \.txm-actions/.test(taxiCss) && /html\.txm-fs-open/.test(taxiCss));
+check('v1.27.1 — 전체화면에서 영수증이 단추를 가리지 않는다', /\.txm\.txm-fs \.txm-receipt \{[\s\S]{0,260}position: absolute/.test(taxiCss)
+  && /max-height: calc\(100dvh - 168px/.test(taxiCss));
+check('v1.27.1 — 할증 튜너(자동/0/20/30/40 · 시계외 · 통행료 · 추가 요금)', ['data-night="auto"', 'data-night="40"', 'id="txm-out"', 'id="txm-toll"', 'id="txm-extra"']
   .every((token) => taxiJs.includes(token)));
-check('v1.27.0 — 조작 4종(빈 차 · 주행 시작 · 일시 정지 · 요금 결제 1/N)', ['id="txm-clear"', 'id="txm-go"', 'id="txm-hold"', 'id="txm-pay"']
+check('v1.27.1 — 조작 4종(빈 차 · 주행 시작 · 일시 정지 · 요금 결제 1/N)', ['id="txm-clear"', 'id="txm-go"', 'id="txm-hold"', 'id="txm-pay"']
   .every((token) => taxiJs.includes(token)) && /요금 결제/.test(taxiJs) && /1\/N/.test(taxiJs));
-check('v1.27.0 — 1/N 영수증(1~20명 · 1인당 · 복사)', /Math\.min\(20, Math\.max\(1/.test(taxiJs)
+check('v1.27.1 — 1/N 영수증(1~20명 · 1인당 · 복사)', /Math\.min\(20, Math\.max\(1/.test(taxiJs)
   && /1인당/.test(taxiJs) && /clipboard\.writeText/.test(taxiJs) && /txm-copy/.test(taxiJs));
-check('v1.27.0 — 지역 변경은 빈 차에서만', /주행 중에는 지역을 바꿀 수 없어요/.test(taxiJs));
-check('v1.27.0 — macOS 에서 막히는 확인창을 쓰지 않는다', !/window\.(confirm|alert|prompt)\(/.test(taxiJs));
-check('v1.27.0 — 안내 문구', /실제 영업용 미터기가 아닌 재미·참고용 시뮬레이터예요\./.test(taxiJs));
-check('v1.27.0 — 화면 읽기(aria-live · 캔버스 이름)', /aria-live="polite"/.test(taxiJs) && /role="img"/.test(taxiJs));
+check('v1.27.1 — 지역 변경은 빈 차에서만', /주행 중에는 지역을 바꿀 수 없어요/.test(taxiJs));
+check('v1.27.1 — macOS 에서 막히는 확인창을 쓰지 않는다', !/window\.(confirm|alert|prompt)\(/.test(taxiJs));
+check('v1.27.1 — 안내 문구', /실제 영업용 미터기가 아닌 재미·참고용 시뮬레이터예요\./.test(taxiJs));
+check('v1.27.1 — 화면 읽기(aria-live · 캔버스 이름)', /aria-live="polite"/.test(taxiJs) && /role="img"/.test(taxiJs));
 
-// 전광판
-check('v1.27.0 — 7세그먼트 숫자', /DIGIT_SEGMENTS/.test(panelJs) && /export function createLedPanel/.test(panelJs)
-  && /shadowBlur/.test(panelJs));
-check('v1.27.0 — 도트 매트릭스 말(관절 · 달리기 위상 · 먼지)', /export function createDotHorse/.test(panelJs)
+// 전광판 — 7.5° 기운 7세그먼트와 자릿수 가변 길이
+check('v1.27.1 — 7.5° 기운 세그먼트(기울기 상수)', /const SKEW = Math\.tan\(\(7\.5 \* Math\.PI\) \/ 180\)/.test(panelJs));
+check('v1.27.1 — 획 비율(두께 0.14h · 폭 0.58h · 안쪽 여백)', /STROKE_RATIO = 0\.14/.test(panelJs)
+  && /DIGIT_WIDTH_RATIO = 0\.58/.test(panelJs) && /INNER_GAP_RATIO = 0\.028/.test(panelJs));
+check('v1.27.1 — 켜진 획 #FF3B30 + 번짐, 꺼진 획은 아주 흐리게', /fillStyle = '#FF3B30'/.test(panelJs)
+  && /shadowColor = 'rgba\(255, 59, 48, 0\.55\)'/.test(panelJs) && /rgba\(255, 59, 48, 0\.065\)/.test(panelJs));
+check('v1.27.1 — 자릿수 가변 길이(글자 수로 폭·높이 계산)', /const units = totalWidthUnits\(chars\)/.test(panelJs)
+  && /const height = Math\.min\(heightLimit, widthLimit \/ units\)/.test(panelJs)
+  && /function totalWidthUnits/.test(panelJs) && /function cellMetrics/.test(panelJs));
+check('v1.27.1 — 쉼표는 획으로 그린다', /function commaPolygon/.test(panelJs) && /COMMA_WIDTH_RATIO/.test(panelJs));
+check('v1.27.1 — 캔버스 배율·크기 변화 대응', /devicePixelRatio/.test(panelJs) && /new ResizeObserver/.test(taxiJs));
+check('v1.27.1 — 도트 말(관절 · 달리기 위상 · 먼지)', /export function createDotHorse/.test(panelJs)
   && /legJoints/.test(panelJs) && /tailStrands/.test(panelJs) && /phase/.test(panelJs));
 
 // 스타일
-check('v1.27.0 — 전광판은 두 테마 모두 어두운 판', /\.txm-board \{[\s\S]{0,220}background: var\(--txm-panel\)/.test(taxiCss)
+check('v1.27.1 — 전광판은 두 테마 모두 어두운 판', /\.txm-board \{[\s\S]{0,220}background: var\(--txm-panel\)/.test(taxiCss)
   && /--txm-panel: #0F1114/.test(taxiCss));
-check('v1.27.0 — 라이트/다크 토큰', /:root\[data-theme='dark'\] \{[\s\S]{0,200}--txm-hold-bg/.test(taxiCss));
-check('v1.27.0 — 44px 조작 영역 · 좁은 화면 대응', /\.txm-switch \{[\s\S]{0,120}height: 44px/.test(taxiCss)
-  && /@media \(min-width: 700px\)/.test(taxiCss));
+check('v1.27.1 — 라이트/다크 토큰', /:root\[data-theme='dark'\] \{[\s\S]{0,200}--txm-hold-bg/.test(taxiCss));
+check('v1.27.1 — 44px 조작 영역 · 좁은 화면 대응', /\.txm-switch \{[\s\S]{0,120}height: 44px/.test(taxiCss)
+  && /\.txm-fs \{[\s\S]{0,120}min-height: 44px/.test(taxiCss) && /@media \(min-width: 700px\)/.test(taxiCss));
 
 // 문서 · 검사
-check('v1.27.0 — README 모듈 표', /^\| 게임 \| 택시 미터기 \|/m.test(read('README.md')));
-check('v1.27.0 — README 사용법·버전', read('README.md').includes('### 36) 택시 미터기') && read('README.md').includes('| v1.27.0 |'));
-check('v1.27.0 — settings-e2e 가 택시 미터기를 본다', /v1\.27\.0 — 택시 미터기 화면이 열린다/.test(settingsE2e)
-  && /v1\.27\.0 — 1\/N 정산 영수증/.test(settingsE2e));
-check('v1.27.0 — 택시 미터기 E2E 도구', exists('tools/taxi-meter-e2e.mjs')
-  && read('tools/taxi-meter-e2e.mjs').includes('390px') && read('tools/taxi-meter-e2e.mjs').includes('___OFFLINE___'.replace('___OFFLINE___', '오프라인')));
+check('v1.27.1 — README 모듈 표', /^\| 게임 \| 택시 미터기 \|/m.test(read('README.md')));
+check('v1.27.1 — README 사용법·버전', read('README.md').includes('### 36) 택시 미터기')
+  && read('README.md').includes('| v1.27.1 |') && read('README.md').includes('**전체화면**'));
+check('v1.27.1 — settings-e2e 가 택시 미터기를 본다', /v1\.27\.1 — 택시 미터기 화면이 열린다/.test(settingsE2e)
+  && /v1\.27\.1 — 전체화면이 화면을 꽉 채운다/.test(settingsE2e));
+check('v1.27.1 — 택시 미터기 E2E 도구', exists('tools/taxi-meter-e2e.mjs')
+  && read('tools/taxi-meter-e2e.mjs').includes('390px') && read('tools/taxi-meter-e2e.mjs').includes('오프라인')
+  && read('tools/taxi-meter-e2e.mjs').includes('__geo.push') && read('tools/taxi-meter-e2e.mjs').includes('requestFullscreen 이 없어도'));
 
 /* ------------------------------ 결과 ------------------------------ */
 

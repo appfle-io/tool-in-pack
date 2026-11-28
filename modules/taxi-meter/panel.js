@@ -2,8 +2,9 @@
  * TIP · 택시 미터기 (taxi-meter) 표시판 — 7세그먼트 요금 숫자와 도트 매트릭스 말.
  *
  * 화면은 두 캔버스로 나뉜다.
- *   · createLedPanel  — 붉은 LED 숫자. 켜지지 않은 획을 아주 흐리게 남겨 실제 전광판처럼 보이게 하고,
- *                       켜진 획은 한 번에 모아 그려 그림자(번짐) 비용을 줄인다.
+ *   · createLedPanel  — 붉은 LED 숫자. 실제 한국 택시 미터기처럼 7.5° 기울인 굵은 획을 쓰고,
+ *                       꺼진 획은 아주 은은하게 남겨 전광판의 판이 보이게 한다. 글자 수가 늘면
+ *                       판 높이·폭에 맞춰 글자 크기를 다시 계산해 잘리거나 찌그러지지 않는다.
  *   · createDotHorse  — 점 격자 위에 말 실루엣을 찍는다. 몸통·목·머리·꼬리는 도형 안쪽 점을 칠하고,
  *                       다리는 관절 두 마디를 수식으로 풀어 점과의 거리로 칠한다. 속도에 맞춰 다리 위상이 돈다.
  *
@@ -27,60 +28,88 @@ const DIGIT_SEGMENTS = {
 };
 const ALL_SEGMENTS = 'abcdefg';
 
-/** 가로 막대 — 끝을 비스듬히 깎은 육각형. */
-function flatBar(x0, y, length, thickness) {
-  const bevel = Math.min(length / 4, thickness * 0.5);
-  const half = thickness / 2;
-  return [
-    [x0 + bevel, y - half], [x0 + length - bevel, y - half], [x0 + length, y],
-    [x0 + length - bevel, y + half], [x0 + bevel, y + half], [x0, y],
-  ];
-}
-
-/** 세로 막대. */
-function uprightBar(x, y0, length, thickness) {
-  const bevel = Math.min(length / 4, thickness * 0.5);
-  const half = thickness / 2;
-  return [
-    [x - half, y0 + bevel], [x, y0], [x + half, y0 + bevel],
-    [x + half, y0 + length - bevel], [x, y0 + length], [x - half, y0 + length - bevel],
-  ];
-}
-
-function tracePolygon(ctx2d, points) {
-  ctx2d.moveTo(points[0][0], points[0][1]);
-  for (let index = 1; index < points.length; index += 1) ctx2d.lineTo(points[index][0], points[index][1]);
-  ctx2d.closePath();
-}
-
-/**
- * 한 글자(0~9) 또는 쉼표의 획 목록. 좌표는 글자 상자 (0,0)~(w,h) 기준이다.
- * 가로 막대는 글자 폭을 꽉 채우고, 세로 막대는 위아래 막대에 살짝 붙게 두어
- * 획 사이가 벌어져 보이지 않게 한다.
+/*
+ * 실제 미터기 판의 비율을 옮겼다. 모든 값은 글자 높이(h)에 대한 비율이다.
+ * 획 두께 0.14h · 글자 폭 0.58h 로, 세로로 길쭉한 예전 판보다 균형이 잡힌 모양이 된다.
  */
-function segmentShapes(char, width, height) {
-  const thickness = height * 0.14;
-  const gap = height * 0.02;
-  const half = height / 2;
+const SKEW = Math.tan((7.5 * Math.PI) / 180); // 위로 갈수록 오른쪽으로 기우는 각도
+const STROKE_RATIO = 0.14;
+const DIGIT_WIDTH_RATIO = 0.58;
+const DIGIT_GAP_RATIO = 0.135;
+const COMMA_WIDTH_RATIO = 0.11;
+const COMMA_GAP_RATIO = 0.055;
+const INNER_GAP_RATIO = 0.028;
 
-  const shapes = {
-    a: flatBar(0, thickness / 2, width, thickness),
-    d: flatBar(0, height - thickness / 2, width, thickness),
-    g: flatBar(0, half, width, thickness),
-    b: uprightBar(width - thickness / 2, thickness + gap, half - thickness * 1.5 - gap * 2, thickness),
-    c: uprightBar(width - thickness / 2, half + thickness / 2 + gap, half - thickness * 1.5 - gap * 2, thickness),
-    e: uprightBar(thickness / 2, half + thickness / 2 + gap, half - thickness * 1.5 - gap * 2, thickness),
-    f: uprightBar(thickness / 2, thickness + gap, half - thickness * 1.5 - gap * 2, thickness),
-  };
-
-  if (char === ',') {
-    return { comma: { x: width * 0.32, y: height - thickness * 0.15, r: thickness * 0.4 } };
+/** 글자 상자 안에서 획 하나를 육각형(끝을 45°로 깎은 막대)으로 만든 좌표. */
+function barPolygon(x0, y0, x1, y1, thickness) {
+  const half = thickness / 2;
+  if (y0 === y1) {
+    return [
+      [x0 + half, y0 - half], [x1 - half, y0 - half], [x1, y0],
+      [x1 - half, y0 + half], [x0 + half, y0 + half], [x0, y0],
+    ];
   }
+  return [
+    [x0, y0 + half], [x0 + half, y0], [x0 + half, y1 - half],
+    [x0, y1], [x0 - half, y1 - half], [x0 - half, y0 + half],
+  ];
+}
 
-  const on = DIGIT_SEGMENTS[char] || '';
-  return {
-    segments: ALL_SEGMENTS.split('').map((key) => ({ key, points: shapes[key], on: on.includes(key) })),
-  };
+/** 글자 상자의 획 7개 — 좌표는 (0,0)~(w,h) 기준, 기울이기 전. */
+function digitSegments(width, height) {
+  const thickness = height * STROKE_RATIO;
+  const gap = height * INNER_GAP_RATIO;
+  const inner = thickness / 2;
+  const mid = height / 2;
+  const top = inner;
+  const bottom = height - inner;
+  const left = inner;
+  const right = width - inner;
+  const a = barPolygon(left + gap, top, right - gap, top, thickness);
+  const d = barPolygon(left + gap, bottom, right - gap, bottom, thickness);
+  const g = barPolygon(left + gap, mid, right - gap, mid, thickness);
+  const f = barPolygon(left, top + gap, left, mid - gap, thickness);
+  const b = barPolygon(right, top + gap, right, mid - gap, thickness);
+  const e = barPolygon(left, mid + gap, left, bottom - gap, thickness);
+  const c = barPolygon(right, mid + gap, right, bottom - gap, thickness);
+  return { a, b, c, d, e, f, g };
+}
+
+/** 쉼표 — 아래쪽에 기울어진 짧은 토막. */
+function commaPolygon(width, height) {
+  const cx = width / 2;
+  const half = width * 0.42;
+  return [
+    [cx - half, height * 0.80], [cx + half, height * 0.785],
+    [cx + half, height * 0.985], [cx - half, height * 0.99],
+  ];
+}
+
+function addSheared(path, points, shiftX, originY, height) {
+  points.forEach(([x, y], index) => {
+    const px = shiftX + x + (height - y) * SKEW;
+    const py = originY + y;
+    if (index === 0) path.moveTo(px, py);
+    else path.lineTo(px, py);
+  });
+  path.closePath();
+}
+
+/** 글자 하나의 폭과 앞 간격(높이에 대한 비율). 쉼표는 좁게 붙는다. */
+function cellMetrics(char) {
+  if (char === ',') return { width: COMMA_WIDTH_RATIO, gap: COMMA_GAP_RATIO };
+  return { width: DIGIT_WIDTH_RATIO, gap: DIGIT_GAP_RATIO };
+}
+
+/** 글자 배열 전체의 폭(높이 1 기준) — 기울어져 늘어난 폭까지 더한다. */
+function totalWidthUnits(chars) {
+  let total = SKEW;
+  chars.forEach((char, index) => {
+    const cell = cellMetrics(char);
+    if (index > 0) total += cell.gap;
+    total += cell.width;
+  });
+  return total;
 }
 
 export function createLedPanel(canvas) {
@@ -89,6 +118,7 @@ export function createLedPanel(canvas) {
   let cssHeight = 0;
   let ratio = 1;
   let current = '';
+  let layout = { height: 0, width: 0, cssWidth: 0, cssHeight: 0, chars: 0 };
 
   function paint(text) {
     if (!ctx2d || !cssWidth || !cssHeight) return;
@@ -97,50 +127,55 @@ export function createLedPanel(canvas) {
 
     const chars = String(text || '0').split('');
     if (!chars.length) return;
-    // 글자 폭(0.60h) + 사이(0.13h) 로 전체 폭을 잡고, 높이를 화면에 맞춰 줄인다.
-    const widthFactor = 0.60;
-    const advanceFactor = 0.73;
-    const heightLimit = cssHeight * 0.94;
-    const fitWidth = cssWidth / (chars.length * advanceFactor - (advanceFactor - widthFactor));
-    const height = Math.min(heightLimit, fitWidth);
-    const width = height * widthFactor;
-    const advance = height * advanceFactor;
-    const totalWidth = chars.length * advance - (advance - width);
-    const originX = (cssWidth - totalWidth) / 2;
+
+    // 글자 수에 맞춰 판 높이·폭 안에 들어가는 가장 큰 글자를 고른다(가변 길이).
+    const units = totalWidthUnits(chars);
+    const widthLimit = cssWidth * 0.97;
+    const heightLimit = cssHeight * 0.93;
+    const height = Math.min(heightLimit, widthLimit / units);
+    const width = height * DIGIT_WIDTH_RATIO;
+    const totalWidth = units * height;
+    // 획이 판 좌우에서 살짝 들어가므로(두께의 절반) 그만큼 당겨 시각적으로 가운데에 둔다.
+    const originX = (cssWidth - totalWidth) / 2 - (height * STROKE_RATIO) / 4;
     const originY = (cssHeight - height) / 2;
+    layout = { height, width, totalWidth, cssWidth, cssHeight, chars: chars.length };
 
     // 경로는 채울 때의 변환과 무관하게 좌표를 그대로 쓰므로, 칸 위치를 좌표에 직접 더한다.
     const lit = new Path2D();
     const off = new Path2D();
+    let cursorX = originX;
 
     chars.forEach((char, index) => {
-      const shape = segmentShapes(char, width, height);
-      const shiftX = originX + index * advance;
-      if (shape.comma) {
-        const dot = new Path2D();
-        dot.arc(shiftX + shape.comma.x, originY + shape.comma.y, shape.comma.r, 0, Math.PI * 2);
-        lit.addPath(dot);
-        return;
+      const cell = cellMetrics(char);
+      if (index > 0) cursorX += cell.gap * height;
+      if (char === ',') {
+        const comma = new Path2D();
+        addSheared(comma, commaPolygon(cell.width * height, height), cursorX, originY, height);
+        lit.addPath(comma);
+      } else {
+        const shapes = digitSegments(width, height);
+        const on = DIGIT_SEGMENTS[char] || '';
+        ALL_SEGMENTS.split('').forEach((key) => {
+          const path = new Path2D();
+          addSheared(path, shapes[key], cursorX, originY, height);
+          (on.includes(key) ? lit : off).addPath(path);
+        });
       }
-      shape.segments.forEach((segment) => {
-        const path = new Path2D();
-        tracePolygon(path, segment.points.map(([px, py]) => [shiftX + px, originY + py]));
-        (segment.on ? lit : off).addPath(path);
-      });
+      cursorX += cell.width * height;
     });
 
-    // 꺼진 획 — 아주 흐리게 남겨 전광판의 판이 보이게.
-    ctx2d.fillStyle = 'rgba(255, 82, 70, 0.07)';
+    // 꺼진 획 — 아주 은은하게 남겨 전광판의 판이 보이게.
+    ctx2d.fillStyle = 'rgba(255, 59, 48, 0.065)';
     ctx2d.fill(off);
 
-    // 켜진 획 — 번짐을 한 번만 얹고, 다시 선명하게 채운다.
+    // 켜진 획 — 번짐을 얹은 뒤 다시 선명하게 채운다.
     ctx2d.save();
-    ctx2d.shadowColor = 'rgba(255, 64, 48, 0.5)';
-    ctx2d.shadowBlur = height * 0.08;
-    ctx2d.fillStyle = 'rgba(255, 70, 54, 0.96)';
+    ctx2d.shadowColor = 'rgba(255, 59, 48, 0.55)';
+    ctx2d.shadowBlur = Math.max(4, height * 0.085);
+    ctx2d.fillStyle = 'rgba(255, 59, 48, 0.92)';
     ctx2d.fill(lit);
     ctx2d.restore();
-    ctx2d.fillStyle = '#FF5A45';
+    ctx2d.fillStyle = '#FF3B30';
     ctx2d.fill(lit);
   }
 
@@ -166,6 +201,8 @@ export function createLedPanel(canvas) {
     resize,
     redraw: () => paint(current),
     get text() { return current; },
+    /** 마지막으로 그린 배치 — 검사 도구가 잘림·확대 비율을 확인할 때 쓴다. */
+    get layout() { return { ...layout, text: current }; },
   };
 }
 
@@ -268,7 +305,8 @@ export function createDotHorse(canvas) {
 
     scale = Math.min(cssWidth / 1.66, cssHeight / 1.36);
     baseX = cssWidth / 2;
-    baseY = cssHeight * 0.965;
+    // 말을 영역 가운데에 둔다. 높이에 맞춰 그릴 때(좁은 판)는 예전처럼 아래에 붙는다.
+    baseY = Math.min(cssHeight * 0.98, cssHeight / 2 + scale * 0.62);
     const step = Math.max(5, Math.min(8, scale * 0.055));
     const list = [];
     for (let y = -0.02; y <= 1.32; y += step / scale) {

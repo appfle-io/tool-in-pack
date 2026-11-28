@@ -3956,7 +3956,7 @@ check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes
   await veContext.close();
 }
 
-/* ------------------------------ v1.27.0 택시 미터기 ------------------------------ */
+/* ------------------------------ v1.27.1 택시 미터기 ------------------------------ */
 
 {
   await page.goto(`${BASE}/index.html#/taxi-meter`, { waitUntil: 'networkidle' });
@@ -3964,35 +3964,41 @@ check('v1.17.0 — 캐시 목록에 radial 없음·dial.js 있음', !sw.includes
   await page.waitForTimeout(250);
 
   const taxiTotal = async () => Number((await page.locator('#txm-digits').getAttribute('aria-label')).replace(/[^0-9]/g, ''));
-  check('v1.27.0 — 택시 미터기 화면이 열린다', await page.locator('.txm').count() === 1);
-  check('v1.27.0 — 요금판·도트 말 캔버스', await page.locator('#txm-digits').count() === 1 && await page.locator('#txm-horse').count() === 1);
-  check('v1.27.0 — 기본요금 4,800원', (await taxiTotal()) >= 4800, String(await taxiTotal()));
-  check('v1.27.0 — 지역 5곳', await page.locator('#txm-region option').count() === 5);
+  check('v1.27.1 — 택시 미터기 화면이 열린다', await page.locator('.txm').count() === 1);
+  check('v1.27.1 — 요금판·도트 말 캔버스', await page.locator('#txm-digits').count() === 1 && await page.locator('#txm-horse').count() === 1);
+  check('v1.27.1 — 기본요금 4,800원', (await taxiTotal()) >= 4800, String(await taxiTotal()));
+  check('v1.27.1 — 지역 5곳', await page.locator('#txm-region option').count() === 5);
+  check('v1.27.1 — 시뮬레이션 조작이 없다(GPS 전용)', await page.locator('#txm-range').count() === 0
+    && await page.locator('.txm-mode').count() === 0 && await page.locator('#txm-cross').count() === 0);
 
   const nightBefore = await taxiTotal();
   await page.click('.txm-night button[data-night="40"]');
   await page.waitForTimeout(120);
-  check('v1.27.0 — 야간 40% 단추가 요금에 반영', (await taxiTotal()) > nightBefore, `${nightBefore} → ${await taxiTotal()}`);
+  check('v1.27.1 — 야간 40% 단추가 요금에 반영', (await taxiTotal()) > nightBefore, `${nightBefore} → ${await taxiTotal()}`);
   await page.click('.txm-night button[data-night="0"]');
   await page.waitForTimeout(120);
 
   await page.click('#txm-toll');
   await page.waitForTimeout(120);
-  check('v1.27.0 — 통행료 상자를 연다', await page.locator('#txm-toll-box').isVisible());
-
-  await page.fill('#txm-range', '120');
-  await page.dispatchEvent('#txm-range', 'input');
-  await page.click('#txm-go');
-  await page.waitForTimeout(1200);
-  check('v1.27.0 — 주행 시작(LIVE)', (await page.locator('.txm-live').innerText()).includes('LIVE'));
-  await page.click('#txm-pay');
-  await page.waitForTimeout(250);
-  check('v1.27.0 — 1/N 정산 영수증', await page.locator('.txm-per-value').count() === 1);
-  await page.click('#txm-pay');
+  check('v1.27.1 — 통행료 상자를 연다', await page.locator('#txm-toll-box').isVisible());
+  await page.click('#txm-toll');
   await page.waitForTimeout(120);
+
+  await page.click('#txm-fs');
+  await page.waitForTimeout(450);
+  check('v1.27.1 — 전체화면이 화면을 꽉 채운다', await page.evaluate(() => {
+    const shell = document.querySelector('.txm');
+    const rect = shell.getBoundingClientRect();
+    return shell.classList.contains('txm-fs') && Math.round(rect.width) === innerWidth
+      && Math.round(rect.height) === innerHeight && Math.round(rect.top) === 0;
+  }));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  check('v1.27.1 — 전체화면에서 돌아온다', await page.evaluate(() => !document.querySelector('.txm').classList.contains('txm-fs')));
+
   await page.click('#txm-clear');
   await page.waitForTimeout(150);
-  check('v1.27.0 — 빈 차 초기화', (await page.locator('.txm-live').innerText()).includes('빈 차'));
+  check('v1.27.1 — 빈 차 표시', (await page.locator('.txm-live').innerText()).includes('빈 차'));
 }
 
 /* ------------------------------ 결과 ------------------------------ */

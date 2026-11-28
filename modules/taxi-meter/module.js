@@ -1,16 +1,18 @@
 /*
- * TIP · 택시 미터기 (taxi-meter, v1.27.0)
+ * TIP · 택시 미터기 (taxi-meter, v1.27.1)
  *
  * 게임 묶음의 재미용 미터기. 실제 영업용이 아니라 요금이 어떻게 쌓이는지 보여 주는 시뮬레이터다.
  *
  *   · 지역 요금표(서울 / 경기 표준 / 경기 가형 / 인천 / 부산)에 맞춰 기본·거리·시간 요금을 쌓고,
  *     심야와 시계 외 할증을 지역 상한(복합 할증) 안에서 더한다.
- *   · 실제 GPS 주행(navigator.geolocation.watchPosition)과 시뮬레이션(속도 슬라이더) 두 가지 모드.
- *     GPS 는 정지 중 오차를 거리로 세지 않고, 튀는 좌표(순간이동)를 버린다.
+ *   · 실제 GPS 주행(navigator.geolocation.watchPosition)만 쓴다. 정지 중 오차를 거리로 세지 않고,
+ *     튀는 좌표(순간이동)를 버린다.
  *   · 주행 중 화면이 꺼지지 않게 Wake Lock 을 요청하고, 일시 정지·빈 차·정산에서 놓아 준다.
  *   · 출발한 시·군·구를 벗어나면 시계 외 할증을 자동으로 켠다(geofence.js). 사용자가 스위치를
  *     직접 만졌으면 자동 감지가 덮어쓰지 않는다.
  *   · 요금 결제(1/N)를 누르면 기본·거리·시간·할증·통행료를 나눈 영수증과 1인당 금액을 보여 준다.
+ *   · 전체화면: requestFullscreen 이 되는 곳은 그대로, iOS 사파리·홈 화면 앱처럼 막힌 곳은
+ *     CSS 고정 오버레이로 화면을 꽉 채운다. Esc 또는 [나가기]로 돌아온다.
  *
  * 계산은 fare.js, 위치 경계는 geofence.js, 전광판·도트 말은 panel.js 에 나눠 두었다.
  */
@@ -55,9 +57,9 @@ const module = {
   shortName: '택시 미터',
   kind: 'tool',
   category: 'game',
-  version: '1.27.0',
+  version: '1.27.1',
   subtitle: '달리는 만큼 오르는 요금',
-  description: '지역 요금표대로 요금이 쌓이는 재미용 택시 미터기입니다. 실제 GPS 주행이나 시뮬레이션으로 달리며 기본요금, 거리요금, 시간요금과 심야 할증, 시계 외 할증, 통행료를 조절하고, 요금 결제(1/N)로 1인당 금액을 계산합니다.',
+  description: '지역 요금표대로 요금이 쌓이는 재미용 택시 미터기입니다. 실제 GPS 주행으로 달리며 기본요금, 거리요금, 시간요금과 심야 할증, 시계 외 할증, 통행료를 조절하고, 요금 결제(1/N)로 1인당 금액을 계산합니다. 전체화면으로 전광판을 크게 볼 수 있습니다.',
   icon: ICON,
   defaultEnabled: true,
   defaultPinned: false,
@@ -71,7 +73,6 @@ const module = {
 
     const state = {
       regionId: REGIONS.some((item) => item.id === saved.region) ? saved.region : 'yongin',
-      mode: 'sim',
       phase: 'idle',
       nightChoice: 'auto',
       outOfArea: false,
@@ -84,10 +85,9 @@ const module = {
       slowMs: 0,
       elapsedMs: 0,
       speedKmh: 0,
-      simSpeed: 42,
       people: Math.min(20, Math.max(1, Number(saved.people) || 2)),
-      simCrossed: false,
       receiptOpen: false,
+      fullscreen: false,
       wake: 'wait',
     };
 
@@ -101,7 +101,7 @@ const module = {
     host.className = 'txm-root';
     root.append(host);
     host.innerHTML = `
-      <div class="txm" data-phase="idle" data-mode="sim">
+      <div class="txm" data-phase="idle" data-mode="gps">
         <div class="txm-top">
           <span class="txm-wake" data-state="wait">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
@@ -122,6 +122,11 @@ const module = {
               <span class="txm-live" data-state="idle"><i aria-hidden="true"></i><b>빈 차</b></span>
               <span class="txm-surcharge" data-on="0"><b>+0%</b><span>할증 없음</span></span>
             </span>
+            <button class="txm-fs" id="txm-fs" type="button" aria-pressed="false" aria-label="전체화면으로 보기">
+              <svg class="txm-fs-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9"/><path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9"/><path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15"/><path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/></svg>
+              <svg class="txm-fs-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v3.5A1.5 1.5 0 0 1 7.5 9H4"/><path d="M15 4v3.5A1.5 1.5 0 0 0 16.5 9H20"/><path d="M20 15h-3.5A1.5 1.5 0 0 0 15 16.5V20"/><path d="M4 15h3.5A1.5 1.5 0 0 1 9 16.5V20"/></svg>
+              <span>전체화면</span>
+            </button>
           </div>
           <div class="txm-digits">
             <canvas id="txm-digits" role="img" aria-label="요금 4,800원"></canvas>
@@ -145,31 +150,7 @@ const module = {
           </div>
         </section>
 
-        <div class="txm-modes" role="group" aria-label="주행 방식">
-          <button class="txm-mode" type="button" data-mode="gps" aria-pressed="false">
-            <b>실제 GPS 주행</b><span>위치로 재기</span>
-          </button>
-          <button class="txm-mode" type="button" data-mode="sim" aria-pressed="true">
-            <b>시뮬레이션</b><span>실내 연습</span>
-          </button>
-        </div>
         <p class="txm-gps" role="status" hidden></p>
-
-        <div class="txm-sim">
-          <div class="txm-sim-head">
-            <span>속도</span>
-            <b><em class="txm-sim-value">42</em> km/h</b>
-          </div>
-          <input class="txm-range" id="txm-range" type="range" min="0" max="120" step="1" value="42" aria-label="시뮬레이션 속도">
-          <div class="txm-presets" role="group" aria-label="속도 빠른 선택">
-            <button type="button" data-speed="0">정체</button>
-            <button type="button" data-speed="20">20</button>
-            <button type="button" data-speed="40">40</button>
-            <button type="button" data-speed="60">60</button>
-            <button type="button" data-speed="80">80</button>
-          </div>
-          <button class="txm-cross" id="txm-cross" type="button">시 경계 통과</button>
-        </div>
 
         <section class="txm-tuner" aria-label="할증 튜너">
           <header class="txm-tuner-head">
@@ -284,13 +265,8 @@ const module = {
       distance: el('.txm-distance'),
       speed: el('.txm-speed'),
       time: el('.txm-time'),
-      modes: [...host.querySelectorAll('.txm-mode')],
+      fs: el('#txm-fs'),
       gps: el('.txm-gps'),
-      sim: el('.txm-sim'),
-      simValue: el('.txm-sim-value'),
-      range: el('#txm-range'),
-      presets: [...host.querySelectorAll('.txm-presets button')],
-      cross: el('#txm-cross'),
       nightNow: el('.txm-night-now'),
       nightButtons: [...host.querySelectorAll('.txm-night button')],
       nightRule: el('.txm-night-rule'),
@@ -398,12 +374,6 @@ const module = {
         els.region.value = state.regionId;
         els.region.disabled = state.phase !== 'idle';
       }
-      els.modes.forEach((button) => {
-        button.setAttribute('aria-pressed', button.dataset.mode === state.mode ? 'true' : 'false');
-        button.disabled = state.phase === 'driving' || state.phase === 'paused';
-      });
-      els.shell.dataset.mode = state.mode;
-      if (els.sim) els.sim.hidden = state.mode !== 'sim';
 
       els.nightButtons.forEach((button) => {
         button.setAttribute('aria-pressed', String(button.dataset.night) === String(state.nightChoice) ? 'true' : 'false');
@@ -427,21 +397,9 @@ const module = {
       els.extraBox.hidden = !state.extraOn;
       if (document.activeElement !== els.extraInput) els.extraInput.value = String(state.extra);
 
-      els.range.value = String(state.simSpeed);
-      els.simValue.textContent = String(state.simSpeed);
-      els.presets.forEach((button) => {
-        button.setAttribute('aria-pressed', Number(button.dataset.speed) === state.simSpeed ? 'true' : 'false');
-      });
-      els.cross.setAttribute('aria-pressed', state.simCrossed ? 'true' : 'false');
-      els.cross.textContent = state.simCrossed ? '시 경계 안으로 복귀' : '시 경계 통과';
 
-      if (els.gps) {
-        if (state.mode === 'gps') {
-          if (!els.gps.textContent) setGpsNote('주행을 시작하면 현재 위치로 출발 시·군·구를 확인합니다.');
-        } else {
-          setGpsNote('');
-        }
-      }    }
+      if (els.gps && !els.gps.textContent) setGpsNote('주행을 시작하면 현재 위치로 출발 시·군·구를 확인합니다.');
+    }
 
     function paintFare() {
       const fare = currentFare();
@@ -613,6 +571,75 @@ const module = {
       setWake('wait');
     }
 
+    /* ------------------------------ 전체화면 ------------------------------ */
+
+    function paintFullscreen() {
+      const on = state.fullscreen;
+      els.shell.classList.toggle('txm-fs', on);
+      document.documentElement.classList.toggle('txm-fs-open', on);
+      if (!els.fs) return;
+      els.fs.setAttribute('aria-pressed', on ? 'true' : 'false');
+      els.fs.setAttribute('aria-label', on ? '전체화면에서 나가기' : '전체화면으로 보기');
+      const label = els.fs.querySelector('span');
+      if (label) label.textContent = on ? '나가기' : '전체화면';
+    }
+
+    // requestFullscreen 이 있는 곳(데스크톱 사파리·크롬 일부)은 브라우저 전체화면을 함께 쓴다.
+    // iOS 사파리·홈 화면 앱처럼 막힌 곳은 CSS 오버레이만으로 화면을 꽉 채운다.
+    function requestNativeFullscreen() {
+      const target = els.shell;
+      if (!target || typeof target.requestFullscreen !== 'function') return;
+      try {
+        const pending = target.requestFullscreen({ navigationUI: 'hide' });
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+      } catch { /* 오버레이가 대신한다 */ }
+    }
+
+    function exitNativeFullscreen() {
+      if (!document.fullscreenElement || typeof document.exitFullscreen !== 'function') return;
+      try {
+        const pending = document.exitFullscreen();
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+      } catch { /* 이미 나온 상태 */ }
+    }
+
+    function enterFullscreen() {
+      if (state.fullscreen) return;
+      state.fullscreen = true;
+      paintFullscreen();
+      requestNativeFullscreen();
+      led.resize();
+      horse.resize();
+      announce('전체화면으로 열었습니다. 나가기 단추나 Esc 로 돌아옵니다.');
+    }
+
+    function leaveFullscreen() {
+      if (!state.fullscreen) return;
+      state.fullscreen = false;
+      paintFullscreen();
+      exitNativeFullscreen();
+      led.resize();
+      horse.resize();
+      announce('전체화면에서 나왔습니다.');
+    }
+
+    if (els.fs) {
+      els.fs.addEventListener('click', () => {
+        if (state.fullscreen) leaveFullscreen();
+        else enterFullscreen();
+      }, { signal });
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || !state.fullscreen) return;
+      leaveFullscreen();
+    }, { signal });
+
+    // 브라우저가 스스로 전체화면을 닫으면(Esc·창 전환) 오버레이도 같이 닫는다.
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && state.fullscreen) leaveFullscreen();
+    }, { signal });
+
     /* ------------------------------ GPS ------------------------------ */
 
     function stopGps() {
@@ -633,7 +660,7 @@ const module = {
     function onGpsError(error) {
       const code = error && error.code;
       if (code === 1) {
-        setGpsNote('위치 권한이 꺼져 있어요. 주소창 옆 위치 권한을 허용하거나 시뮬레이션으로 체험해 보세요.', 'warn');
+        setGpsNote('위치 권한이 꺼져 있어요. 주소창 또는 설정에서 이 앱의 위치 권한을 허용해 주세요.', 'warn');
         if (state.phase === 'driving') {
           state.phase = 'idle';
           releaseWake();
@@ -688,7 +715,6 @@ const module = {
         at: Date.now(),
       };
       if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) return;
-      if (state.mode !== 'gps') return;
 
       // 좌표에 속도가 실려 오지 않는 기기(null)와 진짜 0km/h 를 구분한다.
       const reported = coords.speed;
@@ -746,20 +772,20 @@ const module = {
     function startGps() {
       stopGps();
       if (!('geolocation' in navigator)) {
-        setGpsNote('이 환경에서는 위치를 쓸 수 없어요. 시뮬레이션으로 체험해 보세요.', 'warn');
+        setGpsNote('이 환경에서는 위치를 쓸 수 없어요. 위치 권한을 허용한 뒤 다시 시도해 주세요.', 'warn');
         return;
       }
       try {
         watchId = navigator.geolocation.watchPosition(onFix, onGpsError, geolocationOptions());
-        // watchPosition 이 뜸한 기기에서도 2초마다 한 번 더 물어본다(같은 좌표는 걸러진다).
+        // watchPosition 이 뜸한 기기에서도 2.5초마다 한 번 더 물어본다(같은 좌표는 걸러진다).
         pollTimer = window.setInterval(() => {
-          if (state.phase !== 'driving' || state.mode !== 'gps') return;
+          if (state.phase !== 'driving') return;
           try {
             navigator.geolocation.getCurrentPosition(onFix, () => {}, { enableHighAccuracy: true, maximumAge: 2000, timeout: 8000 });
           } catch { /* 무시 */ }
         }, 2500);
       } catch {
-        setGpsNote('위치를 켜지 못했어요. 시뮬레이션으로 체험해 보세요.', 'warn');
+        setGpsNote('위치를 켜지 못했어요. 위치 권한을 허용한 뒤 다시 시도해 주세요.', 'warn');
       }
     }
 
@@ -771,12 +797,8 @@ const module = {
       lastTickAt = now;
       if (state.phase !== 'driving') return;
 
-      if (state.mode === 'sim') {
-        state.distanceM += (state.simSpeed / 3.6) * (delta / 1000);
-        state.speedKmh = state.simSpeed;
-      }
       state.elapsedMs += delta;
-      if (state.speedKmh < region.lowSpeedKmh && (state.mode === 'sim' || lastFix)) state.slowMs += delta;
+      if (state.speedKmh < region.lowSpeedKmh && lastFix) state.slowMs += delta;
       paintFare();
     }
 
@@ -818,24 +840,17 @@ const module = {
         resetMeter();
         state.outOfArea = false;
         state.manualOut = false;
-        state.simCrossed = false;
         state.receiptOpen = false;
         els.detect.dataset.tone = '';
         els.detect.textContent = '자동 감지 대기';
       }
       state.phase = 'driving';
-      if (state.mode === 'sim') {
-        state.speedKmh = state.simSpeed;
-        stopGps();
-        setGpsNote('시뮬레이션 주행 중이에요. 속도를 바꾸면 그대로 반영됩니다.');
-      } else {
-        startGps();
-        setGpsNote('위치를 잡는 중이에요.', '');
-      }
+      startGps();
+      setGpsNote('위치를 잡는 중이에요.', '');
       acquireWake();
       startTick();
       paint();
-      announce(state.mode === 'gps' ? 'GPS 주행을 시작했습니다.' : '시뮬레이션 주행을 시작했습니다.');
+      announce('GPS 주행을 시작했습니다.');
     }
 
     function pauseRide() {
@@ -878,15 +893,13 @@ const module = {
       resetMeter();
       state.outOfArea = false;
       state.manualOut = false;
-      state.simCrossed = false;
       state.receiptOpen = false;
       stopTick();
       stopGps();
       releaseWake();
       els.detect.dataset.tone = '';
       els.detect.textContent = '자동 감지 대기';
-      if (state.mode === 'gps') setGpsNote('주행을 시작하면 현재 위치로 출발 시·군·구를 확인합니다.');
-      else setGpsNote('');
+      setGpsNote('주행을 시작하면 현재 위치로 출발 시·군·구를 확인합니다.');
       paint();
       announce('빈 차로 돌렸습니다.');
     }
@@ -912,69 +925,10 @@ const module = {
       region = regionById(state.regionId);
       state.outOfArea = false;
       state.manualOut = false;
-      state.simCrossed = false;
       boundary.reset();
       els.detect.dataset.tone = '';
       els.detect.textContent = '자동 감지 대기';
       saveSettings();
-      paint();
-    }, { signal });
-
-    els.modes.forEach((button) => {
-      button.addEventListener('click', () => {
-        if (state.phase === 'driving' || state.phase === 'paused') {
-          toast('주행을 마친 뒤에 모드를 바꿀 수 있어요');
-          return;
-        }
-        state.mode = button.dataset.mode;
-        if (state.mode === 'gps') {
-          setGpsNote('주행을 시작하면 현재 위치로 출발 시·군·구를 확인합니다.');
-        } else {
-          setGpsNote('');
-        }
-        paint();
-      }, { signal });
-    });
-
-    els.range.addEventListener('input', () => {
-      state.simSpeed = Number(els.range.value);
-      els.simValue.textContent = String(state.simSpeed);
-      els.presets.forEach((button) => {
-        button.setAttribute('aria-pressed', Number(button.dataset.speed) === state.simSpeed ? 'true' : 'false');
-      });
-      if (state.mode === 'sim' && state.phase === 'driving') {
-        state.speedKmh = state.simSpeed;
-        paintFare();
-      }
-    }, { signal });
-
-    els.presets.forEach((button) => {
-      button.addEventListener('click', () => {
-        state.simSpeed = Number(button.dataset.speed);
-        els.range.value = String(state.simSpeed);
-        els.simValue.textContent = String(state.simSpeed);
-        els.presets.forEach((item) => {
-          item.setAttribute('aria-pressed', Number(item.dataset.speed) === state.simSpeed ? 'true' : 'false');
-        });
-        if (state.mode === 'sim' && state.phase === 'driving') {
-          state.speedKmh = state.simSpeed;
-          paintFare();
-        }
-      }, { signal });
-    });
-
-    els.cross.addEventListener('click', () => {
-      state.simCrossed = !state.simCrossed;
-      const from = coreDistrict(region.district) || region.short;
-      if (state.manualOut) {
-        els.detect.dataset.tone = 'warn';
-        els.detect.textContent = `테스트: ${state.simCrossed ? `${from} → 수원시` : `${from} 안`} (수동 설정 중이라 스위치는 그대로)`;
-      } else {
-        state.outOfArea = state.simCrossed;
-        els.detect.dataset.tone = state.outOfArea ? 'warn' : 'ok';
-        els.detect.textContent = state.simCrossed ? `테스트 감지: ${from} → 수원시` : `테스트 감지: ${from} 안`;
-        announce(state.outOfArea ? '시계 외 할증을 자동으로 켰습니다.' : '시계 외 할증을 자동으로 껐습니다.');
-      }
       paint();
     }, { signal });
 
@@ -1040,12 +994,14 @@ const module = {
       : null;
     if (resizeObserver) {
       resizeObserver.observe(els.board);
+      resizeObserver.observe(els.digits.parentElement || els.digits);
       resizeObserver.observe(els.horse.parentElement || els.horse);
     }
     window.addEventListener('resize', () => { led.resize(); horse.resize(); }, { signal });
 
     setWake('wait');
     els.region.value = state.regionId;
+    setGpsNote('주행을 시작하면 현재 위치로 출발 시·군·구를 확인합니다.');
     led.resize();
     horse.resize();
     paint();
@@ -1058,6 +1014,11 @@ const module = {
       stopTick();
       stopGps();
       releaseWake();
+      if (state.fullscreen) {
+        state.fullscreen = false;
+        document.documentElement.classList.remove('txm-fs-open');
+        exitNativeFullscreen();
+      }
       if (resizeObserver) resizeObserver.disconnect();
       host.remove();
     };
